@@ -1,6 +1,42 @@
 # Memory module (standalone; same layout pattern as Library/Parallel).
 cmake_minimum_required(VERSION 3.16)
 
+# =============================================================================
+# Memory-owned CMake configuration
+# All GPU and TBB allocator modules live in Library/Memory/Cmake/ and are
+# included exclusively here.
+# =============================================================================
+include(cuda)        # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
+include(hip)         # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIPA=ON
+include(tbb_memory)  # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
+
+# Link TBB allocator directly: ThirdParty/CMakeLists.txt can no longer do this
+# because tbb_memory.cmake now runs after ThirdParty.
+if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)
+endif()
+
+# Map feature flags to compile definitions scoped to this module.
+if(MEMORY_ENABLE_TBB)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=0)
+endif()
+
+if(MEMORY_ENABLE_CUDA)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0)
+endif()
+
+if(MEMORY_ENABLE_HIPA)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=0)
+endif()
+
+list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
+
 set(memory_headers)
 set(memory_sources)
 
