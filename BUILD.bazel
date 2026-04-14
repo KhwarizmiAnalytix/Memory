@@ -1,0 +1,95 @@
+# Standalone memory library. Include root is Library/Memory (no Memory/memory/ nesting).
+load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "memory_hdrs",
+    srcs = glob(
+        [
+            "*.h",
+            "common/*.h",
+            "**/*.h",
+        ],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "memory_srcs",
+    srcs = glob(
+        [
+            "*.cpp",
+            "common/*.cpp",
+            "backend/*.cpp",
+            "cpu/*.cpp",
+            "gpu/*.cpp",
+            "helper/*.cpp",
+            "profiler/*.cpp",
+            "visualization/*.cpp",
+        ],
+        exclude = [
+            "gpu/*.cpp",
+            "cpu/allocator_device.cpp",
+        ],
+        allow_empty = True,
+    ),
+)
+
+cc_library(
+    name = "memory_lib",
+    srcs = [
+        ":memory_srcs",
+    ] + select({
+        "//bazel:enable_cuda": glob(["gpu/*.cpp", "cpu/allocator_device.cpp"], allow_empty = True),
+        "//bazel:enable_hip": glob(["gpu/*.cpp", "cpu/allocator_device.cpp"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    hdrs = [
+        ":memory_hdrs",
+    ] + select({
+        "//bazel:enable_cuda": glob(["gpu/*.h", "cpu/allocator_device.h"], allow_empty = True),
+        "//bazel:enable_hip": glob(["gpu/*.h", "cpu/allocator_device.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    copts = memory_copts(),
+    defines = memory_defines() + select({
+        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
+        "//conditions:default": ["MEMORY_STATIC_DEFINE"],
+    }),
+    includes = ["."],
+    linkopts = memory_linkopts() + select({
+        "@platforms//os:windows": [],
+        "@platforms//os:macos": [],
+        "//conditions:default": ["-lpthread", "-ldl", "-lrt"],
+    }),
+    linkstatic = select({
+        "//bazel:shared_libs": False,
+        "//conditions:default": True,
+    }),
+    deps = [
+        "//Library/Logging:logging_lib",
+        "//ThirdParty/cpuinfo:cpuinfo",
+    ] + select({
+        "//bazel:disable_mimalloc": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@mimalloc//:mimalloc"],
+    }) + select({
+        "//bazel:enable_cuda": ["@local_config_cuda//:cuda"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel:enable_mkl": ["@mkl//:mkl"],
+        "//conditions:default": [],
+    }),
+    alwayslink = False,
+    visibility = [
+        "//Library/Memory:__pkg__",
+        "//Library/Core:__pkg__",
+    ],
+)
+
+cc_library(
+    name = "Memory",
+    deps = [":memory_lib"],
+    visibility = ["//visibility:public"],
+)

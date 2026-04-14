@@ -1,0 +1,83 @@
+load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
+
+package(default_visibility = ["//visibility:public"])
+
+_MEMORY_TEST_SRCS = glob(
+    ["Test*.cpp"],
+    exclude = [
+        "TestGpu*.cpp",
+        "TestGPU*.cpp",
+        "TestCuda*.cpp",
+        "TestHip*.cpp",
+    ],
+) + select({
+    "//bazel:enable_cuda": glob(
+        [
+            "TestGpu*.cpp",
+            "TestGPU*.cpp",
+            "TestCuda*.cpp",
+        ],
+        allow_empty = True,
+    ),
+    "//conditions:default": [],
+}) + select({
+    "//bazel:enable_hip": glob(["TestHip*.cpp"], allow_empty = True),
+    "//conditions:default": [],
+})
+
+cc_test(
+    name = "MemoryCxxTests",
+    size = "large",
+    timeout = "long",
+    srcs = _MEMORY_TEST_SRCS,
+    copts = memory_copts(),
+    defines = memory_defines() + [
+        "QUARISMA_GOOGLE_TEST",
+        "USE_GTEST",
+        "_VARIADIC_MAX=10",
+        "QUARISMA_HAS_GTEST=1",
+    ] + select({
+        "//bazel:enable_cuda": ["QUARISMA_HAS_CUDA=1"],
+        "//conditions:default": ["QUARISMA_HAS_CUDA=0"],
+    }) + select({
+        "//bazel:enable_hip": ["QUARISMA_HAS_HIP=1"],
+        "//conditions:default": ["QUARISMA_HAS_HIP=0"],
+    }),
+    includes = ["."],
+    linkopts = memory_linkopts(),
+    deps = [
+        "//Library/Memory:Memory",
+        "//Library/Core/Testing:quarismaTest_header",
+        "@com_google_googletest//:gtest",
+        "@com_google_googletest//:gtest_main",
+        "@loguru//:loguru",
+    ],
+)
+
+cc_binary(
+    name = "BenchmarkAllocatorComparison",
+    srcs = ["BenchmarkAllocatorComparison.cpp"],
+    copts = memory_copts(),
+    defines = memory_defines(),
+    linkopts = memory_linkopts(),
+    deps = [
+        "//Library/Memory:Memory",
+        "//Library/Core:Core",
+        "@com_google_benchmark//:benchmark",
+        "@com_google_benchmark//:benchmark_main",
+    ],
+)
+
+cc_binary(
+    name = "BenchmarkCPUMemoryAllocators",
+    srcs = ["BenchmarkCPUMemoryAllocators.cpp"],
+    copts = memory_copts(),
+    defines = memory_defines(),
+    linkopts = memory_linkopts(),
+    deps = [
+        "//Library/Memory:Memory",
+        "//Library/Core:Core",
+        "@com_google_benchmark//:benchmark",
+        "@com_google_benchmark//:benchmark_main",
+    ],
+)
