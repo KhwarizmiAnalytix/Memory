@@ -175,7 +175,7 @@ MEMORYTEST(CPUMemoryStats, unified_cache_stats_functionality)
     EXPECT_EQ(stats.cache_misses.load(), 0);
     EXPECT_EQ(stats.bytes_cached.load(), 0);
 
-    QUARISMA_LOG_INFO("✓ unified_cache_stats functionality passed");
+    MEMORY_LOG_INFO("✓ unified_cache_stats functionality passed");
 }
 
 /**
@@ -183,7 +183,7 @@ MEMORYTEST(CPUMemoryStats, unified_cache_stats_functionality)
      */
 MEMORYTEST(CPUMemoryStats, test_memory_fragmentation_metrics)
 {
-    QUARISMA_LOG_INFO("Testing memory_fragmentation_metrics calculation...");
+    MEMORY_LOG_INFO("Testing memory_fragmentation_metrics calculation...");
 
     // Test with empty free blocks
     std::vector<size_t> empty_blocks;
@@ -216,11 +216,11 @@ MEMORYTEST(CPUMemoryStats, test_memory_fragmentation_metrics)
     EXPECT_LE(metrics.internal_fragmentation, 100.0);
     EXPECT_GT(metrics.internal_fragmentation, 0.0);
 
-    QUARISMA_LOG_INFO("  Fragmentation ratio: {}", metrics.fragmentation_ratio);
-    QUARISMA_LOG_INFO("  Internal fragmentation: {}%", metrics.internal_fragmentation);
-    QUARISMA_LOG_INFO("  External fragmentation: {}%", metrics.external_fragmentation);
+    MEMORY_LOG_INFO("  Fragmentation ratio: {}", metrics.fragmentation_ratio);
+    MEMORY_LOG_INFO("  Internal fragmentation: {}%", metrics.internal_fragmentation);
+    MEMORY_LOG_INFO("  External fragmentation: {}%", metrics.external_fragmentation);
 
-    QUARISMA_LOG_INFO("✓ memory_fragmentation_metrics calculation passed");
+    MEMORY_LOG_INFO("✓ memory_fragmentation_metrics calculation passed");
 }
 
 /**
@@ -228,7 +228,7 @@ MEMORYTEST(CPUMemoryStats, test_memory_fragmentation_metrics)
      */
 MEMORYTEST(CPUMemoryStats, test_comprehensive_memory_stats)
 {
-    QUARISMA_LOG_INFO("Testing comprehensive_memory_stats integration...");
+    MEMORY_LOG_INFO("Testing comprehensive_memory_stats integration...");
 
     comprehensive_memory_stats stats("TestAllocator");
 
@@ -256,15 +256,15 @@ MEMORYTEST(CPUMemoryStats, test_comprehensive_memory_stats)
 
     // Test report generation
     const std::string report = stats.generate_report();
-    QUARISMA_LOG_INFO("{}", report);
+    MEMORY_LOG_INFO("{}", report);
     EXPECT_FALSE(report.empty());
     //EXPECT_NE(report.find("CPU_Allocator"), std::string::npos);
     EXPECT_NE(report.find("Resource Stats"), std::string::npos);
     EXPECT_NE(report.find("Cache Performance"), std::string::npos);
     EXPECT_NE(report.find("Overall Efficiency"), std::string::npos);
 
-    QUARISMA_LOG_INFO("  Overall efficiency: {}%", (efficiency * 100.0));
-    QUARISMA_LOG_INFO("  Operations per second: {}", ops_per_sec);
+    MEMORY_LOG_INFO("  Overall efficiency: {}%", (efficiency * 100.0));
+    MEMORY_LOG_INFO("  Operations per second: {}", ops_per_sec);
 
     // Test individual reset functionality
     stats.resource_stats.reset();
@@ -274,7 +274,7 @@ MEMORYTEST(CPUMemoryStats, test_comprehensive_memory_stats)
     EXPECT_EQ(stats.cache_stats.cache_hits.load(), 0);
     EXPECT_EQ(stats.timing_stats.total_allocations.load(), 0);
 
-    QUARISMA_LOG_INFO("✓ comprehensive_memory_stats integration passed");
+    MEMORY_LOG_INFO("✓ comprehensive_memory_stats integration passed");
 }
 
 MEMORYTEST(CPUMemoryStats, comprehensive_tests)

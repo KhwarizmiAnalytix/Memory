@@ -339,7 +339,7 @@ MEMORYTEST(AllocatorTest, StatisticsAndMonitoring)
 // Test memory port basic functionality
 MEMORYTEST(MemoryPortTest, BasicMemoryOperations)
 {
-    QUARISMA_LOG_INFO("Testing memory port basic operations...");
+    MEMORY_LOG_INFO("Testing memory port basic operations...");
 
     // Test aligned malloc/free (these are available)
     void* ptr2 = cpu::memory_allocator::allocate(2048, 64);
@@ -347,13 +347,13 @@ MEMORYTEST(MemoryPortTest, BasicMemoryOperations)
     EXPECT_TRUE(IsAligned(ptr2, 64));
     cpu::memory_allocator::free(ptr2);
 
-    QUARISMA_LOG_INFO("Memory port basic operations tests completed successfully");
+    MEMORY_LOG_INFO("Memory port basic operations tests completed successfully");
 }
 
 // Test memory port alignment requirements
 MEMORYTEST(MemoryPortTest, AlignmentRequirements)
 {
-    QUARISMA_LOG_INFO("Testing memory port alignment requirements...");
+    MEMORY_LOG_INFO("Testing memory port alignment requirements...");
 
     // Test various alignment values
     std::vector<int> alignments = {8, 16, 32, 64, 128, 256, 512, 1024};
@@ -367,13 +367,13 @@ MEMORYTEST(MemoryPortTest, AlignmentRequirements)
         cpu::memory_allocator::free(ptr);
     }
 
-    QUARISMA_LOG_INFO("Memory port alignment requirements tests completed successfully");
+    MEMORY_LOG_INFO("Memory port alignment requirements tests completed successfully");
 }
 
 // Test memory port edge cases
 MEMORYTEST(MemoryPortTest, EdgeCases)
 {
-    QUARISMA_LOG_INFO("Testing memory port edge cases...");
+    MEMORY_LOG_INFO("Testing memory port edge cases...");
 
     // Test null pointer free (should not crash)
     cpu::memory_allocator::free(nullptr);
@@ -381,18 +381,18 @@ MEMORYTEST(MemoryPortTest, EdgeCases)
     // Test zero-size allocation
     // fixme: ASSERT_ANY_THROW({ memory::cpu::memory_allocator::allocate(0, 64); });
 
-    QUARISMA_LOG_INFO("Memory port edge cases tests completed successfully");
+    MEMORY_LOG_INFO("Memory port edge cases tests completed successfully");
 }
 
 // Test memory port system information
 MEMORYTEST(MemoryPortTest, SystemInformation)
 {
-    QUARISMA_LOG_INFO("Testing memory port system information...");
+    MEMORY_LOG_INFO("Testing memory port system information...");
 
     // Test NUMA affinity constant
     EXPECT_EQ(memory::NUMANOAFFINITY, -1);
 
-    QUARISMA_LOG_INFO("Memory port system information tests completed successfully");
+    MEMORY_LOG_INFO("Memory port system information tests completed successfully");
 }
 
 // ============================================================================
@@ -402,7 +402,7 @@ MEMORYTEST(MemoryPortTest, SystemInformation)
 // Test allocation attributes construction and behavior
 MEMORYTEST(AllocationAttributesTest, ConstructionAndBehavior)
 {
-    QUARISMA_LOG_INFO("Testing allocation attributes construction and behavior...");
+    MEMORY_LOG_INFO("Testing allocation attributes construction and behavior...");
 
     // Test default construction
     memory::allocation_attributes default_attrs;
@@ -430,14 +430,13 @@ MEMORYTEST(AllocationAttributesTest, ConstructionAndBehavior)
     EXPECT_TRUE(assigned_attrs.allocation_will_be_logged);
     EXPECT_EQ(&timing_func, assigned_attrs.freed_by_func);
 
-    QUARISMA_LOG_INFO(
-        "Allocation attributes construction and behavior tests completed successfully");
+    MEMORY_LOG_INFO("Allocation attributes construction and behavior tests completed successfully");
 }
 
 // Test allocation attributes with timing constraints
 MEMORYTEST(AllocationAttributesTest, TimingConstraints)
 {
-    QUARISMA_LOG_INFO("Testing allocation attributes timing constraints...");
+    MEMORY_LOG_INFO("Testing allocation attributes timing constraints...");
 
     uint64_t                  counter     = 0;
     std::function<uint64_t()> timing_func = [&counter]() { return ++counter; };
@@ -457,7 +456,7 @@ MEMORYTEST(AllocationAttributesTest, TimingConstraints)
         EXPECT_GT(time2, time1);
     }
 
-    QUARISMA_LOG_INFO("Allocation attributes timing constraints tests completed successfully");
+    MEMORY_LOG_INFO("Allocation attributes timing constraints tests completed successfully");
 }
 
 // ============================================================================
@@ -469,7 +468,7 @@ MEMORYTEST(AllocationAttributesTest, TimingConstraints)
 // Test process state singleton functionality and thread safety
 MEMORYTEST(ProcessStateTest, SingletonFunctionality)
 {
-    QUARISMA_LOG_INFO("Testing process state singleton functionality...");
+    MEMORY_LOG_INFO("Testing process state singleton functionality...");
 
     // Test singleton access
     memory::process_state* state1 = memory::process_state::singleton();
@@ -480,13 +479,13 @@ MEMORYTEST(ProcessStateTest, SingletonFunctionality)
 
     state1->TestOnlyReset();
 
-    QUARISMA_LOG_INFO("Process state singleton functionality tests completed successfully");
+    MEMORY_LOG_INFO("Process state singleton functionality tests completed successfully");
 }
 
 // Test CPU allocator retrieval and management
 MEMORYTEST(ProcessStateTest, CPUAllocatorManagement)
 {
-    QUARISMA_LOG_INFO("Testing CPU allocator retrieval and management...");
+    MEMORY_LOG_INFO("Testing CPU allocator retrieval and management...");
 
     memory::process_state* state = memory::process_state::singleton();
 
@@ -504,12 +503,12 @@ MEMORYTEST(ProcessStateTest, CPUAllocatorManagement)
     memory::Allocator* cpu_alloc3 = state->GetCPUAllocator(0);
     EXPECT_EQ(cpu_alloc1, cpu_alloc3);  // Should return same allocator for same node
 
-    QUARISMA_LOG_INFO("CPU allocator retrieval and management tests completed successfully");
+    MEMORY_LOG_INFO("CPU allocator retrieval and management tests completed successfully");
 }
 // Test NUMA enablement and affinity handling
 MEMORYTEST(ProcessStateTest, NUMAHandling)
 {
-    QUARISMA_LOG_INFO("Testing NUMA enablement and affinity handling...");
+    MEMORY_LOG_INFO("Testing NUMA enablement and affinity handling...");
 
     memory::process_state* state = memory::process_state::singleton();
 
@@ -524,13 +523,13 @@ MEMORYTEST(ProcessStateTest, NUMAHandling)
     memory::Allocator* no_affinity_alloc = state->GetCPUAllocator(memory::NUMANOAFFINITY);
     EXPECT_NE(nullptr, no_affinity_alloc);
 
-    QUARISMA_LOG_INFO("NUMA enablement and affinity handling tests completed successfully");
+    MEMORY_LOG_INFO("NUMA enablement and affinity handling tests completed successfully");
 }
 
 // Test memory description and pointer type detection
 MEMORYTEST(ProcessStateTest, MemoryDescription)
 {
-    QUARISMA_LOG_INFO("Testing memory description and pointer type detection...");
+    MEMORY_LOG_INFO("Testing memory description and pointer type detection...");
 
     memory::process_state* state = memory::process_state::singleton();
 
@@ -558,13 +557,13 @@ MEMORYTEST(ProcessStateTest, MemoryDescription)
     std::free(cpu_ptr);
 
     state->TestOnlyReset();
-    QUARISMA_LOG_INFO("Memory description and pointer type detection tests completed successfully");
+    MEMORY_LOG_INFO("Memory description and pointer type detection tests completed successfully");
 }
 
 // Test visitor registration for allocation/deallocation callbacks
 MEMORYTEST(ProcessStateTest, VisitorRegistration)
 {
-    QUARISMA_LOG_INFO("Testing visitor registration for allocation/deallocation callbacks...");
+    MEMORY_LOG_INFO("Testing visitor registration for allocation/deallocation callbacks...");
 
     memory::process_state* state = memory::process_state::singleton();
 
@@ -592,7 +591,7 @@ MEMORYTEST(ProcessStateTest, VisitorRegistration)
     auto ptr = cpu_alloc->allocate_raw(64, 1000);
     cpu_alloc->deallocate_raw(ptr);
 
-    QUARISMA_LOG_INFO("Visitor registration tests completed successfully");
+    MEMORY_LOG_INFO("Visitor registration tests completed successfully");
 }
 
 // ============================================================================
@@ -602,7 +601,7 @@ MEMORYTEST(ProcessStateTest, VisitorRegistration)
 // Test memory allocation tracking and leak detection
 MEMORYTEST(AllocatorTracking, AllocationTracking)
 {
-    QUARISMA_LOG_INFO("Testing memory allocation tracking and leak detection...");
+    MEMORY_LOG_INFO("Testing memory allocation tracking and leak detection...");
 
     // Create underlying BFC allocator for testing
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -648,13 +647,13 @@ MEMORYTEST(AllocatorTracking, AllocationTracking)
     // Properly cleanup tracking allocator by releasing reference
     tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Memory allocation tracking and leak detection tests completed successfully");
+    MEMORY_LOG_INFO("Memory allocation tracking and leak detection tests completed successfully");
 }
 
 // Test allocation statistics collection and reporting
 MEMORYTEST(AllocatorTracking, StatisticsCollection)
 {
-    QUARISMA_LOG_INFO("Testing allocation statistics collection and reporting...");
+    MEMORY_LOG_INFO("Testing allocation statistics collection and reporting...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -708,14 +707,13 @@ MEMORYTEST(AllocatorTracking, StatisticsCollection)
     // Properly cleanup tracking allocator by releasing reference
     tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO(
-        "Allocation statistics collection and reporting tests completed successfully");
+    MEMORY_LOG_INFO("Allocation statistics collection and reporting tests completed successfully");
 }
 
 // Test memory usage monitoring and bounds checking
 MEMORYTEST(AllocatorTracking, MemoryUsageMonitoring)
 {
-    QUARISMA_LOG_INFO("Testing memory usage monitoring and bounds checking...");
+    MEMORY_LOG_INFO("Testing memory usage monitoring and bounds checking...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -774,13 +772,13 @@ MEMORYTEST(AllocatorTracking, MemoryUsageMonitoring)
     // Properly cleanup tracking allocator by releasing reference
     tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Memory usage monitoring and bounds checking tests completed successfully");
+    MEMORY_LOG_INFO("Memory usage monitoring and bounds checking tests completed successfully");
 }
 
 // Test integration with underlying allocator implementations
 MEMORYTEST(AllocatorTracking, UnderlyingAllocatorIntegration)
 {
-    QUARISMA_LOG_INFO("Testing integration with underlying allocator implementations...");
+    MEMORY_LOG_INFO("Testing integration with underlying allocator implementations...");
 
     // Test with BFC allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -833,14 +831,14 @@ MEMORYTEST(AllocatorTracking, UnderlyingAllocatorIntegration)
     bfc_tracker->GetRecordsAndUnRef();
     pool_tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO(
         "Integration with underlying allocator implementations tests completed successfully");
 }
 
 // Test enhanced tracking functionality with comprehensive analytics
 MEMORYTEST(AllocatorTracking, EnhancedTrackingAnalytics)
 {
-    QUARISMA_LOG_INFO("Testing enhanced tracking analytics and performance profiling...");
+    MEMORY_LOG_INFO("Testing enhanced tracking analytics and performance profiling...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -943,14 +941,14 @@ MEMORYTEST(AllocatorTracking, EnhancedTrackingAnalytics)
     // Properly cleanup tracking allocator by releasing reference
     tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO(
         "Enhanced tracking analytics and performance profiling tests completed successfully");
 }
 
 // Test logging levels and comprehensive reporting
 MEMORYTEST(AllocatorTracking, LoggingAndReporting)
 {
-    QUARISMA_LOG_INFO("Testing logging levels and comprehensive reporting...");
+    MEMORY_LOG_INFO("Testing logging levels and comprehensive reporting...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -1012,7 +1010,7 @@ MEMORYTEST(AllocatorTracking, LoggingAndReporting)
     // Properly cleanup tracking allocator by releasing reference
     tracker->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Logging levels and comprehensive reporting tests completed successfully");
+    MEMORY_LOG_INFO("Logging levels and comprehensive reporting tests completed successfully");
 }
 
 // ============================================================================
@@ -1035,7 +1033,7 @@ struct BenchmarkResult
 
 MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
 {
-    QUARISMA_LOG_INFO("Running Comprehensive Memory Allocator Performance Benchmark...");
+    MEMORY_LOG_INFO("Running Comprehensive Memory Allocator Performance Benchmark...");
 
     // Test parameters - multiple allocation sizes for comprehensive testing
     const std::vector<size_t> test_sizes = {
@@ -1046,7 +1044,7 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
 
     for (size_t alloc_size : test_sizes)
     {
-        QUARISMA_LOG_INFO("Testing allocation size: {}  bytes", std::to_string(alloc_size));
+        MEMORY_LOG_INFO("Testing allocation size: {}  bytes", std::to_string(alloc_size));
 
         std::vector<BenchmarkResult> size_results;
 
@@ -1316,7 +1314,7 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
     }
 
     // ========== COMPREHENSIVE RESULTS PRESENTATION ==========
-    QUARISMA_LOG_INFO("Generating comprehensive performance comparison report...");
+    MEMORY_LOG_INFO("Generating comprehensive performance comparison report...");
 
     std::cout << "\n" << std::string(120, '=') << "\n";
     std::cout << "                    COMPREHENSIVE MEMORY ALLOCATOR PERFORMANCE BENCHMARK\n";
@@ -1364,7 +1362,7 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
                         << std::setw(18) << peak_memory_mb << std::setw(15) << perf_vs_malloc << "x"
                         << std::setw(10) << perf_indicator;
 
-            QUARISMA_LOG_INFO("{}", result_line.str());
+            MEMORY_LOG_INFO("{}", result_line.str());
 
             std::cout << std::left << std::fixed << std::setprecision(3) << std::setw(20)
                       << result.allocator_name << std::setw(15) << result.total_time_us
@@ -1412,7 +1410,7 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
                          << "Slowest = " << slowest->allocator_name << " (" << std::scientific
                          << slowest->throughput_ops_sec << " ops/s)";
 
-            QUARISMA_LOG_INFO("{}", summary_line.str());
+            MEMORY_LOG_INFO("{}", summary_line.str());
 
             std::cout << "Size " << test_size << "B: Fastest = " << fastest->allocator_name << " ("
                       << std::scientific << fastest->throughput_ops_sec << " ops/s), "
@@ -1433,7 +1431,6 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
     std::cout << "                              BENCHMARK COMPLETED SUCCESSFULLY\n";
     std::cout << std::string(120, '=') << "\n\n";
 
-    QUARISMA_LOG_INFO(
-        "Comprehensive Memory Allocator Performance Benchmark completed successfully!");
+    MEMORY_LOG_INFO("Comprehensive Memory Allocator Performance Benchmark completed successfully!");
 }
 #endif

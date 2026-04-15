@@ -41,12 +41,12 @@
 #include <unordered_set>
 #include <vector>
 
-#include "common/memory_macros.h"
-//#include "logger/logger.h"
 #include "backend/allocator_retry.h"
 #include "common/memory_export.h"
+#include "common/memory_macros.h"
 #include "cpu/allocator.h"
 #include "util/exception.h"
+
 namespace memory
 {
 /**

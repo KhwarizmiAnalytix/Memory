@@ -338,8 +338,7 @@ MEMORYTEST(AllocatorCuda, LargeAllocations)
         else
         {
             // Large allocation failure is acceptable if device memory is limited
-            QUARISMA_LOG_WARNING(
-                "Failed to allocate {} bytes - device memory may be limited", size);
+            MEMORY_LOG_WARNING("Failed to allocate {} bytes - device memory may be limited", size);
         }
     }
 }

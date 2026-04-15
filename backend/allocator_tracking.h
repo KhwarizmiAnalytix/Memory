@@ -40,6 +40,7 @@
 
 #include "common/memory_macros.h"
 //#include "logger/logger.h"
+#include "common/memory_containers.h"
 #include "common/memory_export.h"
 #include "cpu/allocator.h"
 #include "profiler/unified_memory_stats.h"

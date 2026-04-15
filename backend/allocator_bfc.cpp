@@ -57,28 +57,12 @@
 #include "native/tracing/traceme_encode.h"
 #endif
 
-#if 0
-#include "util/flat_hash.h"
-
-template <typename T>
-using memory_set = flat_hash_set<T>;
-template <typename K, typename V, typename H = std::hash<K>>
-using memory_map = flat_hash_map<K, V, H>;
-#else
-#include <unordered_map>
-#include <unordered_set>
-
-template <typename T>
-using memory_set = std::unordered_set<T>;
-template <typename K, typename V>
-using memory_map = std::unordered_map<K, V>;
-
-#endif
+#include "common/memory_containers.h"
 
 #ifdef MEMORY_MEM_DEBUG
-#define LOGGING_LOG_INFO_DEBUG_BFC(...) LOGGING_LOG_INFO_DEBUG("[mem-verbose] " __VA_ARGS__)
+#define MEMORY_LOG_INFO_DEBUG_BFC(...) MEMORY_LOG_INFO_DEBUG("[mem-verbose] " __VA_ARGS__)
 #else
-#define LOGGING_LOG_INFO_DEBUG_BFC(...)
+#define MEMORY_LOG_INFO_DEBUG_BFC(...)
 #endif
 
 namespace memory
@@ -310,11 +294,11 @@ allocator_bfc::allocator_bfc(
     // We create bins to fit all possible ranges that cover the
     // memory_limit_ starting from allocations up to 256 bytes to
     // allocations up to (and including) the memory limit.
-    LOGGING_LOG_INFO_DEBUG_BFC("Creating new allocator_bfc named: {}", name);
+    MEMORY_LOG_INFO_DEBUG_BFC("Creating new allocator_bfc named: {}", name);
     for (BinNum b = 0; b < kNumBins; b++)
     {
         size_t const bin_size = BinNumToSize(b);
-        LOGGING_LOG_INFO_DEBUG_BFC(
+        MEMORY_LOG_INFO_DEBUG_BFC(
             "Creating bin of max chunk size {}", format_human_readable_bytes(bin_size));
         new (BinFromIndex(b)) Bin(this, bin_size);
         MEMORY_CHECK(BinForSize(bin_size) == BinFromIndex(b));
@@ -335,7 +319,7 @@ allocator_bfc::~allocator_bfc()
     std::scoped_lock const l(mutex_);
 
     // Return memory back.
-    LOGGING_LOG_INFO_DEBUG_BFC("Number of regions allocated: {}", region_manager_.regions().size());
+    MEMORY_LOG_INFO_DEBUG_BFC("Number of regions allocated: {}", region_manager_.regions().size());
     for (const auto& region : region_manager_.regions())
     {
         sub_allocator_->Free(region.ptr(), region.memory_size());
@@ -410,7 +394,7 @@ bool allocator_bfc::Extend(size_t alignment, size_t rounded_bytes)
         curr_region_allocation_bytes_ *= 2;
     }
 
-    LOGGING_LOG_INFO_DEBUG_BFC(
+    MEMORY_LOG_INFO_DEBUG_BFC(
         "Extending allocation by {} bytes for {}",
         format_human_readable_bytes(bytes_received),
         Name());
@@ -426,11 +410,11 @@ bool allocator_bfc::Extend(size_t alignment, size_t rounded_bytes)
         // Retry if another thread updated peak_pool
     }
 
-    LOGGING_LOG_INFO_DEBUG_BFC(
+    MEMORY_LOG_INFO_DEBUG_BFC(
         "Total allocated bytes: {}",
         format_human_readable_bytes(stats_.pool_bytes.load(std::memory_order_relaxed)));
 
-    LOGGING_LOG_INFO_DEBUG_BFC(
+    MEMORY_LOG_INFO_DEBUG_BFC(
         "Allocated memory at {} to {}",
         mem_addr,
         static_cast<void*>(static_cast<char*>(mem_addr) + bytes_received));
@@ -542,7 +526,7 @@ void* allocator_bfc::AllocateRawInternalWithRetry(
 void* allocator_bfc::allocate_raw(
     size_t unused_alignment, size_t num_bytes, const allocation_attributes& allocation_attr)
 {
-    //LOGGING_LOG_INFO_DEBUG_BFC("allocate_raw {}  {}", Name(), num_bytes);
+    //MEMORY_LOG_INFO_DEBUG_BFC("allocate_raw {}  {}", Name(), num_bytes);
     void* result = [&]  //NOLINT
     {
         if (!opts_.allow_retry_on_failure || !allocation_attr.retry_on_failure)
@@ -597,8 +581,8 @@ void* allocator_bfc::allocate_raw(
 
         return AllocateRawInternalWithRetry(unused_alignment, num_bytes, allocation_attr);
     }();
-    //LOGGING_LOG_INFO_DEBUG_BFC("allocate_raw {}  {} {}", Name(), num_bytes, result);
-    //LOGGING_LOG_INFO_DEBUG_BFC(
+    //MEMORY_LOG_INFO_DEBUG_BFC("allocate_raw {}  {} {}", Name(), num_bytes, result);
+    //MEMORY_LOG_INFO_DEBUG_BFC(
     //   "[mem-verbose] allocate_raw,{},{},{},{},{}", Name(), num_bytes, result, "", "");
     return result;
 }
@@ -937,7 +921,7 @@ void* allocator_bfc::FindChunkPtr(
                 int64_t       peak_bytes = stats_.peak_bytes_in_use.load(std::memory_order_relaxed);
                 // if (current_bytes > peak_bytes)
                 // {
-                //     LOGGING_LOG_INFO_DEBUG_BFC(
+                //     MEMORY_LOG_INFO_DEBUG_BFC(
                 //         "New Peak memory usage of {} bytes for {}", current_bytes, Name());
                 // }
 
@@ -983,7 +967,7 @@ void* allocator_bfc::FindChunkPtr(
                 }
 #endif
 
-                //LOGGING_LOG_INFO_DEBUG_BFC("Returning: {}\nA: {}", chunk->ptr, RenderOccupancy());
+                //MEMORY_LOG_INFO_DEBUG_BFC("Returning: {}\nA: {}", chunk->ptr, RenderOccupancy());
                 return chunk->ptr;
             }
         }
@@ -1034,7 +1018,7 @@ void allocator_bfc::SplitChunk(allocator_bfc::ChunkHandle h, size_t num_bytes)
 
 void allocator_bfc::deallocate_raw(void* ptr)
 {
-    LOGGING_LOG_INFO_DEBUG_BFC(
+    MEMORY_LOG_INFO_DEBUG_BFC(
         "deallocate_raw {} {} [mem-verbose] deallocate_raw, {},{},{}",
         Name(),
         (ptr ? RequestedSize(ptr) : 0),
@@ -1050,7 +1034,7 @@ void allocator_bfc::DeallocateRawInternal(void* ptr)
 {
     if (ptr == nullptr)
     {
-        LOGGING_LOG(INFO, "tried to deallocate nullptr");
+        MEMORY_LOG_INFO("tried to deallocate nullptr");
         return;
     }
     std::scoped_lock const lock(mutex_);
@@ -1086,7 +1070,7 @@ void allocator_bfc::DeallocateRawInternal(void* ptr)
     AddTraceMe("MemoryDeallocation", chunk_ptr, req_bytes, alloc_bytes);
 #endif
 
-    LOGGING_LOG_INFO_DEBUG_BFC("F: {}", RenderOccupancy());
+    MEMORY_LOG_INFO_DEBUG_BFC("F: {}", RenderOccupancy());
 }
 
 // Merges h1 and h2 when Chunk(h1)->next is h2 and Chunk(h2)->prev is c1.
@@ -1204,7 +1188,7 @@ allocator_bfc::ChunkHandle allocator_bfc::TryToCoalesce(ChunkHandle h, bool igno
         Chunk const* n = ChunkFromHandle(c->next);
         if ((n->freed_at_count == 0) || ignore_freed_at)
         {
-            LOGGING_LOG_INFO_DEBUG_BFC("Merging c->next {} with c {}", n->ptr, c->ptr);
+            MEMORY_LOG_INFO_DEBUG_BFC("Merging c->next {} with c {}", n->ptr, c->ptr);
             RemoveFreeChunkFromBin(c->next);
             Merge(h, c->next);
         }
@@ -1216,7 +1200,7 @@ allocator_bfc::ChunkHandle allocator_bfc::TryToCoalesce(ChunkHandle h, bool igno
         Chunk const* n = ChunkFromHandle(c->prev);
         if ((n->freed_at_count == 0) || ignore_freed_at)
         {
-            LOGGING_LOG_INFO_DEBUG_BFC("Merging c {} into c->prev {}", c->ptr, n->ptr);
+            MEMORY_LOG_INFO_DEBUG_BFC("Merging c {} into c->prev {}", c->ptr, n->ptr);
             coalesced_chunk = c->prev;
             RemoveFreeChunkFromBin(c->prev);
             Merge(c->prev, h);
@@ -1243,7 +1227,7 @@ void allocator_bfc::SetSafeFrontier(uint64_t count) noexcept
 
 bool allocator_bfc::MergeTimestampedChunks(size_t required_bytes)
 {
-    LOGGING_LOG_INFO_DEBUG_BFC(
+    MEMORY_LOG_INFO_DEBUG_BFC(
         "MergeTimestampedChunks queue_len={} required_bytes={}",
         timestamped_chunks_.size(),
         required_bytes);

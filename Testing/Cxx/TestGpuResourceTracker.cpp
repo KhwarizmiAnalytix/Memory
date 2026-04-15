@@ -46,7 +46,7 @@ MEMORYTEST(GpuResourceTracker, provides_singleton_instance)
     // Should be the same instance
     EXPECT_EQ(&tracker1, &tracker2);
 
-    QUARISMA_LOG_INFO("GPU resource tracker singleton test passed");
+    MEMORY_LOG_INFO("GPU resource tracker singleton test passed");
 }
 
 /**
@@ -69,11 +69,11 @@ MEMORYTEST(GpuResourceTracker, configures_leak_detection)
         tracker.configure_leak_detection(config);
         EXPECT_TRUE(true);  // Configuration succeeded
 
-        QUARISMA_LOG_INFO("GPU resource tracker leak detection configuration test passed");
+        MEMORY_LOG_INFO("GPU resource tracker leak detection configuration test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU resource tracker configuration failed: {}", e.what());
+        MEMORY_LOG_INFO("GPU resource tracker configuration failed: {}", e.what());
     }
 }
 
@@ -116,7 +116,7 @@ MEMORYTEST(GpuResourceTracker, tracks_allocations)
     // Clean up
     free(test_ptr);
 
-    QUARISMA_LOG_INFO("GPU resource tracker allocation tracking test passed");
+    MEMORY_LOG_INFO("GPU resource tracker allocation tracking test passed");
 }
 
 /**
@@ -147,7 +147,7 @@ MEMORYTEST(GpuResourceTracker, records_memory_access)
     tracker.track_deallocation(test_ptr);
     free(test_ptr);
 
-    QUARISMA_LOG_INFO("GPU resource tracker memory access recording test passed");
+    MEMORY_LOG_INFO("GPU resource tracker memory access recording test passed");
 }
 
 /**
@@ -187,7 +187,7 @@ MEMORYTEST(GpuResourceTracker, provides_resource_statistics)
         free(ptr);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker statistics test passed");
+    MEMORY_LOG_INFO("GPU resource tracker statistics test passed");
 }
 
 /**
@@ -227,7 +227,7 @@ MEMORYTEST(GpuResourceTracker, retrieves_active_allocations)
         free(ptr2);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker active allocations test passed");
+    MEMORY_LOG_INFO("GPU resource tracker active allocations test passed");
 }
 
 /**
@@ -272,7 +272,7 @@ MEMORYTEST(GpuResourceTracker, retrieves_allocations_by_tag)
         free(ptr3);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker allocations by tag test passed");
+    MEMORY_LOG_INFO("GPU resource tracker allocations by tag test passed");
 }
 
 /**
@@ -330,7 +330,7 @@ MEMORYTEST(GpuResourceTracker, retrieves_allocations_by_device)
         free(gpu_ptr);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker allocations by device test passed");
+    MEMORY_LOG_INFO("GPU resource tracker allocations by device test passed");
 }
 
 /**
@@ -378,7 +378,7 @@ MEMORYTEST(GpuResourceTracker, detects_memory_leaks)
         free(leak_ptr);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker leak detection test passed");
+    MEMORY_LOG_INFO("GPU resource tracker leak detection test passed");
 }
 
 /**
@@ -417,7 +417,7 @@ MEMORYTEST(GpuResourceTracker, generates_resource_reports)
         free(ptr2);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker report generation test passed");
+    MEMORY_LOG_INFO("GPU resource tracker report generation test passed");
 }
 
 /**
@@ -439,7 +439,7 @@ MEMORYTEST(GpuResourceTracker, controls_tracking_state)
     tracker.set_tracking_enabled(true);
     EXPECT_TRUE(tracker.is_tracking_enabled());
 
-    QUARISMA_LOG_INFO("GPU resource tracker tracking control test passed");
+    MEMORY_LOG_INFO("GPU resource tracker tracking control test passed");
 }
 
 /**
@@ -474,7 +474,7 @@ MEMORYTEST(GpuResourceTracker, clears_tracking_data)
         free(ptr2);
     }
 
-    QUARISMA_LOG_INFO("GPU resource tracker data clearing test passed");
+    MEMORY_LOG_INFO("GPU resource tracker data clearing test passed");
 }
 
 #endif  // PROJECT_HAS_CUDA

@@ -86,7 +86,7 @@ void* basic_gpu_allocator::Alloc(
                 // Retry if another thread updated peak_allocated_
             }
 
-            LOGGING_LOG_INFO_DEBUG(
+            MEMORY_LOG_INFO_DEBUG(
                 "GPU allocated {} bytes at {} on device {}", num_bytes, ptr, device_id_);
 
             // Call allocation visitors for monitoring
@@ -114,7 +114,7 @@ void basic_gpu_allocator::Free(void* ptr, size_t num_bytes)
         // Update statistics
         total_allocated_.fetch_sub(num_bytes);
 
-        LOGGING_LOG_INFO_DEBUG("GPU freed {} bytes at {} on device {}", num_bytes, ptr, device_id_);
+        MEMORY_LOG_INFO_DEBUG("GPU freed {} bytes at {} on device {}", num_bytes, ptr, device_id_);
     }
 }
 
@@ -245,7 +245,7 @@ void* allocator_gpu::allocate_raw(
             // Retry if another thread updated peak_allocated_
         }
 
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "GPU allocated {} bytes at {} on device {}", num_bytes, ptr, device_id_);
     }
 
@@ -278,7 +278,7 @@ void allocator_gpu::deallocate_raw(void* ptr)
     if (options_.enable_statistics)
     {
         deallocation_count_.fetch_add(1);
-        LOGGING_LOG_INFO_DEBUG("GPU freed memory at {} on device {}", ptr, device_id_);
+        MEMORY_LOG_INFO_DEBUG("GPU freed memory at {} on device {}", ptr, device_id_);
     }
 }
 

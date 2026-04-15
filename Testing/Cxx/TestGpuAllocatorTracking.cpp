@@ -47,7 +47,7 @@ MEMORYTEST(GpuAllocatorTracking, constructs_with_valid_parameters)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping GPU allocator tracking construction test");
+        MEMORY_LOG_INFO("CUDA not available, skipping GPU allocator tracking construction test");
         return;
     }
 
@@ -60,7 +60,7 @@ MEMORYTEST(GpuAllocatorTracking, constructs_with_valid_parameters)
     EXPECT_EQ(device_enum::CUDA, device_info.device_type);
     EXPECT_EQ(0, device_info.device_index);
 
-    QUARISMA_LOG_INFO("GPU allocator tracking construction test passed");
+    MEMORY_LOG_INFO("GPU allocator tracking construction test passed");
 }
 
 /**
@@ -74,7 +74,7 @@ MEMORYTEST(GpuAllocatorTracking, tracks_allocations_and_deallocations)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping allocation tracking test");
+        MEMORY_LOG_INFO("CUDA not available, skipping allocation tracking test");
         return;
     }
 
@@ -91,11 +91,11 @@ MEMORYTEST(GpuAllocatorTracking, tracks_allocations_and_deallocations)
         // Test deallocation
         gpu_tracker->deallocate_raw(gpu_ptr, 1024);
 
-        QUARISMA_LOG_INFO("GPU allocation tracking test passed");
+        MEMORY_LOG_INFO("GPU allocation tracking test passed");
     }
     else
     {
-        QUARISMA_LOG_INFO("GPU allocation failed (expected if insufficient GPU memory)");
+        MEMORY_LOG_INFO("GPU allocation failed (expected if insufficient GPU memory)");
     }
 }
 
@@ -110,7 +110,7 @@ MEMORYTEST(GpuAllocatorTracking, tracks_typed_allocations)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping typed allocation tracking test");
+        MEMORY_LOG_INFO("CUDA not available, skipping typed allocation tracking test");
         return;
     }
 
@@ -130,11 +130,11 @@ MEMORYTEST(GpuAllocatorTracking, tracks_typed_allocations)
         gpu_tracker->deallocate(float_ptr, 1000);
         gpu_tracker->deallocate(double_ptr, 500);
 
-        QUARISMA_LOG_INFO("GPU typed allocation tracking test passed");
+        MEMORY_LOG_INFO("GPU typed allocation tracking test passed");
     }
     else
     {
-        QUARISMA_LOG_INFO("GPU typed allocation failed (expected if insufficient GPU memory)");
+        MEMORY_LOG_INFO("GPU typed allocation failed (expected if insufficient GPU memory)");
     }
 }
 
@@ -149,7 +149,7 @@ MEMORYTEST(GpuAllocatorTracking, provides_timing_statistics)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping timing statistics test");
+        MEMORY_LOG_INFO("CUDA not available, skipping timing statistics test");
         return;
     }
 
@@ -189,7 +189,7 @@ MEMORYTEST(GpuAllocatorTracking, provides_timing_statistics)
         gpu_tracker->deallocate_raw(gpu_ptrs[i], alloc_size);
     }
 
-    QUARISMA_LOG_INFO("GPU timing statistics test passed");
+    MEMORY_LOG_INFO("GPU timing statistics test passed");
 }
 
 /**
@@ -203,7 +203,7 @@ MEMORYTEST(GpuAllocatorTracking, manages_logging_levels)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping logging levels test");
+        MEMORY_LOG_INFO("CUDA not available, skipping logging levels test");
         return;
     }
 
@@ -222,7 +222,7 @@ MEMORYTEST(GpuAllocatorTracking, manages_logging_levels)
     gpu_tracker->SetGPULoggingLevel(gpu_tracking_log_level::DEBUG_LEVEL);
     EXPECT_EQ(gpu_tracking_log_level::DEBUG_LEVEL, gpu_tracker->GetGPULoggingLevel());
 
-    QUARISMA_LOG_INFO("GPU logging levels test passed");
+    MEMORY_LOG_INFO("GPU logging levels test passed");
 }
 
 /**
@@ -236,7 +236,7 @@ MEMORYTEST(GpuAllocatorTracking, calculates_efficiency_metrics)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping efficiency metrics test");
+        MEMORY_LOG_INFO("CUDA not available, skipping efficiency metrics test");
         return;
     }
 
@@ -264,11 +264,11 @@ MEMORYTEST(GpuAllocatorTracking, calculates_efficiency_metrics)
         gpu_tracker->deallocate_raw(ptr1, 2048);
         gpu_tracker->deallocate_raw(ptr2, 4096);
 
-        QUARISMA_LOG_INFO("GPU efficiency metrics test passed");
+        MEMORY_LOG_INFO("GPU efficiency metrics test passed");
     }
     else
     {
-        QUARISMA_LOG_INFO("GPU allocation failed for efficiency metrics test");
+        MEMORY_LOG_INFO("GPU allocation failed for efficiency metrics test");
     }
 }
 
@@ -283,7 +283,7 @@ MEMORYTEST(GpuAllocatorTracking, generates_comprehensive_reports)
 
     if (!runtime_info.cuda_available)
     {
-        QUARISMA_LOG_INFO("CUDA not available, skipping report generation test");
+        MEMORY_LOG_INFO("CUDA not available, skipping report generation test");
         return;
     }
 
@@ -308,7 +308,7 @@ MEMORYTEST(GpuAllocatorTracking, generates_comprehensive_reports)
         gpu_tracker->deallocate_raw(ptr, 1024);
     }
 
-    QUARISMA_LOG_INFO("GPU report generation test passed");
+    MEMORY_LOG_INFO("GPU report generation test passed");
 }
 
 #endif  // PROJECT_HAS_CUDA

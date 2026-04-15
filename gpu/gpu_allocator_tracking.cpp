@@ -281,7 +281,7 @@ void* gpu_allocator_tracking::allocate_raw(
     auto current_log_level = gpu_log_level_.load(std::memory_order_relaxed);
     if (current_log_level >= gpu_tracking_log_level::TRACE)
     {
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "gpu_allocator_tracking::allocate_raw: bytes={}, alignment={}, device={}, tag={}",
             bytes,
             alignment,
@@ -422,7 +422,7 @@ void* gpu_allocator_tracking::allocate_raw(
     // Log successful allocation
     if (current_log_level >= gpu_tracking_log_level::TRACE)
     {
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "gpu_allocator_tracking::allocate_raw success: ptr={}, bytes={}, time={}μs",
             ptr,
             bytes,
@@ -447,7 +447,7 @@ void gpu_allocator_tracking::deallocate_raw(void* ptr, size_t bytes, void* strea
     auto current_log_level = gpu_log_level_.load(std::memory_order_relaxed);
     if (current_log_level >= gpu_tracking_log_level::TRACE)
     {
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "gpu_allocator_tracking::deallocate_raw: ptr={}, bytes={}, device={}",
             ptr,
             bytes,
@@ -571,7 +571,7 @@ void gpu_allocator_tracking::deallocate_raw(void* ptr, size_t bytes, void* strea
     // Log successful deallocation
     if (current_log_level >= gpu_tracking_log_level::TRACE)
     {
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "gpu_allocator_tracking::deallocate_raw success: ptr={}, time={}μs", ptr, duration_us);
     }
 }
@@ -798,7 +798,7 @@ void gpu_allocator_tracking::LogGPUOperation(
     auto current_log_level = gpu_log_level_.load(std::memory_order_relaxed);
     if (current_log_level >= gpu_tracking_log_level::DEBUG_LEVEL)
     {
-        LOGGING_LOG_INFO_DEBUG("GPU {}: {}", operation, details);
+        MEMORY_LOG_INFO_DEBUG("GPU {}: {}", operation, details);
     }
 }
 

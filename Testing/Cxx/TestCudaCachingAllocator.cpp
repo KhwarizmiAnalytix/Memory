@@ -46,7 +46,7 @@ MEMORYTEST(CudaCachingAllocator, constructs_with_valid_parameters)
     // Verify cache size
     EXPECT_EQ(64 * 1024ULL, allocator.max_cached_bytes());
 
-    QUARISMA_LOG_INFO("CUDA caching allocator construction test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator construction test passed");
 }
 
 /**
@@ -81,7 +81,7 @@ MEMORYTEST(CudaCachingAllocator, constructor_variations)
         EXPECT_EQ(cache_size, allocator.max_cached_bytes());
     }
 
-    QUARISMA_LOG_INFO("CUDA caching allocator constructor variations test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator constructor variations test passed");
 }
 
 /**
@@ -113,7 +113,7 @@ MEMORYTEST(CudaCachingAllocator, allocates_and_deallocates_memory)
         allocator.deallocate(ptrs[i], 512 * (i + 1));
     }
 
-    QUARISMA_LOG_INFO("CUDA caching allocator allocation/deallocation test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator allocation/deallocation test passed");
 }
 
 /**
@@ -138,7 +138,7 @@ MEMORYTEST(CudaCachingAllocator, manages_cache_correctly)
     auto stats_after = allocator.stats();
     //EXPECT_GE(stats_before.cached_bytes, stats_after.cached_bytes);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator cache management test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator cache management test passed");
 }
 
 /**
@@ -156,7 +156,7 @@ MEMORYTEST(CudaCachingAllocator, respects_cache_size_limits)
     allocator.set_max_cached_bytes(0);
     EXPECT_EQ(0, allocator.max_cached_bytes());
 
-    QUARISMA_LOG_INFO("CUDA caching allocator cache size limits test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator cache size limits test passed");
 }
 
 /**
@@ -183,7 +183,7 @@ MEMORYTEST(CudaCachingAllocator, provides_accurate_statistics)
     auto after_dealloc_stats = allocator.stats();
     //EXPECT_GT(after_dealloc_stats.total_deallocated_bytes, initial_stats.total_deallocated_bytes);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator statistics test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator statistics test passed");
 }
 
 /**
@@ -206,7 +206,7 @@ MEMORYTEST(CudaCachingAllocator, supports_move_semantics)
     // Moved-to allocator should work
     allocator2.deallocate(ptr, 1024);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator move semantics test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator move semantics test passed");
 }
 
 /**
@@ -224,7 +224,7 @@ MEMORYTEST(CudaCachingAllocator, handles_errors_gracefully)
     // Should not crash
     allocator.deallocate(nullptr, 1024);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator error handling test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator error handling test passed");
 }
 
 /**
@@ -242,7 +242,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
     EXPECT_EQ(0, double_allocator.device());
     EXPECT_EQ(0, int_allocator.device());
 
-    QUARISMA_LOG_INFO("CUDA caching allocator template construction test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator template construction test passed");
 }
 
 /**
@@ -264,7 +264,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
     EXPECT_NE(nullptr, ptr2);
     allocator.deallocate(ptr2, 10000);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator template typed allocation test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator template typed allocation test passed");
 }
 
 /**
@@ -284,7 +284,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 
     allocator.deallocate(ptr, 50);
 
-    QUARISMA_LOG_INFO("CUDA caching allocator template alignment test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator template alignment test passed");
 }
 
 /**
@@ -312,7 +312,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
     // Test cache clearing
     allocator.empty_cache();
 
-    QUARISMA_LOG_INFO("CUDA caching allocator template statistics test passed");
+    MEMORY_LOG_INFO("CUDA caching allocator template statistics test passed");
 }
 
 #endif  // PROJECT_HAS_CUDA

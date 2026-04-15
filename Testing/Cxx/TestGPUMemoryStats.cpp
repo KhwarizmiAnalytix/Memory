@@ -74,7 +74,7 @@ public:
 
         if (error != cudaSuccess || device_count == 0)
         {
-            QUARISMA_LOG_INFO("CUDA not available or no devices found. Skipping GPU tests.");
+            MEMORY_LOG_INFO("CUDA not available or no devices found. Skipping GPU tests.");
             return false;
         }
 
@@ -82,7 +82,7 @@ public:
         error = cudaSetDevice(0);
         if (error != cudaSuccess)
         {
-            QUARISMA_LOG_INFO("Cannot set CUDA device 0. Skipping GPU tests.");
+            MEMORY_LOG_INFO("Cannot set CUDA device 0. Skipping GPU tests.");
             return false;
         }
 
@@ -94,11 +94,11 @@ public:
      */
     static void test_gpu_timing_stats()
     {
-        QUARISMA_LOG_INFO("Testing GPU timing statistics with CUDA events...");
+        MEMORY_LOG_INFO("Testing GPU timing statistics with CUDA events...");
 
         if (!is_cuda_available())
         {
-            QUARISMA_LOG_INFO("⚠ Skipping GPU timing tests - CUDA not available");
+            MEMORY_LOG_INFO("⚠ Skipping GPU timing tests - CUDA not available");
             return;
         }
 
@@ -154,8 +154,8 @@ public:
                         .count();
                 gpu_stats.total_transfer_time_us.fetch_add(transfer_time_us);
 
-                QUARISMA_LOG_INFO("  GPU allocation time: {} μs", duration_us);
-                QUARISMA_LOG_INFO("  Memory transfer time: {} μs", transfer_time_us);
+                MEMORY_LOG_INFO("  GPU allocation time: {} μs", duration_us);
+                MEMORY_LOG_INFO("  Memory transfer time: {} μs", transfer_time_us);
             }
 
             // Test CUDA synchronization timing
@@ -180,10 +180,10 @@ public:
         {
             double avg_time = gpu_stats.average_alloc_time_us();
             EXPECT_GT(avg_time, 0.0);
-            QUARISMA_LOG_INFO("  Average allocation time: {:.2f} μs", avg_time);
+            MEMORY_LOG_INFO("  Average allocation time: {:.2f} μs", avg_time);
         }
 
-        QUARISMA_LOG_INFO("✓ GPU timing statistics test passed");
+        MEMORY_LOG_INFO("✓ GPU timing statistics test passed");
     }
 
     /**
@@ -191,11 +191,11 @@ public:
      */
     static void test_gpu_resource_stats()
     {
-        QUARISMA_LOG_INFO("Testing GPU resource statistics tracking...");
+        MEMORY_LOG_INFO("Testing GPU resource statistics tracking...");
 
         if (!is_cuda_available())
         {
-            QUARISMA_LOG_INFO("⚠ Skipping GPU resource tests - CUDA not available");
+            MEMORY_LOG_INFO("⚠ Skipping GPU resource tests - CUDA not available");
             return;
         }
 
@@ -257,10 +257,10 @@ public:
         EXPECT_GE(efficiency, 0.0);
         EXPECT_LE(efficiency, 1.0);
 
-        QUARISMA_LOG_INFO("  Total allocated: {} bytes", total_allocated);
-        QUARISMA_LOG_INFO("  Active allocations: {}", gpu_resources.active_allocations.load());
-        QUARISMA_LOG_INFO("  Average allocation size: {:.1f} bytes", avg_size);
-        QUARISMA_LOG_INFO("  Memory efficiency: {:.1f}%", (efficiency * 100.0));
+        MEMORY_LOG_INFO("  Total allocated: {} bytes", total_allocated);
+        MEMORY_LOG_INFO("  Active allocations: {}", gpu_resources.active_allocations.load());
+        MEMORY_LOG_INFO("  Average allocation size: {:.1f} bytes", avg_size);
+        MEMORY_LOG_INFO("  Memory efficiency: {:.1f}%", (efficiency * 100.0));
 
         // Clean up allocations
         for (void* ptr : gpu_ptrs)
@@ -273,9 +273,9 @@ public:
         // Test debug string
         std::string debug_str = gpu_resources.debug_string();
         EXPECT_FALSE(debug_str.empty());
-        QUARISMA_LOG_INFO("  Debug string: {}", debug_str);
+        MEMORY_LOG_INFO("  Debug string: {}", debug_str);
 
-        QUARISMA_LOG_INFO("✓ GPU resource statistics test passed");
+        MEMORY_LOG_INFO("✓ GPU resource statistics test passed");
     }
 
     /**
@@ -283,11 +283,11 @@ public:
      */
     static void test_cuda_caching_stats()
     {
-        QUARISMA_LOG_INFO("Testing CUDA caching allocator statistics...");
+        MEMORY_LOG_INFO("Testing CUDA caching allocator statistics...");
 
         if (!is_cuda_available())
         {
-            QUARISMA_LOG_INFO("⚠ Skipping CUDA caching tests - CUDA not available");
+            MEMORY_LOG_INFO("⚠ Skipping CUDA caching tests - CUDA not available");
             return;
         }
 
@@ -315,10 +315,10 @@ public:
         double expected_reduction = 200.0 / 110.0;  // (150+50) / (60+50)
         EXPECT_NEAR(reduction, expected_reduction, 0.01);
 
-        QUARISMA_LOG_INFO("  Cache hit rate: {:.1f}%", (hit_rate * 100.0));
-        QUARISMA_LOG_INFO("  Driver call reduction: {:.2f}x", reduction);
-        QUARISMA_LOG_INFO("  Bytes cached: {} KB", (cache_stats.bytes_cached.load() / 1024));
-        QUARISMA_LOG_INFO("  Cache blocks: {}", cache_stats.cache_blocks.load());
+        MEMORY_LOG_INFO("  Cache hit rate: {:.1f}%", (hit_rate * 100.0));
+        MEMORY_LOG_INFO("  Driver call reduction: {:.2f}x", reduction);
+        MEMORY_LOG_INFO("  Bytes cached: {} KB", (cache_stats.bytes_cached.load() / 1024));
+        MEMORY_LOG_INFO("  Cache blocks: {}", cache_stats.cache_blocks.load());
 
         // Test reset functionality
         cache_stats.reset();
@@ -327,7 +327,7 @@ public:
         EXPECT_EQ(cache_stats.bytes_cached.load(), 0);
         EXPECT_EQ(cache_stats.cache_hit_rate(), 0.0);
 
-        QUARISMA_LOG_INFO("✓ CUDA caching statistics test passed");
+        MEMORY_LOG_INFO("✓ CUDA caching statistics test passed");
     }
 
     /**
@@ -335,11 +335,11 @@ public:
      */
     static void test_comprehensive_gpu_stats()
     {
-        QUARISMA_LOG_INFO("Testing comprehensive GPU memory statistics...");
+        MEMORY_LOG_INFO("Testing comprehensive GPU memory statistics...");
 
         if (!is_cuda_available())
         {
-            QUARISMA_LOG_INFO("⚠ Skipping comprehensive GPU tests - CUDA not available");
+            MEMORY_LOG_INFO("⚠ Skipping comprehensive GPU tests - CUDA not available");
             return;
         }
 
@@ -377,13 +377,13 @@ public:
         EXPECT_NE(report.find("CUDA Sync Time"), std::string::npos);
         EXPECT_NE(report.find("Cache Performance"), std::string::npos);
 
-        QUARISMA_LOG_INFO("  Overall efficiency: {}%", (efficiency * 100.0));
-        QUARISMA_LOG_INFO("  GPU operations/sec: {}", ops_per_sec);
+        MEMORY_LOG_INFO("  Overall efficiency: {}%", (efficiency * 100.0));
+        MEMORY_LOG_INFO("  GPU operations/sec: {}", ops_per_sec);
 
         // Test that report contains GPU-specific sections
         EXPECT_NE(report.find("Transfer Time"), std::string::npos);
 
-        QUARISMA_LOG_INFO("✓ Comprehensive GPU statistics test passed");
+        MEMORY_LOG_INFO("✓ Comprehensive GPU statistics test passed");
     }
 
     /**
@@ -391,11 +391,11 @@ public:
      */
     static void test_gpu_stats_thread_safety()
     {
-        QUARISMA_LOG_INFO("Testing GPU statistics thread safety...");
+        MEMORY_LOG_INFO("Testing GPU statistics thread safety...");
 
         if (!is_cuda_available())
         {
-            QUARISMA_LOG_INFO("⚠ Skipping GPU thread safety tests - CUDA not available");
+            MEMORY_LOG_INFO("⚠ Skipping GPU thread safety tests - CUDA not available");
             return;
         }
 
@@ -445,10 +445,10 @@ public:
         EXPECT_EQ(shared_resources.num_deallocs.load(), expected_total);
         EXPECT_EQ(shared_resources.bytes_in_use.load(), 0);  // Should be balanced
 
-        QUARISMA_LOG_INFO("  Concurrent operations completed: {}", expected_total);
-        QUARISMA_LOG_INFO("  Final timing total: {} μs", shared_stats.total_alloc_time_us.load());
+        MEMORY_LOG_INFO("  Concurrent operations completed: {}", expected_total);
+        MEMORY_LOG_INFO("  Final timing total: {} μs", shared_stats.total_alloc_time_us.load());
 
-        QUARISMA_LOG_INFO("✓ GPU statistics thread safety test passed");
+        MEMORY_LOG_INFO("✓ GPU statistics thread safety test passed");
     }
 };
 
@@ -485,27 +485,27 @@ void TestGPUStatsThreadSafety()
 // Stub implementations when CUDA is not available
 void TestGPUTimingStats()
 {
-    QUARISMA_LOG_INFO("⚠ CUDA not enabled - GPU timing stats tests skipped");
+    MEMORY_LOG_INFO("⚠ CUDA not enabled - GPU timing stats tests skipped");
 }
 
 void TestGPUResourceStats()
 {
-    QUARISMA_LOG_INFO("⚠ CUDA not enabled - GPU resource stats tests skipped");
+    MEMORY_LOG_INFO("⚠ CUDA not enabled - GPU resource stats tests skipped");
 }
 
 void TestCUDACachingStats()
 {
-    QUARISMA_LOG_INFO("⚠ CUDA not enabled - CUDA caching stats tests skipped");
+    MEMORY_LOG_INFO("⚠ CUDA not enabled - CUDA caching stats tests skipped");
 }
 
 void TestComprehensiveGPUStats()
 {
-    QUARISMA_LOG_INFO("⚠ CUDA not enabled - comprehensive GPU stats tests skipped");
+    MEMORY_LOG_INFO("⚠ CUDA not enabled - comprehensive GPU stats tests skipped");
 }
 
 void TestGPUStatsThreadSafety()
 {
-    QUARISMA_LOG_INFO("⚠ CUDA not enabled - GPU thread safety tests skipped");
+    MEMORY_LOG_INFO("⚠ CUDA not enabled - GPU thread safety tests skipped");
 }
 
 #endif  // PROJECT_HAS_CUDA
@@ -513,7 +513,7 @@ void TestGPUStatsThreadSafety()
 // Main test function expected by the test framework
 MEMORYTEST(TestGPUMemoryStats, test)
 {
-    QUARISMA_LOG_INFO("Starting GPU Memory Statistics Tests...");
+    MEMORY_LOG_INFO("Starting GPU Memory Statistics Tests...");
 
     TestGPUTimingStats();
     TestGPUResourceStats();
@@ -521,6 +521,6 @@ MEMORYTEST(TestGPUMemoryStats, test)
     TestComprehensiveGPUStats();
     TestGPUStatsThreadSafety();
 
-    QUARISMA_LOG_INFO("All GPU Memory Statistics Tests completed successfully!");
+    MEMORY_LOG_INFO("All GPU Memory Statistics Tests completed successfully!");
     END_TEST();
 }

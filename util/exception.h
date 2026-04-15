@@ -75,16 +75,6 @@ inline std::string format_check_msg(const char* cond_str)
     }
 #endif
 
-#ifdef NDEBUG
-#define MEMORY_CHECK_DEBUG(condition, ...)
-#else
-#define MEMORY_CHECK_DEBUG(condition, ...)      \
-    do                                          \
-    {                                           \
-        MEMORY_CHECK(condition, ##__VA_ARGS__); \
-    } while (0)
-#endif
-
 #ifndef MEMORY_LOG_WARNING
 #define MEMORY_LOG_WARNING(format_str, ...) \
     std::fprintf(                           \
@@ -99,4 +89,32 @@ inline std::string format_check_msg(const char* cond_str)
         stdout,                          \
         "[MEMORY INFO] %s\n",            \
         fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#endif
+
+#ifndef MEMORY_LOG_ERROR
+#define MEMORY_LOG_ERROR(format_str, ...) \
+    std::fprintf(                         \
+        stderr,                           \
+        "[MEMORY ERROR] %s\n",            \
+        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#endif
+
+#ifdef NDEBUG
+#define MEMORY_CHECK_DEBUG(condition, ...)
+#else
+#define MEMORY_CHECK_DEBUG(condition, ...)      \
+    do                                          \
+    {                                           \
+        MEMORY_CHECK(condition, ##__VA_ARGS__); \
+    } while (0)
+#endif
+
+#ifdef NDEBUG
+#define MEMORY_LOG_INFO_DEBUG(format_str, ...)
+#else
+#define MEMORY_LOG_INFO_DEBUG(format_str, ...)      \
+    do                                              \
+    {                                               \
+        MEMORY_LOG_INFO(format_str, ##__VA_ARGS__); \
+    } while (0)
 #endif

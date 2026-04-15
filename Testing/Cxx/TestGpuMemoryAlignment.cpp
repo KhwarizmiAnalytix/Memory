@@ -53,7 +53,7 @@ MEMORYTEST(GpuMemoryAlignment, validates_alignment_configuration)
 
     EXPECT_FALSE(gpu_memory_alignment::validate_config(invalid_config));
 
-    QUARISMA_LOG_INFO("GPU memory alignment configuration validation test passed");
+    MEMORY_LOG_INFO("GPU memory alignment configuration validation test passed");
 }
 
 /**
@@ -79,7 +79,7 @@ MEMORYTEST(GpuMemoryAlignment, aligns_sizes_correctly)
     EXPECT_EQ(16, gpu_memory_alignment::align_size(9, 16));
     EXPECT_EQ(32, gpu_memory_alignment::align_size(17, 32));
 
-    QUARISMA_LOG_INFO("GPU memory alignment size alignment test passed");
+    MEMORY_LOG_INFO("GPU memory alignment size alignment test passed");
 }
 
 /**
@@ -106,7 +106,7 @@ MEMORYTEST(GpuMemoryAlignment, aligns_pointers_correctly)
 
     delete[] int_buffer;
 
-    QUARISMA_LOG_INFO("GPU memory alignment pointer alignment test passed");
+    MEMORY_LOG_INFO("GPU memory alignment pointer alignment test passed");
 }
 
 /**
@@ -140,7 +140,7 @@ MEMORYTEST(GpuMemoryAlignment, optimizes_for_coalesced_access)
         gpu_memory_alignment::align_size_for_coalescing<float>(float_count, config);
     EXPECT_EQ(unaligned_size, float_count * sizeof(float));
 
-    QUARISMA_LOG_INFO("GPU memory alignment coalesced access test passed");
+    MEMORY_LOG_INFO("GPU memory alignment coalesced access test passed");
 }
 
 /**
@@ -169,7 +169,7 @@ MEMORYTEST(GpuMemoryAlignment, calculates_optimal_strides)
     size_t simple_stride = gpu_memory_alignment::calculate_optimal_stride<float>(width, config);
     EXPECT_GE(simple_stride, width);
 
-    QUARISMA_LOG_INFO("GPU memory alignment stride calculation test passed");
+    MEMORY_LOG_INFO("GPU memory alignment stride calculation test passed");
 }
 
 /**
@@ -197,7 +197,7 @@ MEMORYTEST(GpuMemoryAlignment, calculates_padded_widths)
         EXPECT_GT(padded_width, original_width);
     }
 
-    QUARISMA_LOG_INFO("GPU memory alignment padded width test passed");
+    MEMORY_LOG_INFO("GPU memory alignment padded width test passed");
 }
 
 /**
@@ -219,7 +219,7 @@ MEMORYTEST(GpuMemoryAlignment, provides_simd_alignment)
     EXPECT_GT(default_simd, 0);
     EXPECT_EQ(default_simd & (default_simd - 1), 0);  // Should be power of 2
 
-    QUARISMA_LOG_INFO("GPU memory alignment SIMD alignment test passed");
+    MEMORY_LOG_INFO("GPU memory alignment SIMD alignment test passed");
 }
 
 /**
@@ -254,7 +254,7 @@ MEMORYTEST(GpuMemoryAlignment, calculates_optimal_layouts)
         gpu_memory_alignment::calculate_optimal_layout<float>(empty_dimensions, config);
     EXPECT_TRUE(empty_strides.empty());
 
-    QUARISMA_LOG_INFO("GPU memory alignment layout calculation test passed");
+    MEMORY_LOG_INFO("GPU memory alignment layout calculation test passed");
 }
 
 /**
@@ -276,7 +276,7 @@ MEMORYTEST(GpuMemoryAlignment, detects_gpu_architecture)
     auto arch_35 = gpu_memory_alignment::detect_architecture(device_enum::CUDA, 3, 5, "");
     EXPECT_EQ(gpu_architecture::CUDA_COMPUTE_35, arch_35);
 
-    QUARISMA_LOG_INFO("GPU memory alignment architecture detection test passed");
+    MEMORY_LOG_INFO("GPU memory alignment architecture detection test passed");
 }
 
 /**
@@ -302,7 +302,7 @@ MEMORYTEST(GpuMemoryAlignment, provides_optimal_configurations)
     EXPECT_GT(stencil_config.base_alignment, 0);
     EXPECT_TRUE(stencil_config.avoid_bank_conflicts);
 
-    QUARISMA_LOG_INFO("GPU memory alignment optimal configuration test passed");
+    MEMORY_LOG_INFO("GPU memory alignment optimal configuration test passed");
 }
 
 /**
@@ -328,9 +328,9 @@ MEMORYTEST(GpuMemoryAlignment, generates_alignment_reports)
     EXPECT_TRUE(report.find("32") != std::string::npos);   // vector_alignment
     EXPECT_TRUE(report.find("512") != std::string::npos);  // texture_alignment
 
-    QUARISMA_LOG_INFO("Alignment report length: {} characters", report.length());
+    MEMORY_LOG_INFO("Alignment report length: {} characters", report.length());
 
-    QUARISMA_LOG_INFO("GPU memory alignment report generation test passed");
+    MEMORY_LOG_INFO("GPU memory alignment report generation test passed");
 }
 
 #endif  // PROJECT_HAS_CUDA

@@ -44,7 +44,7 @@ MEMORYTEST(GpuDeviceManager, provides_singleton_instance)
     // Should be the same instance
     EXPECT_EQ(&manager1, &manager2);
 
-    QUARISMA_LOG_INFO("GPU device manager singleton test passed");
+    MEMORY_LOG_INFO("GPU device manager singleton test passed");
 }
 
 /**
@@ -58,11 +58,11 @@ MEMORYTEST(GpuDeviceManager, initializes_successfully)
     {
         manager.initialize();
         EXPECT_TRUE(true);  // Initialization succeeded
-        QUARISMA_LOG_INFO("GPU device manager initialization test passed");
+        MEMORY_LOG_INFO("GPU device manager initialization test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU device manager initialization failed (expected if no GPU): {}", e.what());
         // This is acceptable if no GPU hardware is available
     }
@@ -88,13 +88,12 @@ MEMORYTEST(GpuDeviceManager, provides_runtime_information)
         runtime_info.recommended_backend == device_enum::CPU ||
         runtime_info.recommended_backend == device_enum::CUDA);
 
-    QUARISMA_LOG_INFO("CUDA available: {}", runtime_info.cuda_available);
-    QUARISMA_LOG_INFO("CUDA runtime version: {}", runtime_info.cuda_runtime_version);
-    QUARISMA_LOG_INFO("CUDA device count: {}", runtime_info.cuda_device_count);
-    QUARISMA_LOG_INFO(
-        "Recommended backend: {}", static_cast<int>(runtime_info.recommended_backend));
+    MEMORY_LOG_INFO("CUDA available: {}", runtime_info.cuda_available);
+    MEMORY_LOG_INFO("CUDA runtime version: {}", runtime_info.cuda_runtime_version);
+    MEMORY_LOG_INFO("CUDA device count: {}", runtime_info.cuda_device_count);
+    MEMORY_LOG_INFO("Recommended backend: {}", static_cast<int>(runtime_info.recommended_backend));
 
-    QUARISMA_LOG_INFO("GPU device manager runtime information test passed");
+    MEMORY_LOG_INFO("GPU device manager runtime information test passed");
 }
 
 /**
@@ -118,14 +117,14 @@ MEMORYTEST(GpuDeviceManager, enumerates_available_devices)
         EXPECT_GE(device.total_memory, 0);
         EXPECT_GE(device.multiprocessor_count, 0);
 
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "device_option {}: {} ({}MB)",
             device.device_index,
             device.name,
             device.total_memory / (1024ULL));
     }
 
-    QUARISMA_LOG_INFO("GPU device manager device enumeration test passed");
+    MEMORY_LOG_INFO("GPU device manager device enumeration test passed");
 }
 
 /**
@@ -150,21 +149,21 @@ MEMORYTEST(GpuDeviceManager, retrieves_specific_device_info)
             EXPECT_FALSE(device_info.name.empty());
             EXPECT_GT(device_info.total_memory, 0);
 
-            QUARISMA_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "device_option 0 info: {} ({}MB)",
                 device_info.name,
                 device_info.total_memory / (1024ULL));
 
-            QUARISMA_LOG_INFO("GPU device manager specific device info test passed");
+            MEMORY_LOG_INFO("GPU device manager specific device info test passed");
         }
         catch (const std::exception& e)
         {
-            QUARISMA_LOG_INFO("device_option info retrieval failed: {}", e.what());
+            MEMORY_LOG_INFO("device_option info retrieval failed: {}", e.what());
         }
     }
     else
     {
-        QUARISMA_LOG_INFO("No CUDA devices available for specific device info test");
+        MEMORY_LOG_INFO("No CUDA devices available for specific device info test");
     }
 }
 
@@ -184,14 +183,14 @@ MEMORYTEST(GpuDeviceManager, checks_device_availability)
         bool device0_available = manager.is_device_available(device_enum::CUDA, 0);
         EXPECT_TRUE(device0_available);
 
-        QUARISMA_LOG_INFO("device_option 0 availability: {}", device0_available);
+        MEMORY_LOG_INFO("device_option 0 availability: {}", device0_available);
     }
 
     // Test invalid device
     bool invalid_device_available = manager.is_device_available(device_enum::CUDA, 999);
     EXPECT_FALSE(invalid_device_available);
 
-    QUARISMA_LOG_INFO("GPU device manager device availability test passed");
+    MEMORY_LOG_INFO("GPU device manager device availability test passed");
 }
 
 /**
@@ -216,19 +215,19 @@ MEMORYTEST(GpuDeviceManager, manages_device_context)
             EXPECT_EQ(0, current_device.device_index);
             EXPECT_EQ(device_enum::CUDA, current_device.device_type);
 
-            QUARISMA_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "Current device: {} (index {})", current_device.name, current_device.device_index);
 
-            QUARISMA_LOG_INFO("GPU device manager context management test passed");
+            MEMORY_LOG_INFO("GPU device manager context management test passed");
         }
         catch (const std::exception& e)
         {
-            QUARISMA_LOG_INFO("device_option context management failed: {}", e.what());
+            MEMORY_LOG_INFO("device_option context management failed: {}", e.what());
         }
     }
     else
     {
-        QUARISMA_LOG_INFO("No CUDA devices available for context management test");
+        MEMORY_LOG_INFO("No CUDA devices available for context management test");
     }
 }
 
@@ -246,7 +245,7 @@ MEMORYTEST(GpuDeviceManager, refreshes_device_information)
         manager.refresh_device_info();
         EXPECT_TRUE(true);  // Should not throw
 
-        QUARISMA_LOG_INFO("GPU device manager refresh test passed");
+        MEMORY_LOG_INFO("GPU device manager refresh test passed");
 #endif
 }
 
@@ -268,9 +267,9 @@ MEMORYTEST(GpuDeviceManager, generates_system_report)
         report.find("GPU") != std::string::npos || report.find("CUDA") != std::string::npos ||
         report.find("device_option") != std::string::npos);
 
-    QUARISMA_LOG_INFO("System report length: {} characters", report.length());
+    MEMORY_LOG_INFO("System report length: {} characters", report.length());
 
-    QUARISMA_LOG_INFO("GPU device manager system report test passed");
+    MEMORY_LOG_INFO("GPU device manager system report test passed");
 }
 
 /**
@@ -292,7 +291,7 @@ MEMORYTEST(GpuDeviceManager, handles_invalid_operations)
     {
         // Expected behavior for invalid device
         EXPECT_TRUE(true);  // Test passes if exception is thrown
-        QUARISMA_LOG_INFO("Expected exception for invalid device: {}", e.what());
+        MEMORY_LOG_INFO("Expected exception for invalid device: {}", e.what());
     }
 
     try
@@ -305,10 +304,10 @@ MEMORYTEST(GpuDeviceManager, handles_invalid_operations)
     {
         // Expected behavior for invalid device context
         EXPECT_TRUE(true);  // Test passes if exception is thrown
-        QUARISMA_LOG_INFO("Expected exception for invalid device context: {}", e.what());
+        MEMORY_LOG_INFO("Expected exception for invalid device context: {}", e.what());
     }
 
-    QUARISMA_LOG_INFO("GPU device manager error handling test passed");
+    MEMORY_LOG_INFO("GPU device manager error handling test passed");
 }
 
 #endif  // PROJECT_HAS_CUDA

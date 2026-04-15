@@ -441,7 +441,7 @@ void web_dashboard::broadcast_metrics_update(const std::string& /*metrics_json*/
     // For now, just log that we would broadcast
     if (!websocket_clients_.empty())
     {
-        LOGGING_LOG_INFO_DEBUG(
+        MEMORY_LOG_INFO_DEBUG(
             "Broadcasting metrics update to {} clients", websocket_clients_.size());
     }
 }

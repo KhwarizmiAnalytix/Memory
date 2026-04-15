@@ -64,7 +64,7 @@ MEMORYTEST(GpuMemoryPool, validates_configuration_parameters)
     EXPECT_EQ(32 * 1024ULL, custom_config.max_block_size);
     EXPECT_EQ(1.5, custom_config.block_growth_factor);
 
-    QUARISMA_LOG_INFO("GPU memory pool configuration validation test passed");
+    MEMORY_LOG_INFO("GPU memory pool configuration validation test passed");
 }
 
 /**
@@ -93,7 +93,7 @@ MEMORYTEST(GpuMemoryPool, creates_pool_successfully)
     EXPECT_EQ(0, pool->get_peak_allocated_bytes());
     EXPECT_EQ(0, pool->get_active_allocations());
 
-    QUARISMA_LOG_INFO("GPU memory pool creation test passed");
+    MEMORY_LOG_INFO("GPU memory pool creation test passed");
 }
 
 /**
@@ -131,7 +131,7 @@ MEMORYTEST(GpuMemoryBlock, manages_block_metadata_correctly)
     param_block.reuse_count.fetch_add(1);
     EXPECT_EQ(6, param_block.reuse_count.load());
 
-    QUARISMA_LOG_INFO("GPU memory block management test passed");
+    MEMORY_LOG_INFO("GPU memory block management test passed");
 }
 
 /**
@@ -162,11 +162,11 @@ MEMORYTEST(GpuMemoryPool, allocates_and_deallocates_memory)
         // Test deallocation
         pool->deallocate(block1);
 
-        QUARISMA_LOG_INFO("GPU memory pool allocation/deallocation test passed");
+        MEMORY_LOG_INFO("GPU memory pool allocation/deallocation test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory pool allocation failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory pool allocation failed (expected if no GPU): {}", e.what());
     }
 }
 
@@ -209,7 +209,7 @@ MEMORYTEST(GpuMemoryPool, handles_multiple_allocations)
         pool->deallocate(block);
     }
 
-    QUARISMA_LOG_INFO("GPU memory pool multiple allocations test passed");
+    MEMORY_LOG_INFO("GPU memory pool multiple allocations test passed");
 }
 
 /**
@@ -253,11 +253,11 @@ MEMORYTEST(GpuMemoryPool, provides_accurate_statistics)
             EXPECT_GT(after_dealloc_stats.total_deallocations, initial_stats.total_deallocations);
         }
 
-        QUARISMA_LOG_INFO("GPU memory pool statistics test passed");
+        MEMORY_LOG_INFO("GPU memory pool statistics test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory pool statistics test failed (expected if no GPU): {}", e.what());
     }
 }
@@ -295,11 +295,11 @@ MEMORYTEST(GpuMemoryPool, manages_cache_effectively)
             EXPECT_LE(after_clear_stats.cached_memory, stats.cached_memory);
         }
 
-        QUARISMA_LOG_INFO("GPU memory pool cache management test passed");
+        MEMORY_LOG_INFO("GPU memory pool cache management test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory pool cache management failed (expected if no GPU): {}", e.what());
     }
 }
@@ -336,11 +336,11 @@ MEMORYTEST(GpuMemoryPool, supports_different_device_types)
             pool->deallocate(cuda_block_1);
         }
 
-        QUARISMA_LOG_INFO("GPU memory pool device types test passed");
+        MEMORY_LOG_INFO("GPU memory pool device types test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory pool device types test failed (expected if no GPU): {}", e.what());
     }
 }
@@ -367,12 +367,12 @@ MEMORYTEST(GpuMemoryPool, handles_errors_gracefully)
         auto invalid_block = pool->allocate(1024, device_enum::CUDA, 999);
         // Should handle gracefully (may return null or throw)
 
-        QUARISMA_LOG_INFO("GPU memory pool error handling test passed");
+        MEMORY_LOG_INFO("GPU memory pool error handling test passed");
     }
     catch (const std::exception& e)
     {
         // Expected behavior for invalid operations
-        QUARISMA_LOG_INFO("Expected exception in error handling test: {}", e.what());
+        MEMORY_LOG_INFO("Expected exception in error handling test: {}", e.what());
     }
 }
 

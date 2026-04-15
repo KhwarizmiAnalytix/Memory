@@ -45,7 +45,7 @@ MEMORYTEST(GpuMemoryTransfer, provides_singleton_instance)
     // Should be the same instance
     EXPECT_EQ(&manager1, &manager2);
 
-    QUARISMA_LOG_INFO("GPU memory transfer singleton test passed");
+    MEMORY_LOG_INFO("GPU memory transfer singleton test passed");
 }
 
 /**
@@ -70,7 +70,7 @@ MEMORYTEST(GpuMemoryTransfer, supports_all_transfer_directions)
             direction == transfer_direction::HOST_TO_HOST);
     }
 
-    QUARISMA_LOG_INFO("GPU memory transfer directions test passed");
+    MEMORY_LOG_INFO("GPU memory transfer directions test passed");
 }
 
 /**
@@ -95,7 +95,7 @@ MEMORYTEST(GpuMemoryTransfer, tracks_transfer_status)
             status == transfer_status::CANCELLED);
     }
 
-    QUARISMA_LOG_INFO("GPU memory transfer status test passed");
+    MEMORY_LOG_INFO("GPU memory transfer status test passed");
 }
 
 /**
@@ -118,7 +118,7 @@ MEMORYTEST(GpuTransferInfo, manages_transfer_metadata)
     double duration_ms = info.get_duration_ms();
     EXPECT_EQ(0.0, duration_ms);
 
-    QUARISMA_LOG_INFO("GPU transfer info structure test passed");
+    MEMORY_LOG_INFO("GPU transfer info structure test passed");
 }
 
 /**
@@ -148,16 +148,16 @@ MEMORYTEST(GpuStream, creates_and_manages_streams)
             bool is_idle = stream->is_idle();
             EXPECT_TRUE(is_idle || !is_idle);  // Should not crash
 
-            QUARISMA_LOG_INFO("GPU stream creation and management test passed");
+            MEMORY_LOG_INFO("GPU stream creation and management test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU stream creation failed (expected if no CUDA device)");
+            MEMORY_LOG_INFO("GPU stream creation failed (expected if no CUDA device)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU stream test failed (expected if no CUDA device): {}", e.what());
+        MEMORY_LOG_INFO("GPU stream test failed (expected if no CUDA device): {}", e.what());
     }
 }
 
@@ -181,13 +181,13 @@ MEMORYTEST(GpuMemoryTransfer, calculates_optimal_chunk_sizes)
         512 * 1024, transfer_direction::DEVICE_TO_DEVICE, device_enum::CUDA);
     EXPECT_GT(chunk_size_d2d, 0);
 
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO(
         "Optimal chunk sizes - H2D: {}, D2H: {}, D2D: {}",
         chunk_size_h2d,
         chunk_size_d2h,
         chunk_size_d2d);
 
-    QUARISMA_LOG_INFO("GPU memory transfer chunk size calculation test passed");
+    MEMORY_LOG_INFO("GPU memory transfer chunk size calculation test passed");
 }
 
 /**
@@ -208,7 +208,7 @@ MEMORYTEST(GpuMemoryTransfer, provides_transfer_statistics)
     std::string cleared_stats = transfer_manager.get_transfer_statistics();
     EXPECT_TRUE(cleared_stats.empty() || !cleared_stats.empty());  // Should not crash
 
-    QUARISMA_LOG_INFO("GPU memory transfer statistics test passed");
+    MEMORY_LOG_INFO("GPU memory transfer statistics test passed");
 }
 
 /**
@@ -226,11 +226,11 @@ MEMORYTEST(GpuMemoryTransfer, manages_transfer_queue)
         // Test cancelling all transfers (should not throw)
         transfer_manager.cancel_all_transfers();
 
-        QUARISMA_LOG_INFO("GPU memory transfer queue management test passed");
+        MEMORY_LOG_INFO("GPU memory transfer queue management test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory transfer queue management failed: {}", e.what());
+        MEMORY_LOG_INFO("GPU memory transfer queue management failed: {}", e.what());
     }
 }
 
@@ -264,11 +264,11 @@ MEMORYTEST(GpuMemoryTransfer, performs_synchronous_transfers)
             EXPECT_EQ(host_data[i], result_data[i]);
         }
 
-        QUARISMA_LOG_INFO("GPU memory transfer synchronous transfer test passed");
+        MEMORY_LOG_INFO("GPU memory transfer synchronous transfer test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory transfer synchronous test failed: {}", e.what());
+        MEMORY_LOG_INFO("GPU memory transfer synchronous test failed: {}", e.what());
     }
 }
 
@@ -313,11 +313,11 @@ MEMORYTEST(GpuMemoryTransfer, performs_asynchronous_transfers)
             EXPECT_EQ(host_data[i], result_data[i]);
         }
 
-        QUARISMA_LOG_INFO("GPU memory transfer asynchronous transfer test passed");
+        MEMORY_LOG_INFO("GPU memory transfer asynchronous transfer test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory transfer asynchronous test failed: {}", e.what());
+        MEMORY_LOG_INFO("GPU memory transfer asynchronous test failed: {}", e.what());
     }
 }
 
@@ -361,11 +361,11 @@ MEMORYTEST(GpuMemoryTransfer, performs_batch_transfers)
             EXPECT_EQ(src2[i], dst2[i]);
         }
 
-        QUARISMA_LOG_INFO("GPU memory transfer batch transfers test passed");
+        MEMORY_LOG_INFO("GPU memory transfer batch transfers test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory transfer batch test failed: {}", e.what());
+        MEMORY_LOG_INFO("GPU memory transfer batch test failed: {}", e.what());
     }
 }
 
@@ -388,12 +388,12 @@ MEMORYTEST(GpuMemoryTransfer, handles_transfer_errors)
             null_info.status == transfer_status::COMPLETED ||
             null_info.status == transfer_status::FAILED);
 
-        QUARISMA_LOG_INFO("GPU memory transfer error handling test passed");
+        MEMORY_LOG_INFO("GPU memory transfer error handling test passed");
     }
     catch (const std::exception& e)
     {
         // Expected behavior for invalid operations
-        QUARISMA_LOG_INFO("Expected exception in transfer error handling: {}", e.what());
+        MEMORY_LOG_INFO("Expected exception in transfer error handling: {}", e.what());
     }
 }
 

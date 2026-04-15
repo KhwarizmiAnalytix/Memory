@@ -353,11 +353,7 @@ MEMORYTEST(AllocatorPool, zero_size_allocation)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
-    // Zero-size allocation should be handled gracefully
-    auto prev_mode = logging::get_exception_mode();
-    logging::set_exception_mode(logging::exception_mode::THROW);
     ASSERT_ANY_THROW({ pool_allocator->allocate_raw(64, 0); });
-    logging::set_exception_mode(prev_mode);
 
     END_TEST();
 }

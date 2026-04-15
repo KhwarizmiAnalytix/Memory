@@ -47,7 +47,7 @@ MEMORYTEST(GpuMemoryWrapper, constructs_empty_wrapper)
     EXPECT_FALSE(wrapper.owns_memory());
     EXPECT_FALSE(static_cast<bool>(wrapper));
 
-    QUARISMA_LOG_INFO("GPU memory wrapper default construction test passed");
+    MEMORY_LOG_INFO("GPU memory wrapper default construction test passed");
 }
 
 /**
@@ -70,17 +70,16 @@ MEMORYTEST(GpuMemoryWrapper, allocates_typed_memory)
             EXPECT_EQ(device_enum::CUDA, wrapper.device().type());
             EXPECT_EQ(0, wrapper.device().index());
 
-            QUARISMA_LOG_INFO("GPU memory wrapper typed allocation test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper typed allocation test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper allocation returned null (expected if no GPU)");
+            MEMORY_LOG_INFO("GPU memory wrapper allocation returned null (expected if no GPU)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
-            "GPU memory wrapper allocation failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory wrapper allocation failed (expected if no GPU): {}", e.what());
     }
 }
 
@@ -102,17 +101,17 @@ MEMORYTEST(GpuMemoryWrapper, handles_void_specialization)
             EXPECT_FALSE(void_wrapper.empty());
             EXPECT_TRUE(static_cast<bool>(void_wrapper));
 
-            QUARISMA_LOG_INFO("GPU memory wrapper void specialization test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper void specialization test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "GPU memory wrapper void allocation returned null (expected if no GPU)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory wrapper void allocation failed (expected if no GPU): {}", e.what());
     }
 }
@@ -138,7 +137,7 @@ MEMORYTEST(GpuMemoryWrapper, creates_non_owning_wrapper)
     // Clean up raw pointer manually since wrapper doesn't own it
     free(raw_ptr);
 
-    QUARISMA_LOG_INFO("GPU memory wrapper non-owning creation test passed");
+    MEMORY_LOG_INFO("GPU memory wrapper non-owning creation test passed");
 }
 
 /**
@@ -172,7 +171,7 @@ MEMORYTEST(GpuMemoryWrapper, supports_custom_deleter)
     // Custom deleter should have been called
     EXPECT_TRUE(deleter_called);
 
-    QUARISMA_LOG_INFO("GPU memory wrapper custom deleter test passed");
+    MEMORY_LOG_INFO("GPU memory wrapper custom deleter test passed");
 }
 
 /**
@@ -203,16 +202,16 @@ MEMORYTEST(GpuMemoryWrapper, supports_move_semantics)
             EXPECT_FALSE(wrapper1.owns_memory());
             EXPECT_TRUE(wrapper1.empty());
 
-            QUARISMA_LOG_INFO("GPU memory wrapper move semantics test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper move semantics test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper move test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper move test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory wrapper move test failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory wrapper move test failed (expected if no GPU): {}", e.what());
     }
 }
 
@@ -243,16 +242,16 @@ MEMORYTEST(GpuMemoryWrapper, supports_copy_semantics)
             EXPECT_EQ(wrapper1.size(), original_size);
             EXPECT_TRUE(wrapper1.owns_memory());
 
-            QUARISMA_LOG_INFO("GPU memory wrapper copy semantics test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper copy semantics test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper copy test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper copy test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory wrapper copy test failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory wrapper copy test failed (expected if no GPU): {}", e.what());
     }
 }
 
@@ -283,16 +282,16 @@ MEMORYTEST(GpuMemoryWrapper, releases_memory_ownership)
             // Note: In real usage, you'd need to use appropriate deallocation method
             // For this test, we'll just verify the release worked
 
-            QUARISMA_LOG_INFO("GPU memory wrapper memory release test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper memory release test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper release test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper release test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory wrapper release test failed (expected if no GPU): {}", e.what());
     }
 }
@@ -321,17 +320,16 @@ MEMORYTEST(GpuMemoryWrapper, resets_wrapper_state)
             EXPECT_TRUE(wrapper.empty());
             EXPECT_FALSE(static_cast<bool>(wrapper));
 
-            QUARISMA_LOG_INFO("GPU memory wrapper reset test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper reset test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper reset test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper reset test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
-            "GPU memory wrapper reset test failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory wrapper reset test failed (expected if no GPU): {}", e.what());
     }
 }
 
@@ -358,16 +356,16 @@ MEMORYTEST(GpuMemoryWrapper, supports_comparison_operators)
             EXPECT_TRUE(wrapper1 == wrapper1);
             EXPECT_FALSE(wrapper1 != wrapper1);
 
-            QUARISMA_LOG_INFO("GPU memory wrapper comparison operators test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper comparison operators test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper comparison test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper comparison test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory wrapper comparison test failed (expected if no GPU): {}", e.what());
     }
 }
@@ -389,16 +387,16 @@ MEMORYTEST(GpuMemoryWrapper, provides_convenience_functions)
             EXPECT_TRUE(wrapper.owns_memory());
             EXPECT_EQ(device_enum::CUDA, wrapper.device().type());
 
-            QUARISMA_LOG_INFO("GPU memory wrapper convenience functions test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper convenience functions test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper convenience test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper convenience test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU memory wrapper convenience test failed (expected if no GPU): {}", e.what());
     }
 }
@@ -439,16 +437,16 @@ MEMORYTEST(GpuMemoryWrapper, supports_swap_operation)
             EXPECT_EQ(wrapper2.get(), ptr2);
             EXPECT_EQ(wrapper2.size(), size2);
 
-            QUARISMA_LOG_INFO("GPU memory wrapper swap test passed");
+            MEMORY_LOG_INFO("GPU memory wrapper swap test passed");
         }
         else
         {
-            QUARISMA_LOG_INFO("GPU memory wrapper swap test skipped (no GPU allocation)");
+            MEMORY_LOG_INFO("GPU memory wrapper swap test skipped (no GPU allocation)");
         }
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO("GPU memory wrapper swap test failed (expected if no GPU): {}", e.what());
+        MEMORY_LOG_INFO("GPU memory wrapper swap test failed (expected if no GPU): {}", e.what());
     }
 }
 

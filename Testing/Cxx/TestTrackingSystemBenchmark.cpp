@@ -301,7 +301,7 @@ tracking_benchmark_results benchmark_gpu_tracking_allocator(const tracking_bench
     catch (const std::exception& e)
     {
         results.system_name += "-ERROR";
-        QUARISMA_LOG_WARNING("GPU tracking benchmark failed: {}", e.what());
+        MEMORY_LOG_WARNING("GPU tracking benchmark failed: {}", e.what());
     }
 #else
     results.system_name += "-CUDA-DISABLED";

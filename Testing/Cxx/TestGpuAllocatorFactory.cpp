@@ -62,7 +62,7 @@ MEMORYTEST(GpuAllocatorFactory, recommends_appropriate_strategies)
     EXPECT_TRUE(
         strategy3 == gpu_allocation_strategy::POOL || strategy3 == gpu_allocation_strategy::DIRECT);
 
-    QUARISMA_LOG_INFO("GPU allocator factory strategy recommendation test passed");
+    MEMORY_LOG_INFO("GPU allocator factory strategy recommendation test passed");
 }
 
 /**
@@ -94,7 +94,7 @@ MEMORYTEST(GpuAllocatorFactory, validates_device_support_correctly)
         gpu_allocation_strategy::DIRECT, device_enum::CUDA, 999);
     EXPECT_FALSE(invalid_device);  // Should fail for invalid device index
 
-    QUARISMA_LOG_INFO("GPU allocator factory device validation test passed");
+    MEMORY_LOG_INFO("GPU allocator factory device validation test passed");
 }
 
 /**
@@ -118,13 +118,13 @@ MEMORYTEST(GpuAllocatorFactory, provides_readable_strategy_names)
     EXPECT_NE(direct_name, caching_name);
     EXPECT_NE(pool_name, caching_name);
 
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO(
         "Strategy names: DIRECT='{}', POOL='{}', CACHING='{}'",
         direct_name,
         pool_name,
         caching_name);
 
-    QUARISMA_LOG_INFO("GPU allocator factory strategy names test passed");
+    MEMORY_LOG_INFO("GPU allocator factory strategy names test passed");
 }
 
 /**
@@ -153,7 +153,7 @@ MEMORYTEST(GpuAllocatorFactory, creates_optimized_configurations)
     EXPECT_GT(pde_config.pool_min_block_size, 0);
     EXPECT_GT(pde_config.pool_max_block_size, pde_config.pool_min_block_size);
 
-    QUARISMA_LOG_INFO("GPU allocator factory configuration creation test passed");
+    MEMORY_LOG_INFO("GPU allocator factory configuration creation test passed");
 }
 
 /**
@@ -179,11 +179,11 @@ MEMORYTEST(GpuAllocatorFactory, creates_caching_allocators)
         EXPECT_NE(nullptr, ptr);
         float_allocator->deallocate(ptr, 1000);
 
-        QUARISMA_LOG_INFO("GPU allocator factory caching allocator creation test passed");
+        MEMORY_LOG_INFO("GPU allocator factory caching allocator creation test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "Caching allocator creation failed (expected if no CUDA device): {}", e.what());
         // This is acceptable if no CUDA device is available
     }
@@ -210,10 +210,10 @@ MEMORYTEST(GpuAllocatorFactory, handles_invalid_configurations)
     {
         // Expected behavior for invalid configuration
         EXPECT_TRUE(true);  // Test passes if exception is thrown
-        QUARISMA_LOG_INFO("Expected exception for invalid configuration: {}", e.what());
+        MEMORY_LOG_INFO("Expected exception for invalid configuration: {}", e.what());
     }
 
-    QUARISMA_LOG_INFO("GPU allocator factory error handling test passed");
+    MEMORY_LOG_INFO("GPU allocator factory error handling test passed");
 }
 
 /**
@@ -250,11 +250,11 @@ MEMORYTEST(GpuAllocatorFactory, supports_different_template_parameters)
             }
         }
 
-        QUARISMA_LOG_INFO("GPU allocator factory template parameters test passed");
+        MEMORY_LOG_INFO("GPU allocator factory template parameters test passed");
     }
     catch (const std::exception& e)
     {
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "Template allocator creation failed (expected if no CUDA device): {}", e.what());
     }
 }

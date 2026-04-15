@@ -96,31 +96,30 @@ std::string create_memory_bar(size_t current, size_t peak, size_t max_width = 60
  */
 void display_allocator_stats(const std::string& allocator_name, const allocator_stats& stats)
 {
-    QUARISMA_LOG_INFO("\n========================================");
-    QUARISMA_LOG_INFO("Allocator: {}", allocator_name);
-    QUARISMA_LOG_INFO("========================================");
+    MEMORY_LOG_INFO("\n========================================");
+    MEMORY_LOG_INFO("Allocator: {}", allocator_name);
+    MEMORY_LOG_INFO("========================================");
 
     // Basic statistics
-    QUARISMA_LOG_INFO("Allocation Count:     {}", stats.num_allocs.load());
-    QUARISMA_LOG_INFO("Deallocation Count:   {}", stats.num_deallocs.load());
-    QUARISMA_LOG_INFO("Active Allocations:   {}", stats.active_allocations.load());
-    QUARISMA_LOG_INFO("Current Memory Usage: {}", format_bytes(stats.bytes_in_use.load()));
-    QUARISMA_LOG_INFO("Peak Memory Usage:    {}", format_bytes(stats.peak_bytes_in_use.load()));
-    QUARISMA_LOG_INFO("Largest Allocation:   {}", format_bytes(stats.largest_alloc_size.load()));
+    MEMORY_LOG_INFO("Allocation Count:     {}", stats.num_allocs.load());
+    MEMORY_LOG_INFO("Deallocation Count:   {}", stats.num_deallocs.load());
+    MEMORY_LOG_INFO("Active Allocations:   {}", stats.active_allocations.load());
+    MEMORY_LOG_INFO("Current Memory Usage: {}", format_bytes(stats.bytes_in_use.load()));
+    MEMORY_LOG_INFO("Peak Memory Usage:    {}", format_bytes(stats.peak_bytes_in_use.load()));
+    MEMORY_LOG_INFO("Largest Allocation:   {}", format_bytes(stats.largest_alloc_size.load()));
 
     // Memory usage visualization
-    QUARISMA_LOG_INFO("\nMemory Usage Visualization:");
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO("\nMemory Usage Visualization:");
+    MEMORY_LOG_INFO(
         "{}", create_memory_bar(stats.bytes_in_use.load(), stats.peak_bytes_in_use.load()));
 
     // Additional BFC-specific statistics
     if (stats.bytes_reserved.load() > 0)
     {
-        QUARISMA_LOG_INFO("\nBFC Allocator Specific:");
-        QUARISMA_LOG_INFO("Bytes Reserved:       {}", format_bytes(stats.bytes_reserved.load()));
-        QUARISMA_LOG_INFO(
-            "Peak Bytes Reserved:  {}", format_bytes(stats.peak_bytes_reserved.load()));
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO("\nBFC Allocator Specific:");
+        MEMORY_LOG_INFO("Bytes Reserved:       {}", format_bytes(stats.bytes_reserved.load()));
+        MEMORY_LOG_INFO("Peak Bytes Reserved:  {}", format_bytes(stats.peak_bytes_reserved.load()));
+        MEMORY_LOG_INFO(
             "Largest Free Block:   {}", format_bytes(stats.largest_free_block_bytes.load()));
     }
 
@@ -131,13 +130,13 @@ void display_allocator_stats(const std::string& allocator_name, const allocator_
     {
         double avg_alloc_size =
             static_cast<double>(stats.total_bytes_allocated.load()) / total_allocs;
-        QUARISMA_LOG_INFO("\nEfficiency Metrics:");
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO("\nEfficiency Metrics:");
+        MEMORY_LOG_INFO(
             "Average Allocation Size: {}", format_bytes(static_cast<size_t>(avg_alloc_size)));
-        QUARISMA_LOG_INFO("Memory Efficiency:       {:.2f}%", stats.memory_efficiency() * 100.0);
+        MEMORY_LOG_INFO("Memory Efficiency:       {:.2f}%", stats.memory_efficiency() * 100.0);
     }
 
-    QUARISMA_LOG_INFO("========================================\n");
+    MEMORY_LOG_INFO("========================================\n");
 }
 
 /**
@@ -145,32 +144,32 @@ void display_allocator_stats(const std::string& allocator_name, const allocator_
  */
 void display_timing_stats(const std::string& allocator_name, const atomic_timing_stats& timing)
 {
-    QUARISMA_LOG_INFO("\n========================================");
-    QUARISMA_LOG_INFO("Timing Statistics: {}", allocator_name);
-    QUARISMA_LOG_INFO("========================================");
+    MEMORY_LOG_INFO("\n========================================");
+    MEMORY_LOG_INFO("Timing Statistics: {}", allocator_name);
+    MEMORY_LOG_INFO("========================================");
 
-    QUARISMA_LOG_INFO("Total Allocations:    {}", timing.total_allocations.load());
-    QUARISMA_LOG_INFO("Total Deallocations:  {}", timing.total_deallocations.load());
-    QUARISMA_LOG_INFO("Avg Allocation Time:  {:.2f} μs", timing.average_alloc_time_us());
-    QUARISMA_LOG_INFO("Avg Deallocation Time: {:.2f} μs", timing.average_dealloc_time_us());
+    MEMORY_LOG_INFO("Total Allocations:    {}", timing.total_allocations.load());
+    MEMORY_LOG_INFO("Total Deallocations:  {}", timing.total_deallocations.load());
+    MEMORY_LOG_INFO("Avg Allocation Time:  {:.2f} μs", timing.average_alloc_time_us());
+    MEMORY_LOG_INFO("Avg Deallocation Time: {:.2f} μs", timing.average_dealloc_time_us());
 
     uint64_t min_alloc = timing.min_alloc_time_us.load();
     uint64_t max_alloc = timing.max_alloc_time_us.load();
     if (min_alloc != UINT64_MAX)
     {
-        QUARISMA_LOG_INFO("Min Allocation Time:  {} μs", min_alloc);
-        QUARISMA_LOG_INFO("Max Allocation Time:  {} μs", max_alloc);
+        MEMORY_LOG_INFO("Min Allocation Time:  {} μs", min_alloc);
+        MEMORY_LOG_INFO("Max Allocation Time:  {} μs", max_alloc);
     }
 
     uint64_t min_dealloc = timing.min_dealloc_time_us.load();
     uint64_t max_dealloc = timing.max_dealloc_time_us.load();
     if (min_dealloc != UINT64_MAX)
     {
-        QUARISMA_LOG_INFO("Min Deallocation Time: {} μs", min_dealloc);
-        QUARISMA_LOG_INFO("Max Deallocation Time: {} μs", max_dealloc);
+        MEMORY_LOG_INFO("Min Deallocation Time: {} μs", min_dealloc);
+        MEMORY_LOG_INFO("Max Deallocation Time: {} μs", max_dealloc);
     }
 
-    QUARISMA_LOG_INFO("========================================\n");
+    MEMORY_LOG_INFO("========================================\n");
 }
 
 }  // anonymous namespace
@@ -181,7 +180,7 @@ void display_timing_stats(const std::string& allocator_name, const atomic_timing
 
 MEMORYTEST(AllocatorStatistics, CPUAllocatorBasicStats)
 {
-    QUARISMA_LOG_INFO("Testing CPU allocator statistics exposure...");
+    MEMORY_LOG_INFO("Testing CPU allocator statistics exposure...");
 
     // Enable statistics collection
     EnableCPUAllocatorStats();
@@ -221,12 +220,12 @@ MEMORYTEST(AllocatorStatistics, CPUAllocatorBasicStats)
         cpu_alloc->deallocate_raw(ptr);
     }
 
-    QUARISMA_LOG_INFO("CPU allocator statistics test completed successfully");
+    MEMORY_LOG_INFO("CPU allocator statistics test completed successfully");
 }
 
 MEMORYTEST(AllocatorStatistics, BFCAllocatorStats)
 {
-    QUARISMA_LOG_INFO("Testing BFC allocator statistics exposure...");
+    MEMORY_LOG_INFO("Testing BFC allocator statistics exposure...");
     EnableCPUAllocatorStats();
     // Create BFC allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
@@ -269,13 +268,13 @@ MEMORYTEST(AllocatorStatistics, BFCAllocatorStats)
         bfc_alloc.deallocate_raw(ptr);
     }
 
-    QUARISMA_LOG_INFO("BFC allocator statistics test completed successfully");
+    MEMORY_LOG_INFO("BFC allocator statistics test completed successfully");
 }
 
 MEMORYTEST(AllocatorStatistics, PoolAllocatorStats)
 {
 #if 0
-    QUARISMA_LOG_INFO("Testing Pool allocator statistics exposure...");
+    MEMORY_LOG_INFO("Testing Pool allocator statistics exposure...");
     EnableCPUAllocatorStats();
     // Create pool allocator
     auto base_allocator = std::make_unique<basic_cpu_allocator>(
@@ -337,7 +336,7 @@ MEMORYTEST(AllocatorStatistics, PoolAllocatorStats)
     stats_opt = pool->GetStats();
     ASSERT_TRUE(stats_opt.has_value());
 
-    QUARISMA_LOG_INFO("\nPool Allocator After Reuse:");
+    MEMORY_LOG_INFO("\nPool Allocator After Reuse:");
     display_allocator_stats("Pool Allocator (After Reuse)", stats_opt.value());
 
     // Cleanup
@@ -346,14 +345,14 @@ MEMORYTEST(AllocatorStatistics, PoolAllocatorStats)
         pool->deallocate_raw(ptr);
     }
 
-    QUARISMA_LOG_INFO("Pool allocator statistics test completed successfully");
+    MEMORY_LOG_INFO("Pool allocator statistics test completed successfully");
 #endif
 }
 
 MEMORYTEST(AllocatorStatistics, TrackingAllocatorStats)
 {
 #if 0
-    QUARISMA_LOG_INFO("Testing Tracking allocator statistics and timing...");
+    MEMORY_LOG_INFO("Testing Tracking allocator statistics and timing...");
 
     // Create tracking allocator
     auto base_allocator = std::make_unique<basic_cpu_allocator>(
@@ -395,10 +394,10 @@ MEMORYTEST(AllocatorStatistics, TrackingAllocatorStats)
 
     // Get efficiency metrics
     auto [utilization, overhead, efficiency] = tracking->GetEfficiencyMetrics();
-    QUARISMA_LOG_INFO("\nEfficiency Analysis:");
-    QUARISMA_LOG_INFO("Utilization Ratio: {:.2f}%", utilization * 100.0);
-    QUARISMA_LOG_INFO("Overhead Ratio:    {:.2f}%", overhead * 100.0);
-    QUARISMA_LOG_INFO("Efficiency Score:  {:.2f}%", efficiency * 100.0);
+    MEMORY_LOG_INFO("\nEfficiency Analysis:");
+    MEMORY_LOG_INFO("Utilization Ratio: {:.2f}%", utilization * 100.0);
+    MEMORY_LOG_INFO("Overhead Ratio:    {:.2f}%", overhead * 100.0);
+    MEMORY_LOG_INFO("Efficiency Score:  {:.2f}%", efficiency * 100.0);
 
     // Verify statistics
     EXPECT_GT(stats_opt->num_allocs.load(), 0);
@@ -418,7 +417,7 @@ MEMORYTEST(AllocatorStatistics, TrackingAllocatorStats)
     // The pool will be automatically destroyed when it goes out of scope after this function returns.
     tracking->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Tracking allocator statistics test completed successfully");
+    MEMORY_LOG_INFO("Tracking allocator statistics test completed successfully");
 #endif
 }
 
@@ -427,7 +426,7 @@ MEMORYTEST(AllocatorStatistics, TrackingAllocatorStats)
 // Root cause appears to be related to allocator_pool/allocator_tracking lifecycle management
 MEMORYTEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
 {
-    QUARISMA_LOG_INFO("Testing allocation size distribution visualization...");
+    MEMORY_LOG_INFO("Testing allocation size distribution visualization...");
 
     // Create tracking allocator for detailed analysis
     auto base_allocator = std::make_unique<basic_cpu_allocator>(
@@ -512,9 +511,9 @@ MEMORYTEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
     }
 
     // Display histogram
-    QUARISMA_LOG_INFO("\n========================================");
-    QUARISMA_LOG_INFO("Allocation Size Distribution");
-    QUARISMA_LOG_INFO("========================================");
+    MEMORY_LOG_INFO("\n========================================");
+    MEMORY_LOG_INFO("Allocation Size Distribution");
+    MEMORY_LOG_INFO("========================================");
 
     int max_count = 0;
     for (const auto& [bucket, count] : size_buckets)
@@ -526,10 +525,10 @@ MEMORYTEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
     {
         int         bar_length = max_count > 0 ? (count * 50) / max_count : 0;
         std::string bar(bar_length, '#');
-        QUARISMA_LOG_INFO("{:15} | {:4} | {}", bucket, count, bar);
+        MEMORY_LOG_INFO("{:15} | {:4} | {}", bucket, count, bar);
     }
 
-    QUARISMA_LOG_INFO("========================================\n");
+    MEMORY_LOG_INFO("========================================\n");
 
     // Cleanup
     for (void* ptr : ptrs)
@@ -543,12 +542,12 @@ MEMORYTEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
     // The pool will be automatically destroyed when it goes out of scope after this function returns.
     tracking->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Allocation size distribution test completed successfully");
+    MEMORY_LOG_INFO("Allocation size distribution test completed successfully");
 }
 
 MEMORYTEST(AllocatorStatistics, ComprehensiveVisualization)
 {
-    QUARISMA_LOG_INFO("Testing comprehensive allocator visualization with ASCII visualizer...");
+    MEMORY_LOG_INFO("Testing comprehensive allocator visualization with ASCII visualizer...");
 
     // Create tracking allocator
     auto base_allocator = std::make_unique<basic_cpu_allocator>(
@@ -601,14 +600,14 @@ MEMORYTEST(AllocatorStatistics, ComprehensiveVisualization)
         stats_opt->peak_bytes_in_use.load(),
         10ULL * 1024ULL * 1024ULL);  // 10 MB limit
 
-    QUARISMA_LOG_INFO("\n{}", usage_bars);
+    MEMORY_LOG_INFO("\n{}", usage_bars);
 
     // Get timing statistics
     auto timing_stats = tracking->GetTimingStats();
 
     // Create performance summary
     std::string perf_summary = visualizer.create_performance_summary(timing_stats);
-    QUARISMA_LOG_INFO("\n{}", perf_summary);
+    MEMORY_LOG_INFO("\n{}", perf_summary);
 
     // Create allocation size histogram
     auto records = tracking->GetEnhancedRecords();
@@ -622,11 +621,11 @@ MEMORYTEST(AllocatorStatistics, ComprehensiveVisualization)
     }
 
     std::string histogram = visualizer.create_histogram(alloc_sizes_for_histogram);
-    QUARISMA_LOG_INFO("\n{}", histogram);
+    MEMORY_LOG_INFO("\n{}", histogram);
 
     // Generate comprehensive report
     std::string report = tracking->GenerateReport(false);
-    QUARISMA_LOG_INFO("\n{}", report);
+    MEMORY_LOG_INFO("\n{}", report);
 
     // Verify visualizations were created
     EXPECT_FALSE(usage_bars.empty());
@@ -646,12 +645,12 @@ MEMORYTEST(AllocatorStatistics, ComprehensiveVisualization)
     // The pool will be automatically destroyed when it goes out of scope after this function returns.
     tracking->GetRecordsAndUnRef();
 
-    QUARISMA_LOG_INFO("Comprehensive visualization test completed successfully");
+    MEMORY_LOG_INFO("Comprehensive visualization test completed successfully");
 }
 
 MEMORYTEST(AllocatorStatistics, AllAllocatorsComparison)
 {
-    QUARISMA_LOG_INFO("Testing statistics comparison across all allocator types...");
+    MEMORY_LOG_INFO("Testing statistics comparison across all allocator types...");
 
     struct AllocatorTestResult
     {
@@ -774,17 +773,17 @@ MEMORYTEST(AllocatorStatistics, AllAllocatorsComparison)
     }
 
     // Display comparison table
-    QUARISMA_LOG_INFO("\n========================================");
-    QUARISMA_LOG_INFO("Allocator Comparison Summary");
-    QUARISMA_LOG_INFO("========================================");
-    QUARISMA_LOG_INFO(
+    MEMORY_LOG_INFO("\n========================================");
+    MEMORY_LOG_INFO("Allocator Comparison Summary");
+    MEMORY_LOG_INFO("========================================");
+    MEMORY_LOG_INFO(
         "{:20} | {:12} | {:12} | {:12} | {:10}",
         "Allocator",
         "Allocs",
         "Peak Memory",
         "Avg Size",
         "Efficiency");
-    QUARISMA_LOG_INFO("{:-<20}-+-{:-<12}-+-{:-<12}-+-{:-<12}-+-{:-<10}", "", "", "", "", "");
+    MEMORY_LOG_INFO("{:-<20}-+-{:-<12}-+-{:-<12}-+-{:-<12}-+-{:-<10}", "", "", "", "", "");
 
     for (const auto& result : results)
     {
@@ -792,7 +791,7 @@ MEMORYTEST(AllocatorStatistics, AllAllocatorsComparison)
         size_t  peak     = result.stats.peak_bytes_in_use.load();
         double  avg_size = allocs > 0 ? result.stats.average_allocation_size() : 0.0;
 
-        QUARISMA_LOG_INFO(
+        MEMORY_LOG_INFO(
             "{:20} | {:12} | {:12} | {:12} | {:9.2f}%",
             result.name,
             allocs,
@@ -801,9 +800,9 @@ MEMORYTEST(AllocatorStatistics, AllAllocatorsComparison)
             result.efficiency * 100.0);
     }
 
-    QUARISMA_LOG_INFO("========================================\n");
+    MEMORY_LOG_INFO("========================================\n");
 
     EXPECT_GT(results.size(), 0);
 
-    QUARISMA_LOG_INFO("All allocators comparison test completed successfully");
+    MEMORY_LOG_INFO("All allocators comparison test completed successfully");
 }
