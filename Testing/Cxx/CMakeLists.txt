@@ -36,12 +36,8 @@ target_compile_definitions(
                          QUARISMA_GOOGLE_TEST USE_GTEST _VARIADIC_MAX=10
 )
 
-target_include_directories(
-  MemoryCxxTests PRIVATE "${CMAKE_SOURCE_DIR}/Library/Core/Testing" "${CMAKE_SOURCE_DIR}/Library/Core"
-)
-
 target_link_libraries(
-  MemoryCxxTests PRIVATE Memory::gtest Memory::gtest_main Memory::Memory Memory::build
+  MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory Memory::build
 )
 
 set_target_properties(
@@ -69,9 +65,6 @@ if(MEMORY_ENABLE_BENCHMARK)
     set(target_name "benchmark_memory_${bench_suffix_lower}")
 
     add_executable(${target_name} "${_bench_source}")
-    target_include_directories(
-      ${target_name} PRIVATE "${CMAKE_SOURCE_DIR}/Library/Core"
-    )
     target_link_libraries(
       ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory Memory::build
     )

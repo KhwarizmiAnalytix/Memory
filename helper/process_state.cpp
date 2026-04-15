@@ -37,15 +37,12 @@
 #include <utility>
 #include <vector>
 
-#include "common/memory_macros.h"
-//#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
+#include "common/memory_macros.h"
 #include "cpu/allocator.h"
-#include "util/env.h"
 #include "util/exception.h"
-#include "util/string_util.h"
 
 namespace memory
 {

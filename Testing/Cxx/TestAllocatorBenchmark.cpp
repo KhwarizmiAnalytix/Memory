@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <memory>
 #include <random>
 #include <thread>
 #include <vector>
@@ -18,7 +19,6 @@
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
-#include "common/pointer.h"
 #include "helper/memory_allocator.h"
 
 using namespace memory;

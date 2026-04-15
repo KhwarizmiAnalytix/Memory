@@ -15,13 +15,13 @@
 
 #include <chrono>
 #include <memory>
+#include <memory>
 #include <thread>
 #include <vector>
 
 #include "MemoryTest.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
-#include "common/pointer.h"
 #include "cpu/allocator_cpu.h"
 #include "helper/memory_allocator.h"
 

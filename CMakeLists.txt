@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 option(MEMORY_ENABLE_LTO "Enable Link Time Optimization for Memory" OFF)
-# HIP is controlled by MEMORY_ENABLE_HIPA, declared in Library/Memory/Cmake/hip.cmake
+# HIP is controlled by MEMORY_ENABLE_HIP, declared in Library/Memory/Cmake/hip.cmake
 # (included below via include(hip)). Do not add a separate MEMORY_ENABLE_HIP here.
 option(MEMORY_ENABLE_MIMALLOC "Enable Microsoft mimalloc high-performance memory allocator support." ON)
 mark_as_advanced(MEMORY_ENABLE_MIMALLOC)
@@ -31,12 +31,15 @@ endif()
 # included exclusively here.
 # =============================================================================
 include(cuda)        # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
-include(hip)         # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIPA=ON
+include(hip)         # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIP=ON
 include(tbb_memory)  # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
 include(numa)        # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
 
 # Link runtime libraries directly: ThirdParty/CMakeLists.txt can no longer do this
 # because these modules now run after ThirdParty.
+if(MEMORY_ENABLE_CUDA AND DEFINED PROJECT_CUDA_LIBRARIES)
+  list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
+endif()
 if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
   list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)
 endif()
@@ -60,7 +63,7 @@ else()
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0)
 endif()
 
-if(MEMORY_ENABLE_HIPA)
+if(MEMORY_ENABLE_HIP)
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=1)
 else()
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=0)
@@ -76,6 +79,12 @@ if(MEMORY_ENABLE_NUMA)
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=1)
 else()
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=0)
+endif()
+
+if(MEMORY_ENABLE_MEMKIND)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MEMKIND=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MEMKIND=0)
 endif()
 
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
@@ -104,7 +113,7 @@ file(
 list(FILTER memory_sources EXCLUDE REGEX ".*/Testing/.*")
 list(FILTER memory_headers EXCLUDE REGEX ".*/Testing/.*")
 
-if(NOT MEMORY_ENABLE_CUDA OR MEMORY_ENABLE_HIP)
+if(NOT MEMORY_ENABLE_CUDA AND NOT MEMORY_ENABLE_HIP)
   file(GLOB_RECURSE GPU_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.cpp")
   file(GLOB_RECURSE GPU_HEADER_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.h"
        "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.hxx")
@@ -149,11 +158,19 @@ else()
   target_compile_options(Memory PRIVATE -include cstdlib)
 endif()
 
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/Testing/MemoryTest.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/Testing/MemoryTest.h"
+  @ONLY
+)
+
 # Include roots: Library/Memory → "allocator.h", "backend/...", "common/memory_export.h"
 target_include_directories(
   Memory
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Testing>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Testing>
          $<INSTALL_INTERFACE:include>
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -166,7 +183,7 @@ if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 
-target_link_libraries(Memory PUBLIC Memory::build Memory::Logging)
+target_link_libraries(Memory PUBLIC Memory::build)
 
 if(COMMAND memory_target_clang_tidy)
   memory_target_clang_tidy(Memory)

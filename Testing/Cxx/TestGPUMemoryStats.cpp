@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <cuda_runtime.h>
 
@@ -29,11 +29,10 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <thread>
 #include <vector>
-
-#include "common/pointer.h"
 //#include "logger/logger.h"
 #include "allocator.h"
 #include "common/data_ptr.h"
@@ -480,7 +479,7 @@ void TestGPUStatsThreadSafety()
     test_gpu_memory_stats::test_gpu_stats_thread_safety();
 }
 
-#else  // !PROJECT_HAS_CUDA
+#else  // !MEMORY_HAS_CUDA
 
 // Stub implementations when CUDA is not available
 void TestGPUTimingStats()
@@ -508,7 +507,7 @@ void TestGPUStatsThreadSafety()
     MEMORY_LOG_INFO("⚠ CUDA not enabled - GPU thread safety tests skipped");
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA
 
 // Main test function expected by the test framework
 MEMORYTEST(TestGPUMemoryStats, test)

@@ -14,12 +14,12 @@
 
 #include <chrono>
 #include <memory>
+#include <memory>
 #include <thread>
 #include <vector>
 
 #include "MemoryTest.h"
 #include "backend/allocator_pool.h"
-#include "common/pointer.h"
 #include "cpu/allocator.h"
 #include "helper/memory_allocator.h"
 #include "util/exception.h"

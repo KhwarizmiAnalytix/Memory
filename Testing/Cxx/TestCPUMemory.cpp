@@ -23,6 +23,7 @@
 #include <functional>   // for function, _Func_class
 #include <limits>       // for numeric_limits
 #include <memory>       // for make_unique, unique_ptr, _Simple_types, allocator
+#include <memory>       // for make_ptr_unique_mutable
 #include <optional>     // for optional
 #include <string>       // for char_traits, operator<<, string, operator+, to_string, basic...
 #include <type_traits>  // for is_trivial
@@ -32,7 +33,6 @@
 #include "backend/allocator_bfc.h"  // for allocator_bfc
 #include "backend/allocator_pool.h"  // for basic_cpu_allocator, allocator_pool, NoopRounder, round_up_i...
 #include "backend/allocator_tracking.h"  // for allocator_tracking, enhanced_alloc_record, tracking_log_level
-#include "common/pointer.h"              // for make_ptr_unique_mutable
 #include "cpu/allocator.h"  // for sub_allocator, allocation_attributes, Allocator, allocator_m...
 
 #if PROJECT_HAS_CUDA || PROJECT_HAS_HIP

@@ -19,11 +19,11 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <vector>
 
 #include "MemoryTest.h"
-#include "common/pointer.h"
 //#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"

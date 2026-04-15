@@ -14,13 +14,13 @@
 
 #include <chrono>
 #include <memory>
+#include <memory>
 #include <thread>
 #include <vector>
 
 #include "MemoryTest.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
-#include "common/pointer.h"
 #include "helper/memory_allocator.h"
 #if PROJECT_HAS_NATIVE_PROFILER && 0
 #include "native/analysis/statistical_analyzer.h"
