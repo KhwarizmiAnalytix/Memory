@@ -1,6 +1,30 @@
 # Memory module (standalone; same layout pattern as Library/Parallel).
 cmake_minimum_required(VERSION 3.16)
 
+option(MEMORY_ENABLE_LTO "Enable Link Time Optimization for Memory" OFF)
+# HIP is controlled by MEMORY_ENABLE_HIPA, declared in Library/Memory/Cmake/hip.cmake
+# (included below via include(hip)). Do not add a separate MEMORY_ENABLE_HIP here.
+option(MEMORY_ENABLE_MIMALLOC "Enable Microsoft mimalloc high-performance memory allocator support." ON)
+mark_as_advanced(MEMORY_ENABLE_MIMALLOC)
+option(MEMORY_ENABLE_MEMKIND "Enable memkind allocator" OFF)
+option(MEMORY_ENABLE_BENCHMARK "Enable google benchmark for Memory" OFF)
+
+set(MEMORY_GPU_ALLOC "POOL_ASYNC"
+    CACHE STRING "GPU allocation strategy to use. Options are SYNC, ASYNC, POOL_ASYNC"
+)
+set_property(CACHE MEMORY_GPU_ALLOC PROPERTY STRINGS SYNC ASYNC POOL_ASYNC)
+if(NOT MEMORY_GPU_ALLOC MATCHES "^(SYNC|ASYNC|POOL_ASYNC)$")
+  message(FATAL_ERROR "Invalid MEMORY_GPU_ALLOC: ${MEMORY_GPU_ALLOC}. Valid options are: SYNC, ASYNC, POOL_ASYNC")
+endif()
+
+# Platform constraints: NUMA and Memkind are Unix-only
+if(NOT UNIX)
+  set(MEMORY_ENABLE_NUMA OFF CACHE BOOL "Enable numa node" FORCE)
+endif()
+if(NOT UNIX OR APPLE)
+  set(MEMORY_ENABLE_MEMKIND OFF CACHE BOOL "Enable memkind allocator" FORCE)
+endif()
+
 # =============================================================================
 # Memory-owned CMake configuration
 # All GPU and TBB allocator modules live in Library/Memory/Cmake/ and are
@@ -9,11 +33,18 @@ cmake_minimum_required(VERSION 3.16)
 include(cuda)        # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
 include(hip)         # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIPA=ON
 include(tbb_memory)  # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
+include(numa)        # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
 
-# Link TBB allocator directly: ThirdParty/CMakeLists.txt can no longer do this
-# because tbb_memory.cmake now runs after ThirdParty.
+# Link runtime libraries directly: ThirdParty/CMakeLists.txt can no longer do this
+# because these modules now run after ThirdParty.
 if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
   list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)
+endif()
+if(MEMORY_ENABLE_NUMA AND TARGET Numa::numa)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Numa::numa)
+endif()
+if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Mimalloc::mimalloc)
 endif()
 
 # Map feature flags to compile definitions scoped to this module.
@@ -33,6 +64,18 @@ if(MEMORY_ENABLE_HIPA)
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=1)
 else()
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=0)
+endif()
+
+if(MEMORY_ENABLE_MIMALLOC)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MIMALLOC=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MIMALLOC=0)
+endif()
+
+if(MEMORY_ENABLE_NUMA)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=0)
 endif()
 
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
@@ -115,7 +158,7 @@ target_include_directories(
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(PROFILER_HAS_NATIVE_PROFILER OR PROFILER_ENABLE_NATIVE_PROFILER)
+if(PROFILER_HAS_NATIVE OR PROFILER_ENABLE_NATIVE_PROFILER)
   target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Profiler>)
 endif()
 
