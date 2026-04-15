@@ -36,26 +36,40 @@ endif()
 
 find_package(CUDAToolkit REQUIRED)
 
-# Workaround for CMake 4.2.0-rc3 regression (bug): the internal variable
-# _CMAKE_CUDA_WHOLE_FLAG is checked by the CMake generator before
-# Compiler/NVIDIA-CUDA.cmake (which sets it) is loaded inside the try_compile
-# subprocess used by CMakeTestCUDACompiler.  Setting COMPILER_FORCED skips
-# that broken test; the actual nvcc/Clang compiler works fine.
-# Remove this once a stable CMake release ships the fix.
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.2")
+# Workaround: When Clang is used as the CUDA compiler, CMake's internal
+# variables _CMAKE_CUDA_WHOLE_FLAG and CMAKE_CUDA_COMPILE_OBJECT are not
+# reliably propagated to the generator's directory scope — this manifests as a
+# hard error during the generation phase on CMake 3.28 and CMake 4.2+.
+# Setting CMAKE_CUDA_COMPILER_FORCED skips the compiler test subprocess that
+# triggers the broken variable lookup; Clang + CUDA 12 is known-good.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(CMAKE_CUDA_COMPILER_FORCED TRUE)
 endif()
 
 # Enable CUDA language support
 enable_language(CUDA)
 
-# Workaround: Clang as CUDA compiler never loads Compiler/NVIDIA-CUDA.cmake,
-# so _CMAKE_CUDA_WHOLE_FLAG (used by the CMake generator for CUDA link rules)
-# is left undefined.  CMake 4.2 made this a hard error during generation.
-# Setting it to an empty string is safe — Clang does not use whole-archive
-# flags for CUDA device code.
-if(NOT DEFINED _CMAKE_CUDA_WHOLE_FLAG)
-  set(_CMAKE_CUDA_WHOLE_FLAG "")
+# Persist CUDA language rules to the CMake cache so every directory scope
+# can access them during generation.
+#
+# Root cause: enable_language(CUDA) is called from Library/Memory (a
+# subdirectory), so CMakeCUDAInformation.cmake and Compiler/Clang-CUDA.cmake
+# are loaded only in Memory's configure-phase directory scope.  The Ninja
+# generator later processes Library/Core/Testing/Cxx (which contains
+# CudaEnzymeADTest.cu) in a separate directory scope that never ran
+# CMakeCUDAInformation.cmake, so it cannot find these variables.
+# Storing them as CACHE INTERNAL makes them globally visible across all
+# directory scopes without overriding any per-directory regular variable.
+if(NOT _CMAKE_CUDA_WHOLE_FLAG)
+  # Clang uses plain -c; no whole-archive wrapper is needed.
+  set(_CMAKE_CUDA_WHOLE_FLAG "-c" CACHE INTERNAL "Clang CUDA whole-object flag")
+endif()
+if(NOT CMAKE_CUDA_COMPILE_OBJECT)
+  # Mirrors the template in CMakeCUDAInformation.cmake for Clang.
+  # _CMAKE_COMPILE_AS_CUDA_FLAG = "-x cuda" (from Clang-CUDA.cmake)
+  set(CMAKE_CUDA_COMPILE_OBJECT
+    "<CMAKE_CUDA_COMPILER>  <DEFINES> <INCLUDES> <FLAGS> -x cuda <CUDA_COMPILE_MODE> <SOURCE> -o <OBJECT>"
+    CACHE INTERNAL "CUDA compile-object rule for Clang")
 endif()
 
 # Version checks using consistent CUDAToolkit variables

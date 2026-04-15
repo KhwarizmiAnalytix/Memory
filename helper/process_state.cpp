@@ -28,6 +28,8 @@
 
 #include "helper/process_state.h"
 
+#include <fmt/format.h>
+
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -57,12 +59,11 @@ process_state::process_state() : numa_enabled_(false), cpu_allocators_cached_(0)
 
 std::string process_state::MemDesc::debug_string() const
 {
-    return logging::strings::str_cat(
+    return fmt::format(
+        "{}{}, dma: {}, nic: {}",
         (loc == CPU ? "CPU " : "GPU "),
         dev_index,
-        ", dma: ",
         gpu_registered,
-        ", nic: ",
         nic_registered);
 }
 
@@ -103,9 +104,9 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
 
         bool       use_allocator_bfc      = false;
         bool const use_allocator_tracking = false;
-
-        MEMORY_UNUSED auto status = logging::utils::read_env_bool(
-            "CPU_ALLOCATOR_USE_BFC", alloc_visitors_defined, &use_allocator_bfc);
+        //fixme:
+        //MEMORY_UNUSED auto status = logging::utils::read_env_bool(
+        //    "CPU_ALLOCATOR_USE_BFC", alloc_visitors_defined, &use_allocator_bfc);
 
         Allocator*     allocator = nullptr;
         sub_allocator* sub_allocator =
@@ -117,9 +118,9 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
         {
             // TODO(reedwm): evaluate whether 64GB by default is the best choice.
             int64_t cpu_mem_limit_in_mb = -1;
-
-            MEMORY_UNUSED auto const status2 = logging::utils::read_env_int64(
-                "CPU_BFC_MEM_LIMIT_IN_MB", 1LL << 16 /*64GB max by default*/, &cpu_mem_limit_in_mb);
+            //fixme:
+            //MEMORY_UNUSED auto const status2 = logging::utils::read_env_int64(
+            //    "CPU_BFC_MEM_LIMIT_IN_MB", 1LL << 16 /*64GB max by default*/, &cpu_mem_limit_in_mb);
             int64_t const cpu_mem_limit = cpu_mem_limit_in_mb * (1LL << 20);
             MEMORY_CHECK_DEBUG(sub_allocator != nullptr);
 
