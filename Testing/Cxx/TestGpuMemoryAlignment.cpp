@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -25,17 +25,17 @@
 #include <string>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_memory_alignment.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test alignment configuration validation
  */
-QUARISMATEST(GpuMemoryAlignment, validates_alignment_configuration)
+MEMORYTEST(GpuMemoryAlignment, validates_alignment_configuration)
 {
     // Test valid configuration
     alignment_config valid_config;
@@ -59,7 +59,7 @@ QUARISMATEST(GpuMemoryAlignment, validates_alignment_configuration)
 /**
  * @brief Test basic size alignment functionality
  */
-QUARISMATEST(GpuMemoryAlignment, aligns_sizes_correctly)
+MEMORYTEST(GpuMemoryAlignment, aligns_sizes_correctly)
 {
     // Test size alignment
     size_t size         = 100;
@@ -85,7 +85,7 @@ QUARISMATEST(GpuMemoryAlignment, aligns_sizes_correctly)
 /**
  * @brief Test pointer alignment functionality
  */
-QUARISMATEST(GpuMemoryAlignment, aligns_pointers_correctly)
+MEMORYTEST(GpuMemoryAlignment, aligns_pointers_correctly)
 {
     // Test pointer alignment
     char  buffer[256];
@@ -112,7 +112,7 @@ QUARISMATEST(GpuMemoryAlignment, aligns_pointers_correctly)
 /**
  * @brief Test coalesced memory access alignment
  */
-QUARISMATEST(GpuMemoryAlignment, optimizes_for_coalesced_access)
+MEMORYTEST(GpuMemoryAlignment, optimizes_for_coalesced_access)
 {
     alignment_config config;
     config.base_alignment    = 128;
@@ -146,7 +146,7 @@ QUARISMATEST(GpuMemoryAlignment, optimizes_for_coalesced_access)
 /**
  * @brief Test optimal stride calculation for 2D arrays
  */
-QUARISMATEST(GpuMemoryAlignment, calculates_optimal_strides)
+MEMORYTEST(GpuMemoryAlignment, calculates_optimal_strides)
 {
     alignment_config config;
     config.base_alignment       = 128;
@@ -175,7 +175,7 @@ QUARISMATEST(GpuMemoryAlignment, calculates_optimal_strides)
 /**
  * @brief Test padded width calculation for bank conflict avoidance
  */
-QUARISMATEST(GpuMemoryAlignment, calculates_padded_widths)
+MEMORYTEST(GpuMemoryAlignment, calculates_padded_widths)
 {
     alignment_config config;
     config.base_alignment       = 128;
@@ -203,7 +203,7 @@ QUARISMATEST(GpuMemoryAlignment, calculates_padded_widths)
 /**
  * @brief Test SIMD alignment requirements
  */
-QUARISMATEST(GpuMemoryAlignment, provides_simd_alignment)
+MEMORYTEST(GpuMemoryAlignment, provides_simd_alignment)
 {
     // Test SIMD alignment for different vector sizes
     size_t float_simd_8 = gpu_memory_alignment::get_simd_alignment<float>(8);
@@ -225,7 +225,7 @@ QUARISMATEST(GpuMemoryAlignment, provides_simd_alignment)
 /**
  * @brief Test optimal memory layout calculation for multi-dimensional arrays
  */
-QUARISMATEST(GpuMemoryAlignment, calculates_optimal_layouts)
+MEMORYTEST(GpuMemoryAlignment, calculates_optimal_layouts)
 {
     alignment_config config;
     config.base_alignment       = 128;
@@ -260,7 +260,7 @@ QUARISMATEST(GpuMemoryAlignment, calculates_optimal_layouts)
 /**
  * @brief Test GPU architecture detection
  */
-QUARISMATEST(GpuMemoryAlignment, detects_gpu_architecture)
+MEMORYTEST(GpuMemoryAlignment, detects_gpu_architecture)
 {
     // Test CUDA architecture detection
     auto arch_75 = gpu_memory_alignment::detect_architecture(device_enum::CUDA, 7, 5, "");
@@ -282,7 +282,7 @@ QUARISMATEST(GpuMemoryAlignment, detects_gpu_architecture)
 /**
  * @brief Test optimal configuration for different architectures and access patterns
  */
-QUARISMATEST(GpuMemoryAlignment, provides_optimal_configurations)
+MEMORYTEST(GpuMemoryAlignment, provides_optimal_configurations)
 {
     // Test configuration for different architectures and access patterns
     auto sequential_config = gpu_memory_alignment::get_optimal_config(
@@ -308,7 +308,7 @@ QUARISMATEST(GpuMemoryAlignment, provides_optimal_configurations)
 /**
  * @brief Test alignment report generation
  */
-QUARISMATEST(GpuMemoryAlignment, generates_alignment_reports)
+MEMORYTEST(GpuMemoryAlignment, generates_alignment_reports)
 {
     alignment_config config;
     config.base_alignment       = 128;

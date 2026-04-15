@@ -37,11 +37,11 @@
 #include <string>      // for string
 #include <vector>      // for vector
 
-#include "common/memory_export.h"  // for MEMORY_API
-#include "common/memory_macros.h"                // for MEMORY_UNUSED
-#include "backend/sub_allocator.h"         // for sub_allocator, allocator_memory_enum
+#include "backend/sub_allocator.h"          // for sub_allocator, allocator_memory_enum
+#include "common/memory_export.h"           // for MEMORY_API
+#include "common/memory_macros.h"           // for MEMORY_UNUSED
 #include "profiler/unified_memory_stats.h"  // for allocator_stats
-#include "util/exception.h"               // for check_msg_impl, LOGGING_CHECK
+#include "util/exception.h"                 // for check_msg_impl, LOGGING_CHECK
 
 namespace memory
 {
@@ -271,8 +271,8 @@ public:
      * ```
      */
     virtual void* allocate_raw(
-        size_t                                       alignment,
-        size_t                                       num_bytes,
+        size_t                                     alignment,
+        size_t                                     num_bytes,
         MEMORY_UNUSED const allocation_attributes& allocation_attr)
     {
         // Default implementation ignores attributes and delegates to simple version
@@ -415,7 +415,7 @@ public:
      */
     virtual size_t RequestedSize(MEMORY_UNUSED const void* ptr) const
     {
-        //LOGGING_LOG_ERROR("Allocator '" << Name() << "' doesn't track allocation sizes");
+        //MEMORY_LOG_ERROR("Allocator '" << Name() << "' doesn't track allocation sizes");
         return size_t{0};
     }
 
@@ -759,7 +759,7 @@ struct MEMORY_VISIBILITY allocator_attributes
         value |= other.value;
         if (scope_id != other.scope_id)
         {
-            LOGGING_CHECK(
+            MEMORY_CHECK(
                 scope_id == 0 || other.scope_id == 0,
                 "Cannot merge allocator_attributes with conflicting scope_ids: ",
                 scope_id,

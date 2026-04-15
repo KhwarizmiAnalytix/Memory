@@ -45,7 +45,7 @@
 #include <map>
 #include <utility>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "helper/memory_allocator.h"
 #if MEMORY_HAS_NATIVE_PROFILER && 0
 #include "native/tracing/traceme.h"
@@ -55,11 +55,11 @@
 namespace memory
 {
 allocator_pool::allocator_pool(
-    size_t                                   pool_size_limit,
-    bool                                     auto_resize,
+    size_t                                 pool_size_limit,
+    bool                                   auto_resize,
     std::unique_ptr<memory::sub_allocator> allocator,
-    std::unique_ptr<round_up_interface>      size_rounder,
-    std::string                              name)
+    std::unique_ptr<round_up_interface>    size_rounder,
+    std::string                            name)
     : name_(std::move(name)),
       has_size_limit_(pool_size_limit > 0),
       auto_resize_(auto_resize),
@@ -69,7 +69,7 @@ allocator_pool::allocator_pool(
 {
     if (auto_resize)
     {
-        LOGGING_CHECK(pool_size_limit > 0, "size limit must be > 0 if auto_resize is true.");
+        MEMORY_CHECK(pool_size_limit > 0, "size limit must be > 0 if auto_resize is true.");
     }
 }
 
@@ -119,7 +119,7 @@ void* PrepareChunk(void* chunk, size_t alignment, size_t num_bytes)
         (reinterpret_cast<ChunkPrefix*>(user_ptr) - 1)->chunk_ptr = chunk;
     }
     // Safety check that user_ptr is always past the ChunkPrefix.
-    LOGGING_CHECK(user_ptr >= reinterpret_cast<ChunkPrefix*>(chunk) + 1);
+    MEMORY_CHECK(user_ptr >= reinterpret_cast<ChunkPrefix*>(chunk) + 1);
     return user_ptr;
 }
 
@@ -132,7 +132,7 @@ ChunkPrefix* FindPrefix(void* user_ptr)
 
 void* allocator_pool::allocate_raw(size_t alignment, size_t num_bytes)
 {
-    LOGGING_CHECK(
+    MEMORY_CHECK(
         static_cast<std::ptrdiff_t>(num_bytes) > 0, "Cannot allocate {} bytes.", num_bytes);
 
     // If alignment is larger than kPoolAlignment, increase num_bytes so that we
@@ -186,7 +186,7 @@ void allocator_pool::deallocate_raw(void* ptr)
         return;
     }
     ChunkPrefix* cp = FindPrefix(ptr);
-    LOGGING_CHECK(static_cast<void*>(cp) <= static_cast<void*>(ptr));
+    MEMORY_CHECK(static_cast<void*>(cp) <= static_cast<void*>(ptr));
     if (!has_size_limit_ && !auto_resize_)
     {
         allocator_->Free(cp, cp->num_bytes);
@@ -243,7 +243,7 @@ void allocator_pool::RemoveFromList(PtrRecord* ptr)
 {
     if (ptr->prev == nullptr)
     {
-        LOGGING_CHECK(lru_head_ == ptr);
+        MEMORY_CHECK(lru_head_ == ptr);
         lru_head_ = ptr->next;
     }
     else
@@ -252,7 +252,7 @@ void allocator_pool::RemoveFromList(PtrRecord* ptr)
     }
     if (ptr->next == nullptr)
     {
-        LOGGING_CHECK(lru_tail_ == ptr);
+        MEMORY_CHECK(lru_tail_ == ptr);
         lru_tail_ = ptr->prev;
     }
     else
@@ -266,7 +266,7 @@ void allocator_pool::AddToList(PtrRecord* pr)
     pr->prev = nullptr;
     if (lru_head_ == nullptr)
     {
-        LOGGING_CHECK(lru_tail_ == nullptr);
+        MEMORY_CHECK(lru_tail_ == nullptr);
         lru_tail_ = pr;
         pr->next  = nullptr;
     }
@@ -280,13 +280,13 @@ void allocator_pool::AddToList(PtrRecord* pr)
 
 void allocator_pool::EvictOne()
 {
-    LOGGING_CHECK(lru_tail_ != nullptr);
+    MEMORY_CHECK(lru_tail_ != nullptr);
     PtrRecord* prec = lru_tail_;
     RemoveFromList(prec);
     auto range = pool_.equal_range(prec->num_bytes);
     auto iter =
         std::find_if(range.first, range.second, [prec](const auto& p) { return p.second == prec; });
-    LOGGING_CHECK(iter != range.second);
+    MEMORY_CHECK(iter != range.second);
     pool_.erase(iter);
     allocator_->Free(prec->ptr, prec->num_bytes);
     delete prec;
@@ -307,7 +307,7 @@ void allocator_pool::EvictOne()
         const bool kShouldLog = false;
         if (kShouldLog)
         {
-            LOGGING_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "allocator_pool: After {} get requests, put_count={} evicted_count={} "
                 "eviction_rate={} and unsatisfied allocation rate={}",
                 alloc_request_count,
@@ -323,7 +323,7 @@ void allocator_pool::EvictOne()
                                         : (kIncreaseFactor * pool_size_limit_);
             if (kShouldLog)
             {
-                LOGGING_LOG_INFO(
+                MEMORY_LOG_INFO(
                     "Raising pool_size_limit_ from {} to {}", pool_size_limit_, new_size_limit);
             }
             pool_size_limit_ = new_size_limit;

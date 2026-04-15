@@ -76,7 +76,7 @@ void allocator_device::deallocate_raw(void* ptr)
     if (result != cudaSuccess)
     {
         // Log error but don't throw from free
-        LOGGING_LOG_ERROR("CUDA error in allocator_device::free: {}", std::to_string(result));
+        MEMORY_LOG_ERROR("CUDA error in allocator_device::free: {}", std::to_string(result));
     }
 #else
     cpu::memory_allocator::free(ptr);

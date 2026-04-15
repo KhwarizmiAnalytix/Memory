@@ -38,7 +38,7 @@
 #include <vector>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
@@ -124,7 +124,7 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
             MEMORY_UNUSED auto const status2 = logging::utils::read_env_int64(
                 "CPU_BFC_MEM_LIMIT_IN_MB", 1LL << 16 /*64GB max by default*/, &cpu_mem_limit_in_mb);
             int64_t const cpu_mem_limit = cpu_mem_limit_in_mb * (1LL << 20);
-            LOGGING_CHECK_DEBUG(sub_allocator != nullptr);
+            MEMORY_CHECK_DEBUG(sub_allocator != nullptr);
 
             allocator_bfc::Options allocator_opts;
             allocator_opts.allow_growth = true;
@@ -135,7 +135,7 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
                 /*name=*/"bfc_cpu_allocator_for_gpu",
                 allocator_opts);
 
-            LOGGING_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "Using allocator_bfc with memory limit of {} MB for process_state CPU allocator",
                 cpu_mem_limit_in_mb);
         }
@@ -148,7 +148,7 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
                 std::unique_ptr<round_up_interface>(new NoopRounder),
                 "cpu_pool");
 
-            LOGGING_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "Using allocator_pool for process_state CPU allocator numa_enabled_={} "
                 "numa_node={}",
                 numa_enabled_,
@@ -173,7 +173,7 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
         }
         if (sub_allocator == nullptr)
         {
-            LOGGING_CHECK_DEBUG(cpu_alloc_visitors_.empty() && cpu_free_visitors_.empty());
+            MEMORY_CHECK_DEBUG(cpu_alloc_visitors_.empty() && cpu_free_visitors_.empty());
         }
     }
     return cpu_allocators_[numa_node];
@@ -181,9 +181,9 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
 
 void process_state::AddCPUAllocVisitor(sub_allocator::Visitor visitor)
 {
-    LOGGING_LOG_INFO("AddCPUAllocVisitor");
+    MEMORY_LOG_INFO("AddCPUAllocVisitor");
     std::scoped_lock const lock(mu_);
-    LOGGING_CHECK(
+    MEMORY_CHECK(
         cpu_allocators_.empty(),
         "AddCPUAllocVisitor must be called prior to first call to "
         "process_state::GetCPUAllocator");
@@ -193,7 +193,7 @@ void process_state::AddCPUAllocVisitor(sub_allocator::Visitor visitor)
 void process_state::AddCPUFreeVisitor(sub_allocator::Visitor visitor)
 {
     std::scoped_lock const lock(mu_);
-    LOGGING_CHECK(
+    MEMORY_CHECK(
         cpu_allocators_.empty(),
         "AddCPUFreeVisitor must be called prior to first call to "
         "process_state::GetCPUAllocator");

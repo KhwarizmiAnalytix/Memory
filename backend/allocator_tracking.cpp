@@ -45,7 +45,7 @@
 #include <utility>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "cpu/allocator.h"
 #include "profiler/unified_memory_stats.h"
 #include "util/exception.h"
@@ -73,7 +73,7 @@ allocator_tracking::allocator_tracking(
     // Log initialization if enabled
     if (log_level_.load(std::memory_order_relaxed) >= tracking_log_level::INFO)
     {
-        LOGGING_LOG_INFO(
+        MEMORY_LOG_INFO(
             "allocator_tracking initialized: track_sizes={}, enhanced={}, underlying={}",
             track_sizes_locally_,
             enhanced_tracking_enabled_,
@@ -92,7 +92,7 @@ void* allocator_tracking::allocate_raw(
     if (current_log_level >= tracking_log_level::DEBUG_LEVEL)
     {
         // Simplified logging to avoid macro issues
-        // LOGGING_LOG_INFO("allocator_tracking::allocate_raw: "
+        // MEMORY_LOG_INFO("allocator_tracking::allocate_raw: "
         //                + std::to_string(num_bytes) + " bytes, alignment=" + std::to_string(alignment));
     }
 
@@ -131,7 +131,7 @@ void* allocator_tracking::allocate_raw(
     {
         if (current_log_level >= tracking_log_level::WARNING)
         {
-            LOGGING_LOG_WARNING(
+            MEMORY_LOG_WARNING(
                 "allocator_tracking::allocate_raw failed: {} bytes, alignment={}",
                 num_bytes,
                 alignment);
@@ -143,7 +143,7 @@ void* allocator_tracking::allocate_raw(
     if (current_log_level >= tracking_log_level::TRACE)
     {
         // Simplified logging to avoid macro issues
-        // LOGGING_LOG_INFO("allocator_tracking::allocate_raw success: ptr="
+        // MEMORY_LOG_INFO("allocator_tracking::allocate_raw success: ptr="
         //                + std::to_string(reinterpret_cast<uintptr_t>(ptr)) + ", "
         //                + std::to_string(num_bytes) + " bytes, time="
         //                + std::to_string(duration_us) + "μs");
@@ -294,7 +294,7 @@ void allocator_tracking::deallocate_raw(void* ptr)
     if (current_log_level >= tracking_log_level::TRACE)
     {
         // Simplified logging to avoid macro issues
-        // LOGGING_LOG_INFO("allocator_tracking::deallocate_raw: ptr="
+        // MEMORY_LOG_INFO("allocator_tracking::deallocate_raw: ptr="
         //                + std::to_string(reinterpret_cast<uintptr_t>(ptr)));
     }
 
@@ -327,7 +327,7 @@ void allocator_tracking::deallocate_raw(void* ptr)
         std::unique_lock<std::mutex> const lock(mu_);
         if (tracks_allocation_sizes)
         {
-            LOGGING_CHECK_DEBUG(allocated_ >= allocated_bytes);
+            MEMORY_CHECK_DEBUG(allocated_ >= allocated_bytes);
             allocated_ -= allocated_bytes;
             int64_t const tmp = std::chrono::duration_cast<std::chrono::microseconds>(
                                     std::chrono::steady_clock::now().time_since_epoch())
@@ -387,7 +387,7 @@ void allocator_tracking::deallocate_raw(void* ptr)
     if (current_log_level >= tracking_log_level::TRACE)
     {
         // Simplified logging to avoid macro issues
-        // LOGGING_LOG_INFO("allocator_tracking::deallocate_raw success: ptr="
+        // MEMORY_LOG_INFO("allocator_tracking::deallocate_raw success: ptr="
         //                + std::to_string(reinterpret_cast<uintptr_t>(ptr)) + ", time="
         //                + std::to_string(duration_us) + "μs");
     }
@@ -396,7 +396,7 @@ void allocator_tracking::deallocate_raw(void* ptr)
     {
         if (current_log_level >= tracking_log_level::INFO)
         {
-            LOGGING_LOG_INFO("allocator_tracking self-destructing: ref_count=0");
+            MEMORY_LOG_INFO("allocator_tracking self-destructing: ref_count=0");
         }
         delete this;
     }
@@ -508,7 +508,7 @@ std::vector<alloc_record> allocator_tracking::GetCurrentRecords()
 
 bool allocator_tracking::UnRef()
 {
-    LOGGING_CHECK_DEBUG(ref_ > 0);
+    MEMORY_CHECK_DEBUG(ref_ > 0);
     --ref_;
     return (ref_ == 0);
 }
@@ -594,8 +594,7 @@ void allocator_tracking::SetLoggingLevel(tracking_log_level level) noexcept
 
     if (level >= tracking_log_level::INFO)
     {
-        LOGGING_LOG_INFO(
-            "allocator_tracking logging level changed to: {}", static_cast<int>(level));
+        MEMORY_LOG_INFO("allocator_tracking logging level changed to: {}", static_cast<int>(level));
     }
 }
 
@@ -610,7 +609,7 @@ void allocator_tracking::ResetTimingStats() noexcept
 
     if (log_level_.load(std::memory_order_relaxed) >= tracking_log_level::INFO)
     {
-        LOGGING_LOG_INFO("allocator_tracking timing statistics reset");
+        MEMORY_LOG_INFO("allocator_tracking timing statistics reset");
     }
 }
 

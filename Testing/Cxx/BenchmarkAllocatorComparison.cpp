@@ -27,7 +27,7 @@
 
 #include "common/macros.h"
 #include "common/pointer.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
@@ -188,17 +188,13 @@ static void BM_BFCAllocator_BatchAllocation(benchmark::State& state)
 // Pool Allocator Benchmarks
 // =============================================================================
 
-static void BM_PoolAllocator_SmallAllocation(QUARISMA_UNUSED benchmark::State& state)
+static void BM_PoolAllocator_SmallAllocation(MEMORY_UNUSED benchmark::State& state)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<sub_allocator::Visitor>{}, std::vector<sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
-        0,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "bench_pool");
+        0, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "bench_pool");
 
     const size_t size = static_cast<size_t>(state.range(0));
 
@@ -215,15 +211,11 @@ static void BM_PoolAllocator_SmallAllocation(QUARISMA_UNUSED benchmark::State& s
 
 static void BM_PoolAllocator_BatchAllocation(benchmark::State& state)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<sub_allocator::Visitor>{}, std::vector<sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
-        0,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "bench_pool_batch");
+        0, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "bench_pool_batch");
 
     const size_t size       = static_cast<size_t>(state.range(0));
     const int    batch_size = static_cast<int>(state.range(1));
@@ -254,14 +246,14 @@ static void BM_PoolAllocator_BatchAllocation(benchmark::State& state)
 
 static void BM_Fragmentation_MixedSizes(benchmark::State& state)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<sub_allocator::Visitor>{}, std::vector<sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
         0,
         false,
         std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
+        std::make_unique<NoopRounder>(),
         "bench_fragmentation");
 
     const size_t sizes[]   = {32, 64, 128, 256, 512, 1024, 2048, 4096};
@@ -335,15 +327,11 @@ static void BM_ThreadContention_CPUAllocator(benchmark::State& state)
 
 static void BM_ThreadContention_PoolAllocator(benchmark::State& state)
 {
-    static auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    static auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<sub_allocator::Visitor>{}, std::vector<sub_allocator::Visitor>{});
 
     static auto pool = std::make_unique<allocator_pool>(
-        0,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "bench_thread_pool");
+        0, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "bench_thread_pool");
 
     const size_t size = 1024;
 

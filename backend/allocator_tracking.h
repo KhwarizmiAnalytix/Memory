@@ -39,11 +39,10 @@
 #include <vector>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
+#include "common/memory_export.h"
 #include "cpu/allocator.h"
 #include "profiler/unified_memory_stats.h"
-#include "util/flat_hash.h"
-#include "common/memory_export.h"
 
 namespace memory
 {
@@ -760,7 +759,7 @@ private:
      * **Value**: Chunk metadata with size and ID information
      * **Lifecycle**: Entries added on allocation, removed on deallocation
      */
-    logging::logging_map<const void*, Chunk> in_use_ MEMORY_GUARDED_BY(mu_);
+    memory_map<const void*, Chunk> in_use_ MEMORY_GUARDED_BY(mu_);
 
     /**
      * @brief Counter for generating unique allocation IDs.

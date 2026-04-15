@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "gpu/allocator_gpu.h"
 #include "gpu/cuda_caching_allocator.h"
 #include "helper/memory_allocator.h"
@@ -19,8 +19,8 @@
 #include <cuda_runtime.h>
 #endif
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 namespace
 {
@@ -102,7 +102,7 @@ private:
 /**
  * @brief Test basic CUDA allocator functionality
  */
-QUARISMATEST(AllocatorCuda, BasicFunctionality)
+MEMORYTEST(AllocatorCuda, BasicFunctionality)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -144,7 +144,7 @@ QUARISMATEST(AllocatorCuda, BasicFunctionality)
 /**
  * @brief Test allocator properties and metadata
  */
-QUARISMATEST(AllocatorCuda, AllocatorProperties)
+MEMORYTEST(AllocatorCuda, AllocatorProperties)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -184,7 +184,7 @@ QUARISMATEST(AllocatorCuda, AllocatorProperties)
 /**
  * @brief Test statistics collection
  */
-QUARISMATEST(AllocatorCuda, Statistics)
+MEMORYTEST(AllocatorCuda, Statistics)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -231,7 +231,7 @@ QUARISMATEST(AllocatorCuda, Statistics)
 /**
  * @brief Test multi-threaded allocation
  */
-QUARISMATEST(AllocatorCuda, MultiThreaded)
+MEMORYTEST(AllocatorCuda, MultiThreaded)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -301,7 +301,7 @@ QUARISMATEST(AllocatorCuda, MultiThreaded)
 /**
  * @brief Test large allocation handling
  */
-QUARISMATEST(AllocatorCuda, LargeAllocations)
+MEMORYTEST(AllocatorCuda, LargeAllocations)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -347,7 +347,7 @@ QUARISMATEST(AllocatorCuda, LargeAllocations)
 /**
  * @brief Test error handling and edge cases
  */
-QUARISMATEST(AllocatorCuda, ErrorHandling)
+MEMORYTEST(AllocatorCuda, ErrorHandling)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -379,7 +379,7 @@ QUARISMATEST(AllocatorCuda, ErrorHandling)
 /**
  * @brief Compare performance between BFC and Pool strategies
  */
-QUARISMATEST(AllocatorCuda, StrategyComparison)
+MEMORYTEST(AllocatorCuda, StrategyComparison)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -436,7 +436,7 @@ QUARISMATEST(AllocatorCuda, StrategyComparison)
 /**
  * @brief Test basic_gpu_allocator Free method directly
  */
-QUARISMATEST(AllocatorCuda, basic_gpu_allocator_free_method)
+MEMORYTEST(AllocatorCuda, basic_gpu_allocator_free_method)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -480,7 +480,7 @@ QUARISMATEST(AllocatorCuda, basic_gpu_allocator_free_method)
 /**
  * @brief Test allocate_gpu_memory and deallocate_gpu_memory functions directly
  */
-QUARISMATEST(AllocatorCuda, gpu_memory_allocation_functions)
+MEMORYTEST(AllocatorCuda, gpu_memory_allocation_functions)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -489,11 +489,11 @@ QUARISMATEST(AllocatorCuda, gpu_memory_allocation_functions)
     }
 
     // Test gpu::memory_allocator::allocate function
-    void* ptr1 = quarisma::gpu::memory_allocator::allocate(1024, 0);
+    void* ptr1 = memory::gpu::memory_allocator::allocate(1024, 0);
     EXPECT_NE(ptr1, nullptr);
 
     // Test gpu::memory_allocator::free function
-    quarisma::gpu::memory_allocator::free(ptr1, 1024, 0);
+    memory::gpu::memory_allocator::free(ptr1, 1024, 0);
 
     // Test with different sizes
     std::vector<size_t> test_sizes = {256, 1024, 4096, 16384, 65536};
@@ -501,7 +501,7 @@ QUARISMATEST(AllocatorCuda, gpu_memory_allocation_functions)
 
     for (size_t size : test_sizes)
     {
-        void* ptr = quarisma::gpu::memory_allocator::allocate(size, 0);
+        void* ptr = memory::gpu::memory_allocator::allocate(size, 0);
         EXPECT_NE(ptr, nullptr);
         ptrs.push_back(ptr);
     }
@@ -509,18 +509,18 @@ QUARISMATEST(AllocatorCuda, gpu_memory_allocation_functions)
     // Deallocate all
     for (size_t i = 0; i < ptrs.size(); ++i)
     {
-        quarisma::gpu::memory_allocator::free(ptrs[i], test_sizes[i], 0);
+        memory::gpu::memory_allocator::free(ptrs[i], test_sizes[i], 0);
     }
 
     // Test error case - invalid device
-    void* invalid_ptr = quarisma::gpu::memory_allocator::allocate(1024, 999);
+    void* invalid_ptr = memory::gpu::memory_allocator::allocate(1024, 999);
     EXPECT_EQ(invalid_ptr, nullptr);  // Should fail for invalid device
 }
 
 /**
  * @brief Test set_device_context function
  */
-QUARISMATEST(AllocatorCuda, set_device_context_function)
+MEMORYTEST(AllocatorCuda, set_device_context_function)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -529,17 +529,17 @@ QUARISMATEST(AllocatorCuda, set_device_context_function)
     }
 
     // Test setting device context
-    bool result1 = quarisma::gpu::memory_allocator::set_device(0);
+    bool result1 = memory::gpu::memory_allocator::set_device(0);
     EXPECT_TRUE(result1);
 
     // Test with invalid device
-    bool result2 = quarisma::gpu::memory_allocator::set_device(999);
+    bool result2 = memory::gpu::memory_allocator::set_device(999);
     EXPECT_FALSE(result2);  // Should fail for invalid device
 
     // Test setting context multiple times
     for (int i = 0; i < device_count && i < 3; ++i)
     {
-        bool result = quarisma::gpu::memory_allocator::set_device(i);
+        bool result = memory::gpu::memory_allocator::set_device(i);
         EXPECT_TRUE(result);
     }
 }
@@ -547,7 +547,7 @@ QUARISMATEST(AllocatorCuda, set_device_context_function)
 /**
  * @brief Test ClearStats method
  */
-QUARISMATEST(AllocatorCuda, clear_stats_method)
+MEMORYTEST(AllocatorCuda, clear_stats_method)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -582,7 +582,7 @@ QUARISMATEST(AllocatorCuda, clear_stats_method)
 /**
  * @brief Test device_id method
  */
-QUARISMATEST(AllocatorCuda, device_id_method)
+MEMORYTEST(AllocatorCuda, device_id_method)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)

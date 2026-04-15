@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -34,11 +34,11 @@
 #include <vector>
 
 #include "common/pointer.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "allocator.h"
-#include "cpu/allocator_device.h"
 #include "common/data_ptr.h"
 #include "common/device.h"
+#include "cpu/allocator_device.h"
 #include "gpu/cuda_caching_allocator.h"
 #include "gpu/gpu_allocator_factory.h"
 #include "gpu/gpu_allocator_tracking.h"
@@ -50,9 +50,9 @@
 #include "gpu/gpu_resource_tracker.h"
 #include "profiler/unified_memory_stats.h"
 
-using namespace quarisma;
+using namespace memory;
 
-namespace quarisma
+namespace memory
 {
 
 /**
@@ -452,7 +452,7 @@ public:
     }
 };
 
-}  // namespace quarisma
+}  // namespace memory
 
 // Test execution functions
 void TestGPUTimingStats()
@@ -511,7 +511,7 @@ void TestGPUStatsThreadSafety()
 #endif  // PROJECT_HAS_CUDA
 
 // Main test function expected by the test framework
-QUARISMATEST(TestGPUMemoryStats, test)
+MEMORYTEST(TestGPUMemoryStats, test)
 {
     QUARISMA_LOG_INFO("Starting GPU Memory Statistics Tests...");
 

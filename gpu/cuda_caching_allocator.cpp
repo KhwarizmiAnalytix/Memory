@@ -14,12 +14,28 @@
 #include <vector>
 
 #include "common/memory_macros.h"
-#include "logger.h"
 #include "util/exception.h"
-#include "util/flat_hash.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+#endif
+
+#if 0
+#include "util/flat_hash.h"
+
+template <typename T>
+using memory_set = flat_hash_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = flat_hash_map<K, V, H>;
+#else
+#include <unordered_map>
+#include <unordered_set>
+
+template <typename T>
+using memory_set = std::unordered_set<T>;
+template <typename K, typename V>
+using memory_map = std::unordered_map<K, V>;
+
 #endif
 
 namespace memory
@@ -111,7 +127,7 @@ struct cuda_caching_allocator::Impl
 #if MEMORY_HAS_CUDA
         int device_count = 0;
         throw_on_cuda_error(cudaGetDeviceCount(&device_count), "cudaGetDeviceCount");
-        LOGGING_CHECK(  //NOLINT
+        MEMORY_CHECK(  //NOLINT
             device >= 0 && device < device_count,
             "Invalid CUDA device index: {} (available: 0-{})",
             device,
@@ -127,7 +143,7 @@ struct cuda_caching_allocator::Impl
 
     void* allocate(size_t size, cuda_caching_allocator::stream_type stream)
     {
-        LOGGING_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
+        MEMORY_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
 
         // Debug log (simplified for build compatibility)
 
@@ -177,12 +193,12 @@ struct cuda_caching_allocator::Impl
         std::scoped_lock const lock(mutex_);
         auto                   it = blocks_.find(ptr);
 
-        LOGGING_CHECK(
+        MEMORY_CHECK(
             it != blocks_.end(), "cuda_caching_allocator does not own the provided pointer");
 
         Block* block = it->second.get();
 
-        LOGGING_CHECK(block->in_use, "cuda_caching_allocator detected a double free");
+        MEMORY_CHECK(block->in_use, "cuda_caching_allocator detected a double free");
 
         block->in_use = false;
         bytes_in_use_ -= block->size;
@@ -271,7 +287,7 @@ struct cuda_caching_allocator::Impl
     int device() const { return device_; }
 
 private:
-    using BlockMap = logging::logging_map<void*, std::unique_ptr<Block>>;
+    using BlockMap = memory_map<void*, std::unique_ptr<Block>>;
     using FreeList = std::multimap<size_t, Block*>;
 
     bool should_cache(size_t size) const

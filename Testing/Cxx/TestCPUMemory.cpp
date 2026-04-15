@@ -29,29 +29,29 @@
 #include <utility>      // for move, min, max, max_element, min_element
 #include <vector>       // for vector, _Vector_iterator, _Vector_const_iterator
 
-#include "common/pointer.h"                // for make_ptr_unique_mutable
 #include "backend/allocator_bfc.h"  // for allocator_bfc
 #include "backend/allocator_pool.h"  // for basic_cpu_allocator, allocator_pool, NoopRounder, round_up_i...
 #include "backend/allocator_tracking.h"  // for allocator_tracking, enhanced_alloc_record, tracking_log_level
+#include "common/pointer.h"              // for make_ptr_unique_mutable
 #include "cpu/allocator.h"  // for sub_allocator, allocation_attributes, Allocator, allocator_m...
 
 #if PROJECT_HAS_CUDA || PROJECT_HAS_HIP
 #include "cpu/allocator_device.h"  // for allocator_device
 #endif
 
-#include "CoreTest.h"  // for QUARISMATEST_CALL, QUARISMATEST, END_TEST, QUARISMATEST
+#include "MemoryTest.h"               // for MEMORYTEST_CALL, MEMORYTEST, END_TEST, MEMORYTEST
 #include "helper/memory_allocator.h"  // for free, allocate
 #include "helper/process_state.h"     // for process_state
 #include "profiler/unified_memory_stats.h"  // for atomic_timing_stats, unified_resource_stats, memory_fragment...
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 // ============================================================================
 // ALLOCATOR_DEVICE TESTS
 // ============================================================================
 #if PROJECT_HAS_CUDA || PROJECT_HAS_HIP
-QUARISMATEST(AllocatorDevice, basic_allocation)
+MEMORYTEST(AllocatorDevice, basic_allocation)
 {
     auto allocator = std::make_unique<allocator_device>();
 
@@ -87,7 +87,7 @@ QUARISMATEST(AllocatorDevice, basic_allocation)
     END_TEST();
 }
 
-QUARISMATEST(AllocatorDevice, interface)
+MEMORYTEST(AllocatorDevice, interface)
 {
     auto allocator = std::make_unique<allocator_device>();
 
@@ -115,7 +115,7 @@ QUARISMATEST(AllocatorDevice, interface)
     END_TEST();
 }
 
-QUARISMATEST(AllocatorDevice, memory_type)
+MEMORYTEST(AllocatorDevice, memory_type)
 {
     auto allocator = std::make_unique<allocator_device>();
 
@@ -125,7 +125,7 @@ QUARISMATEST(AllocatorDevice, memory_type)
     END_TEST();
 }
 
-QUARISMATEST(AllocatorDevice, error_handling)
+MEMORYTEST(AllocatorDevice, error_handling)
 {
     auto allocator = std::make_unique<allocator_device>();
 
@@ -144,16 +144,16 @@ QUARISMATEST(AllocatorDevice, error_handling)
 #endif
 
 // Test allocator stress scenarios
-QUARISMATEST(AllocatorTest, StressTest)
+MEMORYTEST(AllocatorTest, StressTest)
 {
 #if 0
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
     auto pool = std::make_unique<allocator_pool>(
         50,
         false,
         std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
+        std::make_unique<NoopRounder>(),
         "stress_pool");
 
     const int    num_threads            = 4;
@@ -211,16 +211,14 @@ QUARISMATEST(AllocatorTest, StressTest)
 }
 
 // Test error handling and edge cases
-QUARISMATEST(AllocatorTest, ErrorHandling)
+MEMORYTEST(AllocatorTest, ErrorHandling)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
     auto pool = std::make_unique<allocator_pool>(
-        10,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "error_pool");
+        10, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "error_pool");
 
     // Test null pointer deallocation (should not crash)
     pool->deallocate_raw(nullptr);
@@ -244,16 +242,14 @@ QUARISMATEST(AllocatorTest, ErrorHandling)
 }
 
 // Test memory leak detection
-QUARISMATEST(AllocatorTest, MemoryLeakDetection)
+MEMORYTEST(AllocatorTest, MemoryLeakDetection)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
     auto pool = std::make_unique<allocator_pool>(
-        10,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "leak_pool");
+        10, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "leak_pool");
     auto allocator_tracking = new memory::allocator_tracking(pool.get(), true);
 
     // Get initial statistics
@@ -294,16 +290,14 @@ QUARISMATEST(AllocatorTest, MemoryLeakDetection)
 }
 
 // Test allocator statistics and monitoring
-QUARISMATEST(AllocatorTest, StatisticsAndMonitoring)
+MEMORYTEST(AllocatorTest, StatisticsAndMonitoring)
 {
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
     auto pool = std::make_unique<allocator_pool>(
-        10,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "stats_pool");
+        10, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "stats_pool");
     auto allocator_tracking = new memory::allocator_tracking(pool.get(), true);
 
     // Test statistics collection
@@ -343,7 +337,7 @@ QUARISMATEST(AllocatorTest, StatisticsAndMonitoring)
 // ============================================================================
 
 // Test memory port basic functionality
-QUARISMATEST(MemoryPortTest, BasicMemoryOperations)
+MEMORYTEST(MemoryPortTest, BasicMemoryOperations)
 {
     QUARISMA_LOG_INFO("Testing memory port basic operations...");
 
@@ -357,7 +351,7 @@ QUARISMATEST(MemoryPortTest, BasicMemoryOperations)
 }
 
 // Test memory port alignment requirements
-QUARISMATEST(MemoryPortTest, AlignmentRequirements)
+MEMORYTEST(MemoryPortTest, AlignmentRequirements)
 {
     QUARISMA_LOG_INFO("Testing memory port alignment requirements...");
 
@@ -377,7 +371,7 @@ QUARISMATEST(MemoryPortTest, AlignmentRequirements)
 }
 
 // Test memory port edge cases
-QUARISMATEST(MemoryPortTest, EdgeCases)
+MEMORYTEST(MemoryPortTest, EdgeCases)
 {
     QUARISMA_LOG_INFO("Testing memory port edge cases...");
 
@@ -391,7 +385,7 @@ QUARISMATEST(MemoryPortTest, EdgeCases)
 }
 
 // Test memory port system information
-QUARISMATEST(MemoryPortTest, SystemInformation)
+MEMORYTEST(MemoryPortTest, SystemInformation)
 {
     QUARISMA_LOG_INFO("Testing memory port system information...");
 
@@ -406,7 +400,7 @@ QUARISMATEST(MemoryPortTest, SystemInformation)
 // ============================================================================
 
 // Test allocation attributes construction and behavior
-QUARISMATEST(AllocationAttributesTest, ConstructionAndBehavior)
+MEMORYTEST(AllocationAttributesTest, ConstructionAndBehavior)
 {
     QUARISMA_LOG_INFO("Testing allocation attributes construction and behavior...");
 
@@ -417,7 +411,7 @@ QUARISMATEST(AllocationAttributesTest, ConstructionAndBehavior)
     EXPECT_EQ(nullptr, default_attrs.freed_by_func);
 
     // Test parameterized construction
-    std::function<uint64_t()>       timing_func = []() { return 12345; };
+    std::function<uint64_t()>     timing_func = []() { return 12345; };
     memory::allocation_attributes custom_attrs(true, true, &timing_func);
     EXPECT_TRUE(custom_attrs.retry_on_failure);
     EXPECT_TRUE(custom_attrs.allocation_will_be_logged);
@@ -441,7 +435,7 @@ QUARISMATEST(AllocationAttributesTest, ConstructionAndBehavior)
 }
 
 // Test allocation attributes with timing constraints
-QUARISMATEST(AllocationAttributesTest, TimingConstraints)
+MEMORYTEST(AllocationAttributesTest, TimingConstraints)
 {
     QUARISMA_LOG_INFO("Testing allocation attributes timing constraints...");
 
@@ -473,7 +467,7 @@ QUARISMATEST(AllocationAttributesTest, TimingConstraints)
 // and other dependencies that are not available in the current build configuration
 
 // Test process state singleton functionality and thread safety
-QUARISMATEST(ProcessStateTest, SingletonFunctionality)
+MEMORYTEST(ProcessStateTest, SingletonFunctionality)
 {
     QUARISMA_LOG_INFO("Testing process state singleton functionality...");
 
@@ -490,7 +484,7 @@ QUARISMATEST(ProcessStateTest, SingletonFunctionality)
 }
 
 // Test CPU allocator retrieval and management
-QUARISMATEST(ProcessStateTest, CPUAllocatorManagement)
+MEMORYTEST(ProcessStateTest, CPUAllocatorManagement)
 {
     QUARISMA_LOG_INFO("Testing CPU allocator retrieval and management...");
 
@@ -513,7 +507,7 @@ QUARISMATEST(ProcessStateTest, CPUAllocatorManagement)
     QUARISMA_LOG_INFO("CPU allocator retrieval and management tests completed successfully");
 }
 // Test NUMA enablement and affinity handling
-QUARISMATEST(ProcessStateTest, NUMAHandling)
+MEMORYTEST(ProcessStateTest, NUMAHandling)
 {
     QUARISMA_LOG_INFO("Testing NUMA enablement and affinity handling...");
 
@@ -534,7 +528,7 @@ QUARISMATEST(ProcessStateTest, NUMAHandling)
 }
 
 // Test memory description and pointer type detection
-QUARISMATEST(ProcessStateTest, MemoryDescription)
+MEMORYTEST(ProcessStateTest, MemoryDescription)
 {
     QUARISMA_LOG_INFO("Testing memory description and pointer type detection...");
 
@@ -568,7 +562,7 @@ QUARISMATEST(ProcessStateTest, MemoryDescription)
 }
 
 // Test visitor registration for allocation/deallocation callbacks
-QUARISMATEST(ProcessStateTest, VisitorRegistration)
+MEMORYTEST(ProcessStateTest, VisitorRegistration)
 {
     QUARISMA_LOG_INFO("Testing visitor registration for allocation/deallocation callbacks...");
 
@@ -580,12 +574,12 @@ QUARISMATEST(ProcessStateTest, VisitorRegistration)
 
     auto alloc_visitor =
         [&alloc_visitor_called](
-            QUARISMA_UNUSED void* ptr, QUARISMA_UNUSED int index, QUARISMA_UNUSED size_t num_bytes)
+            MEMORY_UNUSED void* ptr, MEMORY_UNUSED int index, MEMORY_UNUSED size_t num_bytes)
     { alloc_visitor_called = true; };
 
     auto free_visitor =
         [&free_visitor_called](
-            QUARISMA_UNUSED void* ptr, QUARISMA_UNUSED int index, QUARISMA_UNUSED size_t num_bytes)
+            MEMORY_UNUSED void* ptr, MEMORY_UNUSED int index, MEMORY_UNUSED size_t num_bytes)
     { free_visitor_called = true; };
 
     // Note: These must be called before GetCPUAllocator according to the API
@@ -606,13 +600,15 @@ QUARISMATEST(ProcessStateTest, VisitorRegistration)
 // ============================================================================
 
 // Test memory allocation tracking and leak detection
-QUARISMATEST(AllocatorTracking, AllocationTracking)
+MEMORYTEST(AllocatorTracking, AllocationTracking)
 {
     QUARISMA_LOG_INFO("Testing memory allocation tracking and leak detection...");
 
     // Create underlying BFC allocator for testing
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -656,13 +652,15 @@ QUARISMATEST(AllocatorTracking, AllocationTracking)
 }
 
 // Test allocation statistics collection and reporting
-QUARISMATEST(AllocatorTracking, StatisticsCollection)
+MEMORYTEST(AllocatorTracking, StatisticsCollection)
 {
     QUARISMA_LOG_INFO("Testing allocation statistics collection and reporting...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -715,13 +713,15 @@ QUARISMATEST(AllocatorTracking, StatisticsCollection)
 }
 
 // Test memory usage monitoring and bounds checking
-QUARISMATEST(AllocatorTracking, MemoryUsageMonitoring)
+MEMORYTEST(AllocatorTracking, MemoryUsageMonitoring)
 {
     QUARISMA_LOG_INFO("Testing memory usage monitoring and bounds checking...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -778,13 +778,15 @@ QUARISMATEST(AllocatorTracking, MemoryUsageMonitoring)
 }
 
 // Test integration with underlying allocator implementations
-QUARISMATEST(AllocatorTracking, UnderlyingAllocatorIntegration)
+MEMORYTEST(AllocatorTracking, UnderlyingAllocatorIntegration)
 {
     QUARISMA_LOG_INFO("Testing integration with underlying allocator implementations...");
 
     // Test with BFC allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -813,8 +815,10 @@ QUARISMATEST(AllocatorTracking, UnderlyingAllocatorIntegration)
 
     // Test with pool allocator
     auto pool_sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
-    auto size_rounder = util::make_ptr_unique_mutable<NoopRounder>();
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
+    auto size_rounder = std::make_unique<NoopRounder>();
 
     memory::allocator_pool pool_alloc(
         10, false, std::move(pool_sub_allocator), std::move(size_rounder), "test_integration_pool");
@@ -834,13 +838,15 @@ QUARISMATEST(AllocatorTracking, UnderlyingAllocatorIntegration)
 }
 
 // Test enhanced tracking functionality with comprehensive analytics
-QUARISMATEST(AllocatorTracking, EnhancedTrackingAnalytics)
+MEMORYTEST(AllocatorTracking, EnhancedTrackingAnalytics)
 {
     QUARISMA_LOG_INFO("Testing enhanced tracking analytics and performance profiling...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -848,8 +854,8 @@ QUARISMATEST(AllocatorTracking, EnhancedTrackingAnalytics)
         std::move(sub_allocator), 2 * 1024ULL * 1024ULL, "test_enhanced_bfc", opts);
 
     // Create tracking allocator with enhanced tracking enabled
-    auto tracker = new memory::allocator_tracking(
-        &underlying_alloc, true, true);  // Enhanced tracking enabled
+    auto tracker =
+        new memory::allocator_tracking(&underlying_alloc, true, true);  // Enhanced tracking enabled
 
     // Test enhanced timing statistics
     auto initial_timing = tracker->GetTimingStats();
@@ -942,13 +948,15 @@ QUARISMATEST(AllocatorTracking, EnhancedTrackingAnalytics)
 }
 
 // Test logging levels and comprehensive reporting
-QUARISMATEST(AllocatorTracking, LoggingAndReporting)
+MEMORYTEST(AllocatorTracking, LoggingAndReporting)
 {
     QUARISMA_LOG_INFO("Testing logging levels and comprehensive reporting...");
 
     // Create underlying allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -1025,7 +1033,7 @@ struct BenchmarkResult
     double      relative_performance;  // Relative to malloc baseline
 };
 
-QUARISMATEST(AllocatorBenchmark, PerformanceBenchmark)
+MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
 {
     QUARISMA_LOG_INFO("Running Comprehensive Memory Allocator Performance Benchmark...");
 

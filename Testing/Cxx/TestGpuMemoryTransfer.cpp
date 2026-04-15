@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -26,17 +26,17 @@
 #include <memory>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_memory_transfer.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test GPU memory transfer manager singleton access
  */
-QUARISMATEST(GpuMemoryTransfer, provides_singleton_instance)
+MEMORYTEST(GpuMemoryTransfer, provides_singleton_instance)
 {
     // Test singleton access
     auto& manager1 = gpu_memory_transfer::instance();
@@ -51,7 +51,7 @@ QUARISMATEST(GpuMemoryTransfer, provides_singleton_instance)
 /**
  * @brief Test transfer direction enumeration
  */
-QUARISMATEST(GpuMemoryTransfer, supports_all_transfer_directions)
+MEMORYTEST(GpuMemoryTransfer, supports_all_transfer_directions)
 {
     // Test transfer direction enum values
     transfer_direction directions[] = {
@@ -76,7 +76,7 @@ QUARISMATEST(GpuMemoryTransfer, supports_all_transfer_directions)
 /**
  * @brief Test transfer status enumeration
  */
-QUARISMATEST(GpuMemoryTransfer, tracks_transfer_status)
+MEMORYTEST(GpuMemoryTransfer, tracks_transfer_status)
 {
     // Test transfer status enum values
     transfer_status statuses[] = {
@@ -101,7 +101,7 @@ QUARISMATEST(GpuMemoryTransfer, tracks_transfer_status)
 /**
  * @brief Test GPU transfer info structure
  */
-QUARISMATEST(GpuTransferInfo, manages_transfer_metadata)
+MEMORYTEST(GpuTransferInfo, manages_transfer_metadata)
 {
     gpu_transfer_info info;
 
@@ -124,7 +124,7 @@ QUARISMATEST(GpuTransferInfo, manages_transfer_metadata)
 /**
  * @brief Test GPU stream creation and management
  */
-QUARISMATEST(GpuStream, creates_and_manages_streams)
+MEMORYTEST(GpuStream, creates_and_manages_streams)
 {
     try
     {
@@ -164,7 +164,7 @@ QUARISMATEST(GpuStream, creates_and_manages_streams)
 /**
  * @brief Test optimal chunk size calculation
  */
-QUARISMATEST(GpuMemoryTransfer, calculates_optimal_chunk_sizes)
+MEMORYTEST(GpuMemoryTransfer, calculates_optimal_chunk_sizes)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -193,7 +193,7 @@ QUARISMATEST(GpuMemoryTransfer, calculates_optimal_chunk_sizes)
 /**
  * @brief Test transfer statistics and reporting
  */
-QUARISMATEST(GpuMemoryTransfer, provides_transfer_statistics)
+MEMORYTEST(GpuMemoryTransfer, provides_transfer_statistics)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -214,7 +214,7 @@ QUARISMATEST(GpuMemoryTransfer, provides_transfer_statistics)
 /**
  * @brief Test transfer queue management
  */
-QUARISMATEST(GpuMemoryTransfer, manages_transfer_queue)
+MEMORYTEST(GpuMemoryTransfer, manages_transfer_queue)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -237,7 +237,7 @@ QUARISMATEST(GpuMemoryTransfer, manages_transfer_queue)
 /**
  * @brief Test synchronous memory transfer (basic validation)
  */
-QUARISMATEST(GpuMemoryTransfer, performs_synchronous_transfers)
+MEMORYTEST(GpuMemoryTransfer, performs_synchronous_transfers)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -275,7 +275,7 @@ QUARISMATEST(GpuMemoryTransfer, performs_synchronous_transfers)
 /**
  * @brief Test asynchronous memory transfer (basic validation)
  */
-QUARISMATEST(GpuMemoryTransfer, performs_asynchronous_transfers)
+MEMORYTEST(GpuMemoryTransfer, performs_asynchronous_transfers)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -324,7 +324,7 @@ QUARISMATEST(GpuMemoryTransfer, performs_asynchronous_transfers)
 /**
  * @brief Test batch memory transfers
  */
-QUARISMATEST(GpuMemoryTransfer, performs_batch_transfers)
+MEMORYTEST(GpuMemoryTransfer, performs_batch_transfers)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 
@@ -372,7 +372,7 @@ QUARISMATEST(GpuMemoryTransfer, performs_batch_transfers)
 /**
  * @brief Test transfer error handling
  */
-QUARISMATEST(GpuMemoryTransfer, handles_transfer_errors)
+MEMORYTEST(GpuMemoryTransfer, handles_transfer_errors)
 {
     auto& transfer_manager = gpu_memory_transfer::instance();
 

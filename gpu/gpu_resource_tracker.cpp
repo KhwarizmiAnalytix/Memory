@@ -9,9 +9,25 @@
 #include <thread>
 
 #include "common/memory_macros.h"
-#include "logger.h"
 #include "util/exception.h"
+
+#if 0
 #include "util/flat_hash.h"
+
+template <typename T>
+using memory_set = flat_hash_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = flat_hash_map<K, V, H>;
+#else
+#include <unordered_map>
+#include <unordered_set>
+
+template <typename T>
+using memory_set = std::unordered_set<T>;
+template <typename K, typename V>
+using memory_map = std::unordered_map<K, V>;
+
+#endif
 
 // Hash specialization for std::pair<device_enum, int>
 namespace std
@@ -64,10 +80,10 @@ private:
     std::atomic<size_t> next_allocation_id_{1};
 
     /** @brief Map of active allocations (using custom hash for void*) */
-    logging::logging_map<void*, std::shared_ptr<gpu_allocation_info>, void_ptr_hash> active_allocations_;
+    memory_map<void*, std::shared_ptr<gpu_allocation_info>, void_ptr_hash> active_allocations_;
 
     /** @brief Map of all allocations (including deallocated) */
-    logging::logging_map<size_t, std::shared_ptr<gpu_allocation_info>> all_allocations_;
+    memory_map<size_t, std::shared_ptr<gpu_allocation_info>> all_allocations_;
 
     /** @brief Leak detection configuration */
     leak_detection_config leak_config_;
@@ -106,13 +122,13 @@ private:
                         auto leaks = detect_leaks();
                         if (!leaks.empty() && leak_config_.enable_auto_reporting)
                         {
-                            LOGGING_LOG_WARNING(
+                            MEMORY_LOG_WARNING(
                                 "GPU memory leak detection found {} potential leaks", leaks.size());
                             // Log details of first few leaks
                             for (size_t i = 0; i < std::min(leaks.size(), size_t(5)); ++i)
                             {
                                 const auto& leak = leaks[i];
-                                LOGGING_LOG_WARNING(
+                                MEMORY_LOG_WARNING(
                                     "Leak {}: {} bytes at {} allocated in {} ({})",
                                     i + 1,
                                     leak->size,
@@ -209,7 +225,7 @@ public:
         std::scoped_lock const lock(mutex_);
         if (!active_allocations_.empty())
         {
-            LOGGING_LOG_WARNING(
+            MEMORY_LOG_WARNING(
                 "GPU resource tracker destroyed with {} active allocations (potential memory "
                 "leaks)",
                 active_allocations_.size());
@@ -520,7 +536,7 @@ public:
         oss << "  Potential leaks: " << leaks.size() << "\n\n";
 
         // Active allocations by device
-        logging::logging_map<
+        memory_map<
             std::pair<device_enum, int>,
             std::vector<std::shared_ptr<gpu_allocation_info>>,
             std::hash<std::pair<device_enum, int>>>

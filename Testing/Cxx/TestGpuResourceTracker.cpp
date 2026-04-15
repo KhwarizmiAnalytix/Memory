@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 #if 0
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -27,17 +27,17 @@
 #include <thread>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_resource_tracker.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test GPU resource tracker singleton access
  */
-QUARISMATEST(GpuResourceTracker, provides_singleton_instance)
+MEMORYTEST(GpuResourceTracker, provides_singleton_instance)
 {
     // Test singleton access
     auto& tracker1 = gpu_resource_tracker::instance();
@@ -52,7 +52,7 @@ QUARISMATEST(GpuResourceTracker, provides_singleton_instance)
 /**
  * @brief Test leak detection configuration
  */
-QUARISMATEST(GpuResourceTracker, configures_leak_detection)
+MEMORYTEST(GpuResourceTracker, configures_leak_detection)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -80,7 +80,7 @@ QUARISMATEST(GpuResourceTracker, configures_leak_detection)
 /**
  * @brief Test allocation tracking functionality
  */
-QUARISMATEST(GpuResourceTracker, tracks_allocations)
+MEMORYTEST(GpuResourceTracker, tracks_allocations)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -122,7 +122,7 @@ QUARISMATEST(GpuResourceTracker, tracks_allocations)
 /**
  * @brief Test memory access recording
  */
-QUARISMATEST(GpuResourceTracker, records_memory_access)
+MEMORYTEST(GpuResourceTracker, records_memory_access)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -153,7 +153,7 @@ QUARISMATEST(GpuResourceTracker, records_memory_access)
 /**
  * @brief Test statistics collection
  */
-QUARISMATEST(GpuResourceTracker, provides_resource_statistics)
+MEMORYTEST(GpuResourceTracker, provides_resource_statistics)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -193,7 +193,7 @@ QUARISMATEST(GpuResourceTracker, provides_resource_statistics)
 /**
  * @brief Test active allocations retrieval
  */
-QUARISMATEST(GpuResourceTracker, retrieves_active_allocations)
+MEMORYTEST(GpuResourceTracker, retrieves_active_allocations)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -233,7 +233,7 @@ QUARISMATEST(GpuResourceTracker, retrieves_active_allocations)
 /**
  * @brief Test allocations by tag retrieval
  */
-QUARISMATEST(GpuResourceTracker, retrieves_allocations_by_tag)
+MEMORYTEST(GpuResourceTracker, retrieves_allocations_by_tag)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -278,7 +278,7 @@ QUARISMATEST(GpuResourceTracker, retrieves_allocations_by_tag)
 /**
  * @brief Test allocations by device retrieval
  */
-QUARISMATEST(GpuResourceTracker, retrieves_allocations_by_device)
+MEMORYTEST(GpuResourceTracker, retrieves_allocations_by_device)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -336,7 +336,7 @@ QUARISMATEST(GpuResourceTracker, retrieves_allocations_by_device)
 /**
  * @brief Test leak detection functionality
  */
-QUARISMATEST(GpuResourceTracker, detects_memory_leaks)
+MEMORYTEST(GpuResourceTracker, detects_memory_leaks)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -384,7 +384,7 @@ QUARISMATEST(GpuResourceTracker, detects_memory_leaks)
 /**
  * @brief Test report generation
  */
-QUARISMATEST(GpuResourceTracker, generates_resource_reports)
+MEMORYTEST(GpuResourceTracker, generates_resource_reports)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -423,7 +423,7 @@ QUARISMATEST(GpuResourceTracker, generates_resource_reports)
 /**
  * @brief Test tracking enable/disable functionality
  */
-QUARISMATEST(GpuResourceTracker, controls_tracking_state)
+MEMORYTEST(GpuResourceTracker, controls_tracking_state)
 {
     auto& tracker = gpu_resource_tracker::instance();
 
@@ -445,7 +445,7 @@ QUARISMATEST(GpuResourceTracker, controls_tracking_state)
 /**
  * @brief Test data clearing functionality
  */
-QUARISMATEST(GpuResourceTracker, clears_tracking_data)
+MEMORYTEST(GpuResourceTracker, clears_tracking_data)
 {
     auto& tracker = gpu_resource_tracker::instance();
 

@@ -35,10 +35,27 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/memory_export.h"
 #include "common/memory_macros.h"
 #include "cpu/allocator.h"
+
+#if 0
 #include "util/flat_hash.h"
-#include "common/memory_export.h"
+
+template <typename T>
+using memory_set = flat_hash_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = flat_hash_map<K, V, H>;
+#else
+#include <unordered_map>
+#include <unordered_set>
+
+template <typename T>
+using memory_set = std::unordered_set<T>;
+template <typename K, typename V>
+using memory_map = std::unordered_map<K, V>;
+
+#endif
 
 namespace memory
 {
@@ -89,7 +106,7 @@ public:
     // REQUIRES: must be called before GetCPUAllocator.
     MEMORY_API void AddCPUFreeVisitor(sub_allocator::Visitor v);
 
-    typedef logging::logging_map<const void*, MemDesc> MDMap;
+    typedef memory_map<const void*, MemDesc> MDMap;
 
     // Helper method for unit tests to reset the process_state singleton by
     // cleaning up everything. Never use in production.

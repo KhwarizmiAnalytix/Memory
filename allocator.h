@@ -26,10 +26,10 @@
 #include <exception>  // for bad_alloc
 #include <stdexcept>  // for invalid_argument
 
-#include "common/memory_macros.h"         // for MEMORY_FORCE_INLINE, MEMORY_ALIGNMENT, XSIG...
-#include "cpu/allocator.h"  // for Allocator
+#include "common/device.h"         // for device_enum
+#include "common/memory_macros.h"  // for MEMORY_FORCE_INLINE, MEMORY_ALIGNMENT, XSIG...
+#include "cpu/allocator.h"         // for Allocator
 #include "cpu/allocator_device.h"
-#include "common/device.h"                // for device_enum
 #include "helper/process_state.h"  // for process_state
 
 // GPU support includes
@@ -175,7 +175,7 @@ public:
             if (result != cudaSuccess)
             {
                 // Log error but don't throw from free
-                // LOGGING_LOG_ERROR("Failed to set CUDA device during deallocation");
+                // MEMORY_LOG_ERROR("Failed to set CUDA device during deallocation");
             }
 
             // Free GPU memory
@@ -183,7 +183,7 @@ public:
             if (result != cudaSuccess)
             {
                 // Log error but don't throw from free
-                // LOGGING_LOG_ERROR("CUDA free failed");
+                // MEMORY_LOG_ERROR("CUDA free failed");
             }
         }
 #endif

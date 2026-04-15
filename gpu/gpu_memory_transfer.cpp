@@ -10,9 +10,25 @@
 #include <utility>
 
 #include "common/memory_macros.h"
-#include "logger.h"
 #include "util/exception.h"
+
+#if 0
 #include "util/flat_hash.h"
+
+template <typename T>
+using memory_set = flat_hash_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = flat_hash_map<K, V, H>;
+#else
+#include <unordered_map>
+#include <unordered_set>
+
+template <typename T>
+using memory_set = std::unordered_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = std::unordered_map<K, V, H>;
+
+#endif
 
 // Hash specialization for std::pair<device_enum, int>
 namespace std
@@ -165,7 +181,7 @@ private:
     std::atomic<size_t> next_transfer_id_{1};
 
     /** @brief Active transfer operations */
-    logging::logging_map<size_t, std::unique_ptr<transfer_operation>> active_transfers_;
+    memory_map<size_t, std::unique_ptr<transfer_operation>> active_transfers_;
 
     /** @brief Transfer statistics */
     std::atomic<size_t> total_transfers_{0};
@@ -174,7 +190,7 @@ private:
     std::atomic<size_t> failed_transfers_{0};
 
     /** @brief Default streams for each device */
-    logging::logging_map<
+    memory_map<
         std::pair<device_enum, int>,
         std::unique_ptr<gpu_stream>,
         std::hash<std::pair<device_enum, int>>>
@@ -551,7 +567,7 @@ std::unique_ptr<gpu_stream> gpu_stream::create(
 gpu_memory_transfer& gpu_memory_transfer::instance()
 {
     static gpu_memory_transfer_impl instance;
-    return instance;
+    return static_cast<gpu_memory_transfer&>(instance);
 }
 
 }  // namespace gpu

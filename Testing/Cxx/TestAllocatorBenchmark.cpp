@@ -14,14 +14,14 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
-#include "common/pointer.h"
+#include "MemoryTest.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
+#include "common/pointer.h"
 #include "helper/memory_allocator.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -277,7 +277,9 @@ benchmark_results run_allocator_benchmark(Allocator* allocator, const benchmark_
 std::unique_ptr<allocator_bfc> create_bfc_allocator(const std::string& name)
 {
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth           = true;
@@ -294,7 +296,9 @@ std::unique_ptr<allocator_bfc> create_bfc_allocator(const std::string& name)
 std::unique_ptr<allocator_pool> create_pool_allocator(const std::string& name)
 {
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     // Simple no-op rounder for testing
     class NoopRounder : public round_up_interface
@@ -341,7 +345,7 @@ void print_benchmark_results(const std::vector<benchmark_results>& results)
 /**
  * @brief Comprehensive allocator benchmark test
  */
-QUARISMATEST(AllocatorBenchmark, ComprehensiveBenchmark)
+MEMORYTEST(AllocatorBenchmark, ComprehensiveBenchmark)
 {
     std::vector<benchmark_results> all_results;
 

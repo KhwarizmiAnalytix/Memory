@@ -38,15 +38,15 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "backend/allocator_retry.h"
-#include "cpu/allocator.h"
-#include "util/flat_hash.h"
-#include "util/string_util.h"
 #include "common/memory_export.h"
+#include "cpu/allocator.h"
+#include "util/exception.h"
 namespace memory
 {
 /**
@@ -339,9 +339,9 @@ public:
      */
     MEMORY_API allocator_bfc(
         std::unique_ptr<memory::sub_allocator> sub_allocator,
-        size_t                                   total_memory,
-        std::string                              name,
-        const Options&                           opts);
+        size_t                                 total_memory,
+        std::string                            name,
+        const Options&                         opts);
 
     /**
      * @brief Destructor that releases all managed memory back to sub_allocator.
@@ -1010,21 +1010,17 @@ private:
             };
 
             // Core chunk information
-            logging::strings::str_append(
-                &result,
-                "Size: ",
+            result += fmt::format(
+                "Size: {} | Requested: {} | in_use: {} | bin: {}",
                 format_bytes(size),
-                " | Requested: ",
                 format_bytes(requested_size),
-                " | in_use: ",
                 in_use() ? "true" : "false",
-                " | bin: ",
                 bin_num);
 
             // Add timestamp information if relevant
             if (freed_at_count > 0)
             {
-                logging::strings::str_append(&result, " | freed_at: ", freed_at_count);
+                result += fmt::format(" | freed_at: {}", freed_at_count);
             }
 
             // Recursively include adjacent chunk information
@@ -1033,24 +1029,21 @@ private:
                 if (prev != allocator_bfc::kInvalidChunkHandle)
                 {
                     const Chunk* p = a->ChunkFromHandle(prev);
-                    logging::strings::str_append(&result, " | prev: [", p->debug_string(a, false), "]");
+                    result += " | prev: [" + p->debug_string(a, false) + "]";
                 }
                 if (next != allocator_bfc::kInvalidChunkHandle)
                 {
                     const Chunk* n = a->ChunkFromHandle(next);
-                    logging::strings::str_append(&result, " | next: [", n->debug_string(a, false), "]");
+                    result += " | next: [" + n->debug_string(a, false) + "]";
                 }
             }
 
 #ifdef MEMORY_MEM_DEBUG
             // Add debug-specific information
-            logging::strings::str_append(
-                &result,
-                " | op: ",
+            result += fmt::format(
+                " | op: {} | step: {} | action: {}",
                 (op_name ? op_name : "UNKNOWN"),
-                " | step: ",
                 step_id,
-                " | action: ",
                 action_count);
 #endif
 
@@ -1272,7 +1265,7 @@ private:
               memory_size_(memory_size),
               end_ptr_(static_cast<void*>(static_cast<char*>(ptr_) + memory_size_))
         {
-            LOGGING_CHECK(
+            MEMORY_CHECK(
                 memory_size % kMinAllocationSize == 0,
                 "Memory size must be multiple of kMinAllocationSize");
 
@@ -1371,7 +1364,7 @@ private:
         void extend(size_t size)
         {
             memory_size_ += size;
-            LOGGING_CHECK(
+            MEMORY_CHECK(
                 memory_size_ % kMinAllocationSize == 0,
                 "Extended memory size must be multiple of kMinAllocationSize");
 
@@ -1458,8 +1451,8 @@ private:
             const auto p_int    = reinterpret_cast<std::uintptr_t>(p);
             const auto base_int = reinterpret_cast<std::uintptr_t>(ptr_);
 
-            LOGGING_CHECK(p_int >= base_int, "Pointer is before region start");
-            LOGGING_CHECK(p_int <= base_int + memory_size_, "Pointer is beyond region end");
+            MEMORY_CHECK(p_int >= base_int, "Pointer is before region start");
+            MEMORY_CHECK(p_int <= base_int + memory_size_, "Pointer is beyond region end");
 
             return static_cast<size_t>((p_int - base_int) >> kMinAllocationBits);
         }
@@ -1627,7 +1620,7 @@ private:
                 if (preceding_region->end_ptr() == ptr)
                 {
                     // Adjacent memory - extend existing region
-                    LOGGING_LOG_INFO(
+                    MEMORY_LOG_INFO(
                         "Extending region {} ({}) by {} bytes",
                         preceding_region->ptr(),
                         format_bytes(preceding_region->memory_size()),
@@ -1639,7 +1632,7 @@ private:
             }
 
             // No coalescing possible - insert new region
-            LOGGING_LOG_INFO("Adding new region {} ({})", ptr, format_bytes(memory_size));
+            MEMORY_LOG_INFO("Adding new region {} ({})", ptr, format_bytes(memory_size));
 
             regions_.insert(entry, AllocationRegion(ptr, memory_size));
             return nullptr;
@@ -1773,7 +1766,7 @@ private:
                 return &(*entry);
             }
 
-            LOGGING_LOG_ERROR("Could not find region for pointer {}", p);
+            MEMORY_LOG_ERROR("Could not find region for pointer {}", p);
             return nullptr;
         }
 
@@ -1850,7 +1843,7 @@ private:
      * **Side Effects**: Removes regions and associated chunks from allocator
      * **Use Cases**: Garbage collection implementation, cleanup operations
      */
-    void DeallocateRegions(const logging::flat_hash_set<void*>& region_ptrs)
+    void DeallocateRegions(const std::unordered_set<void*>& region_ptrs)
         MEMORY_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     /**
@@ -2127,8 +2120,7 @@ private:
      * **Thread Safety**: Requires mutex protection
      * **Use Cases**: Performance analysis, memory usage debugging, optimization
      */
-    std::array<BinDebugInfo, kNumBins> get_bin_debug_info()
-        MEMORY_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    std::array<BinDebugInfo, kNumBins> get_bin_debug_info() MEMORY_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
     // ========== Immutable Configuration (Set During Construction) ==========
     /**

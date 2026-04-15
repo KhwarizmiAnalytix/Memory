@@ -57,19 +57,19 @@
 #include <hip/hip_runtime.h>
 #endif
 
-#include "logger.h"
+//#include "logger/logger.h"
 
 namespace memory::cpu::memory_allocator
 {
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    LOGGING_CHECK(
+    MEMORY_CHECK(
         static_cast<std::ptrdiff_t>(nbytes) > 0,
         "cpu allocate() called with negative or zero size: {}",
         nbytes);
 
-    LOGGING_CHECK_DEBUG(
+    MEMORY_CHECK_DEBUG(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,
@@ -193,26 +193,26 @@ namespace memory::gpu::memory_allocator
 
 // CUDA error checking helper macros
 #if MEMORY_HAS_CUDA
-#define CUDA_CHECK_RETURN_NULL(call)                                                      \
-    do                                                                                    \
-    {                                                                                     \
-        cudaError_t error = call;                                                         \
-        if (error != cudaSuccess)                                                         \
-        {                                                                                 \
-            LOGGING_LOG_ERROR("CUDA error in {}: {}", #call, cudaGetErrorString(error)); \
-            return nullptr;                                                               \
-        }                                                                                 \
+#define CUDA_CHECK_RETURN_NULL(call)                                                    \
+    do                                                                                  \
+    {                                                                                   \
+        cudaError_t error = call;                                                       \
+        if (error != cudaSuccess)                                                       \
+        {                                                                               \
+            MEMORY_LOG_ERROR("CUDA error in {}: {}", #call, cudaGetErrorString(error)); \
+            return nullptr;                                                             \
+        }                                                                               \
     } while (0)
 
-#define CUDA_CHECK_RETURN_FALSE(call)                                                     \
-    do                                                                                    \
-    {                                                                                     \
-        const cudaError_t error = call;                                                   \
-        if (error != cudaSuccess)                                                         \
-        {                                                                                 \
-            LOGGING_LOG_ERROR("CUDA error in {}: {}", #call, cudaGetErrorString(error)); \
-            return false;                                                                 \
-        }                                                                                 \
+#define CUDA_CHECK_RETURN_FALSE(call)                                                   \
+    do                                                                                  \
+    {                                                                                   \
+        const cudaError_t error = call;                                                 \
+        if (error != cudaSuccess)                                                       \
+        {                                                                               \
+            MEMORY_LOG_ERROR("CUDA error in {}: {}", #call, cudaGetErrorString(error)); \
+            return false;                                                               \
+        }                                                                               \
     } while (0)
 #else
 #define CUDA_CHECK_RETURN_NULL(call) return nullptr
@@ -221,26 +221,26 @@ namespace memory::gpu::memory_allocator
 
 // HIP error checking helper macros
 #if MEMORY_HAS_HIP
-#define HIP_CHECK_RETURN_NULL(call)                                                     \
-    do                                                                                  \
-    {                                                                                   \
-        hipError_t error = call;                                                        \
-        if (error != hipSuccess)                                                        \
-        {                                                                               \
-            LOGGING_LOG_ERROR("HIP error in {}: {}", #call, hipGetErrorString(error)); \
-            return nullptr;                                                             \
-        }                                                                               \
+#define HIP_CHECK_RETURN_NULL(call)                                                   \
+    do                                                                                \
+    {                                                                                 \
+        hipError_t error = call;                                                      \
+        if (error != hipSuccess)                                                      \
+        {                                                                             \
+            MEMORY_LOG_ERROR("HIP error in {}: {}", #call, hipGetErrorString(error)); \
+            return nullptr;                                                           \
+        }                                                                             \
     } while (0)
 
-#define HIP_CHECK_RETURN_FALSE(call)                                                    \
-    do                                                                                  \
-    {                                                                                   \
-        hipError_t error = call;                                                        \
-        if (error != hipSuccess)                                                        \
-        {                                                                               \
-            LOGGING_LOG_ERROR("HIP error in {}: {}", #call, hipGetErrorString(error)); \
-            return false;                                                               \
-        }                                                                               \
+#define HIP_CHECK_RETURN_FALSE(call)                                                  \
+    do                                                                                \
+    {                                                                                 \
+        hipError_t error = call;                                                      \
+        if (error != hipSuccess)                                                      \
+        {                                                                             \
+            MEMORY_LOG_ERROR("HIP error in {}: {}", #call, hipGetErrorString(error)); \
+            return false;                                                             \
+        }                                                                             \
     } while (0)
 #else
 #define HIP_CHECK_RETURN_NULL(call) return nullptr
@@ -248,12 +248,9 @@ namespace memory::gpu::memory_allocator
 #endif
 
 void* allocate(
-    std::size_t           nbytes,
-    int                   device_id,
-    MEMORY_UNUSED void* stream,
-    MEMORY_UNUSED void* memory_pool)
+    std::size_t nbytes, int device_id, MEMORY_UNUSED void* stream, MEMORY_UNUSED void* memory_pool)
 {
-    LOGGING_CHECK(
+    MEMORY_CHECK(
         static_cast<std::ptrdiff_t>(nbytes) > 0,
         "gpu allocate() called with negative or zero size: {}",
         nbytes);
@@ -278,7 +275,7 @@ void* allocate(
     cudaError_t result = cudaMalloc(&ptr, nbytes);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU synchronous allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -292,7 +289,7 @@ void* allocate(
     cudaError_t  result          = cudaMallocAsync(&ptr, nbytes, gpu_stream_cuda);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU asynchronous allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -318,7 +315,7 @@ void* allocate(
 
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU pool-based allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -331,7 +328,7 @@ void* allocate(
     cudaError_t const result = cudaMalloc(&ptr, nbytes);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU default allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -347,7 +344,7 @@ void* allocate(
     hipError_t result = hipMalloc(&ptr, nbytes);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "HIP synchronous allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -361,7 +358,7 @@ void* allocate(
     hipError_t  result     = hipMallocAsync(&ptr, nbytes, hip_stream);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "HIP asynchronous allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -387,7 +384,7 @@ void* allocate(
 
     if (result != hipSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "HIP pool allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -400,7 +397,7 @@ void* allocate(
     hipError_t result = hipMalloc(&ptr, nbytes);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "HIP default allocation failed for {} bytes on device {}: {}",
             nbytes,
             device_id,
@@ -412,17 +409,14 @@ void* allocate(
 #else
     (void)stream;
     (void)memory_pool;
-    LOGGING_LOG_ERROR("GPU support not enabled in this build");
+    MEMORY_LOG_ERROR("GPU support not enabled in this build");
 #endif
 
     return ptr;
 }
 
 void free(
-    void*           ptr,
-    MEMORY_UNUSED std::size_t nbytes,
-    int                         device_id,
-    MEMORY_UNUSED void*       stream) noexcept
+    void* ptr, MEMORY_UNUSED std::size_t nbytes, int device_id, MEMORY_UNUSED void* stream) noexcept
 {
     if (ptr == nullptr)
     {
@@ -439,7 +433,7 @@ void free(
     cudaError_t result = cudaFree(ptr);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "GPU synchronous deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -453,7 +447,7 @@ void free(
     cudaError_t  result          = cudaFreeAsync(ptr, gpu_stream_cuda);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "GPU asynchronous deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -467,7 +461,7 @@ void free(
     const cudaError_t result          = cudaFreeAsync(ptr, gpu_stream_cuda);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "GPU pool-based deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -480,7 +474,7 @@ void free(
     cudaError_t const result = cudaFree(ptr);
     if (result != cudaSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "GPU default deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -496,7 +490,7 @@ void free(
     hipError_t result = hipFree(ptr);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "HIP synchronous deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -510,7 +504,7 @@ void free(
     hipError_t  result     = hipFreeAsync(ptr, hip_stream);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "HIP asynchronous deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -524,7 +518,7 @@ void free(
     hipError_t  result     = hipFreeAsync(ptr, hip_stream);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "HIP pool deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -537,7 +531,7 @@ void free(
     hipError_t result = hipFree(ptr);
     if (result != hipSuccess)
     {
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "HIP default deallocation failed for {} bytes at {} on device {}: {}",
             nbytes,
             ptr,
@@ -574,7 +568,7 @@ int get_current_device() noexcept
     cudaError_t const error     = cudaGetDevice(&device_id);
     if (error != cudaSuccess)
     {
-        LOGGING_LOG_ERROR("Failed to get current CUDA device: {}", cudaGetErrorString(error));
+        MEMORY_LOG_ERROR("Failed to get current CUDA device: {}", cudaGetErrorString(error));
         return -1;
     }
     return device_id;
@@ -583,7 +577,7 @@ int get_current_device() noexcept
     hipError_t error     = hipGetDevice(&device_id);
     if (error != hipSuccess)
     {
-        LOGGING_LOG_ERROR("Failed to get current HIP device: {}", hipGetErrorString(error));
+        MEMORY_LOG_ERROR("Failed to get current HIP device: {}", hipGetErrorString(error));
         return -1;
     }
     return device_id;

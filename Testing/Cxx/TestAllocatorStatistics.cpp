@@ -22,9 +22,9 @@
 #include <sstream>
 #include <vector>
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/pointer.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
@@ -33,7 +33,7 @@
 #include "profiler/unified_memory_stats.h"
 #include "visualization/ascii_visualizer.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -125,8 +125,8 @@ void display_allocator_stats(const std::string& allocator_name, const allocator_
     }
 
     // Efficiency metrics
-    int64_t                 total_allocs   = stats.num_allocs.load();
-    QUARISMA_UNUSED int64_t total_deallocs = stats.num_deallocs.load();
+    int64_t               total_allocs   = stats.num_allocs.load();
+    MEMORY_UNUSED int64_t total_deallocs = stats.num_deallocs.load();
     if (total_allocs > 0)
     {
         double avg_alloc_size =
@@ -179,7 +179,7 @@ void display_timing_stats(const std::string& allocator_name, const atomic_timing
 // CPU Allocator Statistics Tests
 // ============================================================================
 
-QUARISMATEST(AllocatorStatistics, CPUAllocatorBasicStats)
+MEMORYTEST(AllocatorStatistics, CPUAllocatorBasicStats)
 {
     QUARISMA_LOG_INFO("Testing CPU allocator statistics exposure...");
 
@@ -224,13 +224,15 @@ QUARISMATEST(AllocatorStatistics, CPUAllocatorBasicStats)
     QUARISMA_LOG_INFO("CPU allocator statistics test completed successfully");
 }
 
-QUARISMATEST(AllocatorStatistics, BFCAllocatorStats)
+MEMORYTEST(AllocatorStatistics, BFCAllocatorStats)
 {
     QUARISMA_LOG_INFO("Testing BFC allocator statistics exposure...");
     EnableCPUAllocatorStats();
     // Create BFC allocator
     auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth       = true;
@@ -270,20 +272,20 @@ QUARISMATEST(AllocatorStatistics, BFCAllocatorStats)
     QUARISMA_LOG_INFO("BFC allocator statistics test completed successfully");
 }
 
-QUARISMATEST(AllocatorStatistics, PoolAllocatorStats)
+MEMORYTEST(AllocatorStatistics, PoolAllocatorStats)
 {
 #if 0
     QUARISMA_LOG_INFO("Testing Pool allocator statistics exposure...");
     EnableCPUAllocatorStats();
     // Create pool allocator
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
         20,     // pool_size_limit
         false,  // auto_resize
         std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
+        std::make_unique<NoopRounder>(),
         "test_pool_stats");
 
     // Perform allocations with repeated sizes to test pooling
@@ -348,20 +350,20 @@ QUARISMATEST(AllocatorStatistics, PoolAllocatorStats)
 #endif
 }
 
-QUARISMATEST(AllocatorStatistics, TrackingAllocatorStats)
+MEMORYTEST(AllocatorStatistics, TrackingAllocatorStats)
 {
 #if 0
     QUARISMA_LOG_INFO("Testing Tracking allocator statistics and timing...");
 
     // Create tracking allocator
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
         0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
         10,
         false,
         std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
+        std::make_unique<NoopRounder>(),
         "test_tracking_base");
 
     auto tracking = new allocator_tracking(pool.get(), true, true);
@@ -423,20 +425,18 @@ QUARISMATEST(AllocatorStatistics, TrackingAllocatorStats)
 // FIXME: This test is currently disabled due to a segfault issue
 // The crash occurs during test execution - needs investigation
 // Root cause appears to be related to allocator_pool/allocator_tracking lifecycle management
-QUARISMATEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
+MEMORYTEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
 {
     QUARISMA_LOG_INFO("Testing allocation size distribution visualization...");
 
     // Create tracking allocator for detailed analysis
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     auto pool = std::make_unique<allocator_pool>(
-        50,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "test_distribution");
+        50, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "test_distribution");
 
     auto tracking = new allocator_tracking(pool.get(), true, true);
 
@@ -546,20 +546,22 @@ QUARISMATEST(AllocatorStatistics, DISABLED_AllocationSizeDistribution)
     QUARISMA_LOG_INFO("Allocation size distribution test completed successfully");
 }
 
-QUARISMATEST(AllocatorStatistics, ComprehensiveVisualization)
+MEMORYTEST(AllocatorStatistics, ComprehensiveVisualization)
 {
     QUARISMA_LOG_INFO("Testing comprehensive allocator visualization with ASCII visualizer...");
 
     // Create tracking allocator
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     EnableCPUAllocatorStats();
     auto pool = std::make_unique<allocator_cpu>(
         /*30,
         false,
         std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
+        std::make_unique<NoopRounder>(),
         "test_visualization"*/);
 
     auto tracking = new allocator_tracking(pool.get(), true, true);
@@ -647,7 +649,7 @@ QUARISMATEST(AllocatorStatistics, ComprehensiveVisualization)
     QUARISMA_LOG_INFO("Comprehensive visualization test completed successfully");
 }
 
-QUARISMATEST(AllocatorStatistics, AllAllocatorsComparison)
+MEMORYTEST(AllocatorStatistics, AllAllocatorsComparison)
 {
     QUARISMA_LOG_INFO("Testing statistics comparison across all allocator types...");
 
@@ -695,7 +697,9 @@ QUARISMATEST(AllocatorStatistics, AllAllocatorsComparison)
     // Test BFC allocator
     {
         auto sub_allocator = std::make_unique<basic_cpu_allocator>(
-            0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+            0,
+            std::vector<memory::sub_allocator::Visitor>{},
+            std::vector<memory::sub_allocator::Visitor>{});
 
         allocator_bfc::Options opts;
         opts.allow_growth = true;
@@ -731,14 +735,16 @@ QUARISMATEST(AllocatorStatistics, AllAllocatorsComparison)
 
     // Test Pool allocator
     {
-        auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-            0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        auto base_allocator = std::make_unique<basic_cpu_allocator>(
+            0,
+            std::vector<memory::sub_allocator::Visitor>{},
+            std::vector<memory::sub_allocator::Visitor>{});
 
         auto pool = std::make_unique<allocator_pool>(
             25,
             false,
             std::move(base_allocator),
-            util::make_ptr_unique_mutable<NoopRounder>(),
+            std::make_unique<NoopRounder>(),
             "test_pool_compare");
 
         std::vector<void*> ptrs;

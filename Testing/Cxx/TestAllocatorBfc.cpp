@@ -17,10 +17,10 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
-#include "common/pointer.h"
+#include "MemoryTest.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
+#include "common/pointer.h"
 #include "helper/memory_allocator.h"
 #if PROJECT_HAS_NATIVE_PROFILER && 0
 #include "native/analysis/statistical_analyzer.h"
@@ -31,7 +31,7 @@
 #include "native/tracing/traceme_recorder.h"
 #endif
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -78,7 +78,7 @@ std::unique_ptr<allocator_bfc> create_test_bfc_allocator()
 {
     // Create production basic_cpu_allocator as sub-allocator
     auto sub_alloc = std::make_unique<basic_cpu_allocator>(
-        0,                                      // numa_node = 0 (default)
+        0,                                              // numa_node = 0 (default)
         std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
         std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
     );
@@ -100,7 +100,7 @@ std::unique_ptr<allocator_bfc> create_test_bfc_allocator()
 /**
  * @brief Test basic allocation and deallocation functionality
  */
-QUARISMATEST(AllocatorBFC, basic_allocation_deallocation)
+MEMORYTEST(AllocatorBFC, basic_allocation_deallocation)
 {
 #if PROJECT_HAS_NATIVE_PROFILER && 0
     traceme_recorder::start(3);
@@ -141,7 +141,7 @@ QUARISMATEST(AllocatorBFC, basic_allocation_deallocation)
 /**
  * @brief Test allocation tracking capabilities
  */
-QUARISMATEST(AllocatorBFC, allocation_tracking)
+MEMORYTEST(AllocatorBFC, allocation_tracking)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -168,7 +168,7 @@ QUARISMATEST(AllocatorBFC, allocation_tracking)
 /**
  * @brief Test different alignment requirements
  */
-QUARISMATEST(AllocatorBFC, alignment_requirements)
+MEMORYTEST(AllocatorBFC, alignment_requirements)
 {
 #if 0
     auto allocator = create_test_bfc_allocator();
@@ -190,7 +190,7 @@ QUARISMATEST(AllocatorBFC, alignment_requirements)
 /**
  * @brief Test allocation with attributes
  */
-QUARISMATEST(AllocatorBFC, allocation_with_attributes)
+MEMORYTEST(AllocatorBFC, allocation_with_attributes)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -209,7 +209,7 @@ QUARISMATEST(AllocatorBFC, allocation_with_attributes)
 /**
  * @brief Test statistics collection
  */
-QUARISMATEST(AllocatorBFC, statistics_collection)
+MEMORYTEST(AllocatorBFC, statistics_collection)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -248,7 +248,7 @@ QUARISMATEST(AllocatorBFC, statistics_collection)
 /**
  * @brief Test allocator name and memory type
  */
-QUARISMATEST(AllocatorBFC, allocator_properties)
+MEMORYTEST(AllocatorBFC, allocator_properties)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -264,7 +264,7 @@ QUARISMATEST(AllocatorBFC, allocator_properties)
 /**
  * @brief Test zero-size allocation handling
  */
-QUARISMATEST(AllocatorBFC, zero_size_allocation)
+MEMORYTEST(AllocatorBFC, zero_size_allocation)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -283,7 +283,7 @@ QUARISMATEST(AllocatorBFC, zero_size_allocation)
 /**
  * @brief Test null pointer deallocation
  */
-QUARISMATEST(AllocatorBFC, null_pointer_deallocation)
+MEMORYTEST(AllocatorBFC, null_pointer_deallocation)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -299,7 +299,7 @@ QUARISMATEST(AllocatorBFC, null_pointer_deallocation)
 /**
  * @brief Test large allocation handling
  */
-QUARISMATEST(AllocatorBFC, large_allocations)
+MEMORYTEST(AllocatorBFC, large_allocations)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -323,7 +323,7 @@ QUARISMATEST(AllocatorBFC, large_allocations)
 /**
  * @brief Test fragmentation and coalescing behavior
  */
-QUARISMATEST(AllocatorBFC, fragmentation_and_coalescing)
+MEMORYTEST(AllocatorBFC, fragmentation_and_coalescing)
 {
     auto allocator = create_test_bfc_allocator();
 
@@ -365,10 +365,10 @@ QUARISMATEST(AllocatorBFC, fragmentation_and_coalescing)
 /**
  * @brief Test BFC allocator with different configuration options
  */
-QUARISMATEST(AllocatorBFC, configuration_options)
+MEMORYTEST(AllocatorBFC, configuration_options)
 {
     auto sub_alloc = std::make_unique<basic_cpu_allocator>(
-        0,                                      // numa_node = 0 (default)
+        0,                                              // numa_node = 0 (default)
         std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
         std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
     );
@@ -398,10 +398,10 @@ QUARISMATEST(AllocatorBFC, configuration_options)
 /**
  * @brief Test BFC allocator with growth disabled
  */
-QUARISMATEST(AllocatorBFC, no_growth_configuration)
+MEMORYTEST(AllocatorBFC, no_growth_configuration)
 {
     auto sub_alloc = std::make_unique<basic_cpu_allocator>(
-        0,                                      // numa_node = 0 (default)
+        0,                                              // numa_node = 0 (default)
         std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
         std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
     );
@@ -428,10 +428,10 @@ QUARISMATEST(AllocatorBFC, no_growth_configuration)
 /**
  * @brief Test concurrent access to BFC allocator
  */
-QUARISMATEST(AllocatorBFC, thread_safety)
+MEMORYTEST(AllocatorBFC, thread_safety)
 {
     auto sub_alloc = std::make_unique<basic_cpu_allocator>(
-        0,                                      // numa_node = 0 (default)
+        0,                                              // numa_node = 0 (default)
         std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
         std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
     );
@@ -497,10 +497,10 @@ QUARISMATEST(AllocatorBFC, thread_safety)
 /**
  * @brief Test BFC allocator performance characteristics
  */
-QUARISMATEST(AllocatorBFC, allocation_timing)
+MEMORYTEST(AllocatorBFC, allocation_timing)
 {
     auto sub_alloc = std::make_unique<basic_cpu_allocator>(
-        0,                                      // numa_node = 0 (default)
+        0,                                              // numa_node = 0 (default)
         std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
         std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
     );
@@ -551,12 +551,14 @@ QUARISMATEST(AllocatorBFC, allocation_timing)
     END_TEST();
 }
 
-QUARISMATEST(AllocatorBFC, basic_allocation)
+MEMORYTEST(AllocatorBFC, basic_allocation)
 {
     // Create a BFC allocator with 1MB memory limit
     const size_t memory_limit  = 1024ULL * 1024ULL;  // 1MB
     auto         sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -589,11 +591,13 @@ QUARISMATEST(AllocatorBFC, basic_allocation)
     END_TEST();
 }
 // Test allocator_bfc edge cases
-QUARISMATEST(AllocatorBFC, EdgeCases)
+MEMORYTEST(AllocatorBFC, EdgeCases)
 {
     const size_t memory_limit  = 1024ULL * 1024ULL;  // 1MB
     auto         sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -625,11 +629,13 @@ QUARISMATEST(AllocatorBFC, EdgeCases)
 }
 
 // Test allocator_bfc memory tracking
-QUARISMATEST(AllocatorBFC, MemoryTracking)
+MEMORYTEST(AllocatorBFC, MemoryTracking)
 {
     const size_t memory_limit  = 1024ULL;  // 1MB
     auto         sub_allocator = std::make_unique<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
 
     allocator_bfc::Options opts;
     opts.allow_growth = false;
@@ -652,7 +658,7 @@ QUARISMATEST(AllocatorBFC, MemoryTracking)
 }
 
 // Test comprehensive memory profiling with BFC allocator
-QUARISMATEST(AllocatorBFC, ComprehensiveMemoryProfiling)
+MEMORYTEST(AllocatorBFC, ComprehensiveMemoryProfiling)
 {
 #if PROJECT_HAS_NATIVE_PROFILER && 0
     auto session = profiler_session_builder()
@@ -670,7 +676,9 @@ QUARISMATEST(AllocatorBFC, ComprehensiveMemoryProfiling)
 
         const size_t memory_limit  = 10 * 1024 * 1024;  // 10MB
         auto         sub_allocator = std::make_unique<basic_cpu_allocator>(
-            0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+            0,
+            std::vector<memory::sub_allocator::Visitor>{},
+            std::vector<memory::sub_allocator::Visitor>{});
 
         allocator_bfc::Options bfc_opts;
         bfc_opts.allow_growth = true;
@@ -796,7 +804,7 @@ QUARISMATEST(AllocatorBFC, ComprehensiveMemoryProfiling)
 }
 
 // Test memory profiling with allocation hotspots identification
-QUARISMATEST(AllocatorBFC, AllocationHotspotsIdentification)
+MEMORYTEST(AllocatorBFC, AllocationHotspotsIdentification)
 {
 #if PROJECT_HAS_NATIVE_PROFILER && 0
     auto session = profiler_session_builder()
@@ -813,7 +821,9 @@ QUARISMATEST(AllocatorBFC, AllocationHotspotsIdentification)
 
         const size_t memory_limit  = 5 * 1024 * 1024;  // 5MB
         auto         sub_allocator = std::make_unique<basic_cpu_allocator>(
-            0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+            0,
+            std::vector<memory::sub_allocator::Visitor>{},
+            std::vector<memory::sub_allocator::Visitor>{});
 
         allocator_bfc::Options bfc_opts;
         bfc_opts.allow_growth = true;

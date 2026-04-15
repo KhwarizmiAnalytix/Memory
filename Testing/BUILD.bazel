@@ -1,0 +1,17 @@
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "memoryTest_header",
+    hdrs = [
+        "MemoryTest.h",
+        "MemoryTest.h.in",
+    ],
+    includes = [
+        ".",
+        "../..",
+    ],
+    deps = [
+        "//Library/Memory:Memory",
+        "//Library/Core:Core",
+    ],
+)

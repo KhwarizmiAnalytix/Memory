@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -26,16 +26,16 @@
 
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "gpu/cuda_caching_allocator.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test basic CUDA caching allocator construction and destruction
  */
-QUARISMATEST(CudaCachingAllocator, constructs_with_valid_parameters)
+MEMORYTEST(CudaCachingAllocator, constructs_with_valid_parameters)
 {
     // Test basic construction
     cuda_caching_allocator allocator(0, 64 * 1024ULL);  // 64MB cache
@@ -52,7 +52,7 @@ QUARISMATEST(CudaCachingAllocator, constructs_with_valid_parameters)
 /**
  * @brief Test CUDA caching allocator constructor variations
  */
-QUARISMATEST(CudaCachingAllocator, constructor_variations)
+MEMORYTEST(CudaCachingAllocator, constructor_variations)
 {
     // Test default constructor (if available)
     try
@@ -87,7 +87,7 @@ QUARISMATEST(CudaCachingAllocator, constructor_variations)
 /**
  * @brief Test basic allocation and deallocation functionality
  */
-QUARISMATEST(CudaCachingAllocator, allocates_and_deallocates_memory)
+MEMORYTEST(CudaCachingAllocator, allocates_and_deallocates_memory)
 {
     cuda_caching_allocator allocator(0, 32 * 1024ULL);  // 32MB cache
 
@@ -119,7 +119,7 @@ QUARISMATEST(CudaCachingAllocator, allocates_and_deallocates_memory)
 /**
  * @brief Test cache management functionality
  */
-QUARISMATEST(CudaCachingAllocator, manages_cache_correctly)
+MEMORYTEST(CudaCachingAllocator, manages_cache_correctly)
 {
     cuda_caching_allocator allocator(0, 16 * 1024ULL);  // 16MB cache
 
@@ -144,7 +144,7 @@ QUARISMATEST(CudaCachingAllocator, manages_cache_correctly)
 /**
  * @brief Test cache size limits and configuration
  */
-QUARISMATEST(CudaCachingAllocator, respects_cache_size_limits)
+MEMORYTEST(CudaCachingAllocator, respects_cache_size_limits)
 {
     cuda_caching_allocator allocator(0, 8 * 1024ULL);  // 8MB cache
 
@@ -162,7 +162,7 @@ QUARISMATEST(CudaCachingAllocator, respects_cache_size_limits)
 /**
  * @brief Test statistics collection and reporting
  */
-QUARISMATEST(CudaCachingAllocator, provides_accurate_statistics)
+MEMORYTEST(CudaCachingAllocator, provides_accurate_statistics)
 {
     cuda_caching_allocator allocator(0, 32 * 1024ULL);  // 32MB cache
 
@@ -189,7 +189,7 @@ QUARISMATEST(CudaCachingAllocator, provides_accurate_statistics)
 /**
  * @brief Test move semantics and resource transfer
  */
-QUARISMATEST(CudaCachingAllocator, supports_move_semantics)
+MEMORYTEST(CudaCachingAllocator, supports_move_semantics)
 {
     // Create allocator
     cuda_caching_allocator allocator1(0, 16 * 1024ULL);
@@ -212,12 +212,12 @@ QUARISMATEST(CudaCachingAllocator, supports_move_semantics)
 /**
  * @brief Test error handling for invalid operations
  */
-QUARISMATEST(CudaCachingAllocator, handles_errors_gracefully)
+MEMORYTEST(CudaCachingAllocator, handles_errors_gracefully)
 {
     cuda_caching_allocator allocator(0, 16 * 1024ULL);
 
     // Test zero-size allocation
-    QUARISMA_UNUSED void* ptr_zero = allocator.allocate(0);
+    MEMORY_UNUSED void* ptr_zero = allocator.allocate(0);
     // Should handle gracefully (implementation-defined behavior)
 
     // Test null pointer deallocation
@@ -230,7 +230,7 @@ QUARISMATEST(CudaCachingAllocator, handles_errors_gracefully)
 /**
  * @brief Test template allocator construction and basic operations
  */
-QUARISMATEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
+MEMORYTEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
 {
     // Test template allocator for different types
     cuda_caching_allocator_template<float, 256>  float_allocator(0, 32 * 1024ULL);
@@ -248,7 +248,7 @@ QUARISMATEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
 /**
  * @brief Test template allocator type-safe allocation
  */
-QUARISMATEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
+MEMORYTEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
 {
     cuda_caching_allocator_template<float, 256> allocator(0, 16 * 1024ULL);
 
@@ -270,7 +270,7 @@ QUARISMATEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
 /**
  * @brief Test template allocator alignment requirements
  */
-QUARISMATEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
+MEMORYTEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 {
     cuda_caching_allocator_template<double, 512> allocator(0, 16 * 1024ULL);
 
@@ -290,7 +290,7 @@ QUARISMATEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 /**
  * @brief Test template allocator statistics and cache operations
  */
-QUARISMATEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
+MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
 {
     cuda_caching_allocator_template<int, 256> allocator(0, 8 * 1024ULL);
 

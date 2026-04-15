@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -27,18 +27,18 @@
 #include <thread>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_allocator_tracking.h"
 #include "gpu/gpu_device_manager.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test basic GPU allocator tracking construction
  */
-QUARISMATEST(GpuAllocatorTracking, constructs_with_valid_parameters)
+MEMORYTEST(GpuAllocatorTracking, constructs_with_valid_parameters)
 {
     // Check if CUDA is available
     auto& device_manager = gpu_device_manager::instance();
@@ -66,7 +66,7 @@ QUARISMATEST(GpuAllocatorTracking, constructs_with_valid_parameters)
 /**
  * @brief Test basic allocation and deallocation tracking
  */
-QUARISMATEST(GpuAllocatorTracking, tracks_allocations_and_deallocations)
+MEMORYTEST(GpuAllocatorTracking, tracks_allocations_and_deallocations)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();
@@ -102,7 +102,7 @@ QUARISMATEST(GpuAllocatorTracking, tracks_allocations_and_deallocations)
 /**
  * @brief Test typed allocation tracking
  */
-QUARISMATEST(GpuAllocatorTracking, tracks_typed_allocations)
+MEMORYTEST(GpuAllocatorTracking, tracks_typed_allocations)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();
@@ -141,7 +141,7 @@ QUARISMATEST(GpuAllocatorTracking, tracks_typed_allocations)
 /**
  * @brief Test GPU timing statistics
  */
-QUARISMATEST(GpuAllocatorTracking, provides_timing_statistics)
+MEMORYTEST(GpuAllocatorTracking, provides_timing_statistics)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();
@@ -195,7 +195,7 @@ QUARISMATEST(GpuAllocatorTracking, provides_timing_statistics)
 /**
  * @brief Test GPU logging levels
  */
-QUARISMATEST(GpuAllocatorTracking, manages_logging_levels)
+MEMORYTEST(GpuAllocatorTracking, manages_logging_levels)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();
@@ -228,7 +228,7 @@ QUARISMATEST(GpuAllocatorTracking, manages_logging_levels)
 /**
  * @brief Test GPU efficiency metrics calculation
  */
-QUARISMATEST(GpuAllocatorTracking, calculates_efficiency_metrics)
+MEMORYTEST(GpuAllocatorTracking, calculates_efficiency_metrics)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();
@@ -275,7 +275,7 @@ QUARISMATEST(GpuAllocatorTracking, calculates_efficiency_metrics)
 /**
  * @brief Test GPU report generation
  */
-QUARISMATEST(GpuAllocatorTracking, generates_comprehensive_reports)
+MEMORYTEST(GpuAllocatorTracking, generates_comprehensive_reports)
 {
     auto& device_manager = gpu_device_manager::instance();
     device_manager.initialize();

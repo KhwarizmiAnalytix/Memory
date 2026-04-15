@@ -37,7 +37,7 @@
 #include <string_view>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "cpu/allocator.h"
 #include "helper/memory_allocator.h"
 #include "helper/memory_info.h"
@@ -185,7 +185,7 @@ void* allocator_cpu::allocate_raw(size_t alignment, size_t num_bytes)
             if (single_allocation_warning_count_.compare_exchange_weak(
                     expected, current_count + 1, std::memory_order_relaxed))
             {
-                LOGGING_LOG_WARNING(
+                MEMORY_LOG_WARNING(
                     "Large allocation of {} bytes ({}% of available RAM) exceeds {}% threshold",
                     num_bytes,
                     (100.0 * num_bytes / port::available_ram()),
@@ -199,8 +199,7 @@ void* allocator_cpu::allocate_raw(size_t alignment, size_t num_bytes)
     void* p = cpu::memory_allocator::allocate(num_bytes, alignment);  //NOLINT
 
     // Collect statistics if enabled (fast path when disabled)
-    if MEMORY_UNLIKELY (
-        cpu_allocator_collect_stats.load(std::memory_order_relaxed) && p != nullptr)
+    if MEMORY_UNLIKELY (cpu_allocator_collect_stats.load(std::memory_order_relaxed) && p != nullptr)
     {
         const auto alloc_size = 0;
 
@@ -238,7 +237,7 @@ void* allocator_cpu::allocate_raw(size_t alignment, size_t num_bytes)
             {
                 ++total_allocation_warning_count_;
                 size_t bytes_in_use = stats_.bytes_in_use.load(std::memory_order_relaxed);
-                LOGGING_LOG_WARNING(
+                MEMORY_LOG_WARNING(
                     "Total allocated memory {} bytes ({}% of available RAM) exceeds {}% "
                     "threshold",
                     bytes_in_use,

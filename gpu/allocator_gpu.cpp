@@ -10,7 +10,7 @@
 #include <memory>
 #include <sstream>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "helper/memory_allocator.h"
 #if MEMORY_HAS_NATIVE_PROFILER && 0
 #include "native/tracing/traceme.h"
@@ -39,7 +39,7 @@ basic_gpu_allocator::basic_gpu_allocator(
     int                         device_id,
     const std::vector<Visitor>& alloc_visitors,
     const std::vector<Visitor>& free_visitors,
-    MEMORY_UNUSED int         numa_node)
+    MEMORY_UNUSED int           numa_node)
     : sub_allocator(alloc_visitors, free_visitors), device_id_(device_id)
 {
     // Verify device is accessible by attempting to set it
@@ -49,7 +49,7 @@ basic_gpu_allocator::basic_gpu_allocator(
             "Failed to set GPU device {}: device may not exist or be accessible", device_id);
     }
 
-    LOGGING_LOG_INFO("Created GPU sub-allocator for device {}", device_id);
+    MEMORY_LOG_INFO("Created GPU sub-allocator for device {}", device_id);
 }
 
 basic_gpu_allocator::~basic_gpu_allocator()
@@ -57,7 +57,7 @@ basic_gpu_allocator::~basic_gpu_allocator()
     std::scoped_lock const lock(stats_mutex_);
     if (total_allocated_.load() > 0)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU sub-allocator destroyed with {} bytes still allocated", total_allocated_.load());
     }
 }
@@ -114,8 +114,7 @@ void basic_gpu_allocator::Free(void* ptr, size_t num_bytes)
         // Update statistics
         total_allocated_.fetch_sub(num_bytes);
 
-        LOGGING_LOG_INFO_DEBUG(
-            "GPU freed {} bytes at {} on device {}", num_bytes, ptr, device_id_);
+        LOGGING_LOG_INFO_DEBUG("GPU freed {} bytes at {} on device {}", num_bytes, ptr, device_id_);
     }
 }
 
@@ -156,7 +155,7 @@ allocator_gpu::allocator_gpu(int device_id, const Options& options, std::string 
         break;
     }
 
-    LOGGING_LOG_INFO(
+    MEMORY_LOG_INFO(
         "Created GPU allocator '{}' with {} method on device {}", name_, method_name, device_id);
 }
 
@@ -170,11 +169,11 @@ allocator_gpu::~allocator_gpu()
     size_t total_allocated = total_allocated_.load();
     if (total_allocated > 0)
     {
-        LOGGING_LOG_WARNING(
+        MEMORY_LOG_WARNING(
             "GPU allocator '{}' destroyed with {} bytes still allocated", name_, total_allocated);
     }
 
-    LOGGING_LOG_INFO("Destroyed GPU allocator '{}'", name_);
+    MEMORY_LOG_INFO("Destroyed GPU allocator '{}'", name_);
 }
 
 void* allocator_gpu::allocate_gpu_memory(size_t num_bytes, void* stream) const
@@ -209,7 +208,7 @@ void* allocator_gpu::allocate_raw(size_t alignment, size_t num_bytes)
 
 void* allocator_gpu::allocate_raw(
     MEMORY_UNUSED size_t                       alignment,
-    size_t                                       num_bytes,
+    size_t                                     num_bytes,
     MEMORY_UNUSED const allocation_attributes& allocation_attr)
 {
 #if MEMORY_HAS_NATIVE_PROFILER && 0

@@ -50,10 +50,9 @@ cuda_error_info::cuda_error_info(
     : error_code(static_cast<int>(cuda_error)),
       error_message(cudaGetErrorString(cuda_error)),
       cuda_function((function_name != nullptr) ? function_name : "unknown"),
-      timestamp_us(
-          std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::steady_clock::now().time_since_epoch())
-              .count()),
+      timestamp_us(std::chrono::duration_cast<std::chrono::microseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                       .count()),
       attempted_size(size),
       device_index(device)
 {
@@ -195,7 +194,7 @@ gpu_allocator_tracking::gpu_allocator_tracking(
     // Log initialization if enabled
     if (gpu_log_level_.load(std::memory_order_relaxed) >= gpu_tracking_log_level::INFO)
     {
-        LOGGING_LOG_INFO(
+        MEMORY_LOG_INFO(
             "gpu_allocator_tracking initialized: device={}, enhanced={}, bandwidth={}",
             device_info_.name,
             enhanced_tracking_enabled_,
@@ -208,7 +207,7 @@ gpu_allocator_tracking::~gpu_allocator_tracking()
     // Log destruction if enabled
     if (gpu_log_level_.load(std::memory_order_relaxed) >= gpu_tracking_log_level::INFO)
     {
-        LOGGING_LOG_INFO("gpu_allocator_tracking destroying: device={}", device_info_.name);
+        MEMORY_LOG_INFO("gpu_allocator_tracking destroying: device={}", device_info_.name);
     }
 
     // Cleanup CUDA events
@@ -242,7 +241,7 @@ void gpu_allocator_tracking::InitializeCUDAEvents()
 
         if (!cuda_events_initialized_)
         {
-            LOGGING_LOG_WARNING(
+            MEMORY_LOG_WARNING(
                 "Failed to initialize CUDA events for timing: {}", cudaGetErrorString(result));
         }
     }
@@ -341,7 +340,7 @@ void* gpu_allocator_tracking::allocate_raw(
         }
 #endif
 
-        LOGGING_LOG_ERROR(
+        MEMORY_LOG_ERROR(
             "GPU allocation failed: {}, bytes={}, device={}", e.what(), bytes, device_index_);
 
         // Update failure statistics

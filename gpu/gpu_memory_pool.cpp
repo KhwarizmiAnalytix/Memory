@@ -7,12 +7,28 @@
 #include <sstream>
 
 #include "common/memory_macros.h"
-#include "logger.h"
 #include "util/exception.h"
-#include "util/flat_hash.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+#endif
+
+#if 0
+#include "util/flat_hash.h"
+
+template <typename T>
+using memory_set = flat_hash_set<T>;
+template <typename K, typename V, typename H = std::hash<K>>
+using memory_map = flat_hash_map<K, V, H>;
+#else
+#include <unordered_map>
+#include <unordered_set>
+
+template <typename T>
+using memory_set = std::unordered_set<T>;
+template <typename K, typename V>
+using memory_map = std::unordered_map<K, V>;
+
 #endif
 
 namespace memory
@@ -54,10 +70,10 @@ private:
     mutable std::mutex mutex_;
 
     /** @brief Map of size class to cached blocks */
-    logging::logging_map<size_t, std::vector<gpu_memory_block>> cached_blocks_;
+    memory_map<size_t, std::vector<gpu_memory_block>> cached_blocks_;
 
     /** @brief Map of active allocations for tracking (using custom hash for void*) */
-    logging::logging_map<void*, gpu_memory_block, void_ptr_hash> active_allocations_;
+    memory_map<void*, gpu_memory_block, void_ptr_hash> active_allocations_;
 
     /** @brief Current total allocated bytes */
     std::atomic<size_t> allocated_bytes_{0};
@@ -163,7 +179,7 @@ private:
 
         if (config_.debug_mode)
         {
-            LOGGING_LOG_INFO("Direct GPU allocation: {} bytes on device {}", size, device_index);
+            MEMORY_LOG_INFO("Direct GPU allocation: {} bytes on device {}", size, device_index);
         }
 
         return {ptr, size, device};
@@ -189,7 +205,7 @@ private:
             cudaError_t const result = cudaFree(block.ptr);
             if (result != cudaSuccess && config_.debug_mode)
             {
-                LOGGING_LOG_WARNING(
+                MEMORY_LOG_WARNING(
                     "CUDA memory deallocation warning: {}",
                     std::string(cudaGetErrorString(result)));
             }
@@ -199,13 +215,13 @@ private:
         default:
             if (config_.debug_mode)
             {
-                LOGGING_LOG_WARNING("Unknown device type in deallocation");
+                MEMORY_LOG_WARNING("Unknown device type in deallocation");
             }
         }
 
         if (config_.debug_mode)
         {
-            LOGGING_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "Direct GPU deallocation: {} bytes from device {}",
                 block.size,
                 block.device.index());
@@ -232,7 +248,7 @@ public:
 
         if (config_.debug_mode)
         {
-            LOGGING_LOG_INFO(
+            MEMORY_LOG_INFO(
                 "GPU memory pool initialized with min_block={}, max_block={}, growth_factor={}",
                 config_.min_block_size,
                 config_.max_block_size,
@@ -246,7 +262,7 @@ public:
 
         if (config_.debug_mode && !active_allocations_.empty())
         {
-            LOGGING_LOG_WARNING(
+            MEMORY_LOG_WARNING(
                 "GPU memory pool destroyed with {} active allocations (potential memory leak)",
                 active_allocations_.size());
         }
@@ -292,7 +308,7 @@ public:
 
                     if (config_.debug_mode)
                     {
-                        LOGGING_LOG_INFO("Cache hit: reusing block of size {}", result_block.size);
+                        MEMORY_LOG_INFO("Cache hit: reusing block of size {}", result_block.size);
                     }
 
                     return result_block;
@@ -357,7 +373,7 @@ public:
 
             if (config_.debug_mode)
             {
-                LOGGING_LOG_INFO("Cached block of size {}", cached_size);
+                MEMORY_LOG_INFO("Cached block of size {}", cached_size);
             }
         }
         else
@@ -393,7 +409,7 @@ public:
 
         if (config_.debug_mode)
         {
-            LOGGING_LOG_INFO("GPU memory pool cache cleared");
+            MEMORY_LOG_INFO("GPU memory pool cache cleared");
         }
     }
 

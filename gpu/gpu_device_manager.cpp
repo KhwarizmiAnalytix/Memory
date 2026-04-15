@@ -6,7 +6,7 @@
 #include <sstream>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "util/exception.h"
 
 #if MEMORY_HAS_CUDA
@@ -314,7 +314,7 @@ public:
 
         initialized_ = true;
 
-        LOGGING_LOG_INFO(
+        MEMORY_LOG_INFO(
             "GPU device manager initialized with {} devices", available_devices_.size());
     }
 

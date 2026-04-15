@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -25,18 +25,18 @@
 #include <memory>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_memory_pool.h"
 #include "gpu/gpu_memory_wrapper.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test GPU memory wrapper default construction
  */
-QUARISMATEST(GpuMemoryWrapper, constructs_empty_wrapper)
+MEMORYTEST(GpuMemoryWrapper, constructs_empty_wrapper)
 {
     // Test default construction
     gpu_memory_wrapper<float> wrapper;
@@ -53,7 +53,7 @@ QUARISMATEST(GpuMemoryWrapper, constructs_empty_wrapper)
 /**
  * @brief Test GPU memory wrapper allocation
  */
-QUARISMATEST(GpuMemoryWrapper, allocates_typed_memory)
+MEMORYTEST(GpuMemoryWrapper, allocates_typed_memory)
 {
     try
     {
@@ -87,7 +87,7 @@ QUARISMATEST(GpuMemoryWrapper, allocates_typed_memory)
 /**
  * @brief Test GPU memory wrapper void specialization
  */
-QUARISMATEST(GpuMemoryWrapper, handles_void_specialization)
+MEMORYTEST(GpuMemoryWrapper, handles_void_specialization)
 {
     try
     {
@@ -120,7 +120,7 @@ QUARISMATEST(GpuMemoryWrapper, handles_void_specialization)
 /**
  * @brief Test non-owning wrapper creation
  */
-QUARISMATEST(GpuMemoryWrapper, creates_non_owning_wrapper)
+MEMORYTEST(GpuMemoryWrapper, creates_non_owning_wrapper)
 {
     // Test non-owning wrapper with host memory
     float* raw_ptr = static_cast<float*>(malloc(100 * sizeof(float)));
@@ -144,7 +144,7 @@ QUARISMATEST(GpuMemoryWrapper, creates_non_owning_wrapper)
 /**
  * @brief Test wrapper with custom deleter
  */
-QUARISMATEST(GpuMemoryWrapper, supports_custom_deleter)
+MEMORYTEST(GpuMemoryWrapper, supports_custom_deleter)
 {
     bool deleter_called = false;
 
@@ -178,7 +178,7 @@ QUARISMATEST(GpuMemoryWrapper, supports_custom_deleter)
 /**
  * @brief Test move semantics
  */
-QUARISMATEST(GpuMemoryWrapper, supports_move_semantics)
+MEMORYTEST(GpuMemoryWrapper, supports_move_semantics)
 {
     try
     {
@@ -219,7 +219,7 @@ QUARISMATEST(GpuMemoryWrapper, supports_move_semantics)
 /**
  * @brief Test copy semantics (non-owning copy)
  */
-QUARISMATEST(GpuMemoryWrapper, supports_copy_semantics)
+MEMORYTEST(GpuMemoryWrapper, supports_copy_semantics)
 {
     try
     {
@@ -259,7 +259,7 @@ QUARISMATEST(GpuMemoryWrapper, supports_copy_semantics)
 /**
  * @brief Test memory release functionality
  */
-QUARISMATEST(GpuMemoryWrapper, releases_memory_ownership)
+MEMORYTEST(GpuMemoryWrapper, releases_memory_ownership)
 {
     try
     {
@@ -300,7 +300,7 @@ QUARISMATEST(GpuMemoryWrapper, releases_memory_ownership)
 /**
  * @brief Test reset functionality
  */
-QUARISMATEST(GpuMemoryWrapper, resets_wrapper_state)
+MEMORYTEST(GpuMemoryWrapper, resets_wrapper_state)
 {
     try
     {
@@ -338,7 +338,7 @@ QUARISMATEST(GpuMemoryWrapper, resets_wrapper_state)
 /**
  * @brief Test wrapper comparison operators
  */
-QUARISMATEST(GpuMemoryWrapper, supports_comparison_operators)
+MEMORYTEST(GpuMemoryWrapper, supports_comparison_operators)
 {
     try
     {
@@ -375,7 +375,7 @@ QUARISMATEST(GpuMemoryWrapper, supports_comparison_operators)
 /**
  * @brief Test convenience function for creating GPU memory
  */
-QUARISMATEST(GpuMemoryWrapper, provides_convenience_functions)
+MEMORYTEST(GpuMemoryWrapper, provides_convenience_functions)
 {
     try
     {
@@ -406,7 +406,7 @@ QUARISMATEST(GpuMemoryWrapper, provides_convenience_functions)
 /**
  * @brief Test wrapper swap functionality
  */
-QUARISMATEST(GpuMemoryWrapper, supports_swap_operation)
+MEMORYTEST(GpuMemoryWrapper, supports_swap_operation)
 {
     try
     {

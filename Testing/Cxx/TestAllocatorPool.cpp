@@ -17,14 +17,14 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
-#include "common/pointer.h"
+#include "MemoryTest.h"
 #include "backend/allocator_pool.h"
+#include "common/pointer.h"
 #include "cpu/allocator.h"
-#include "util/exception.h"
 #include "helper/memory_allocator.h"
+#include "util/exception.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -41,7 +41,7 @@ public:
           alloc_count_(0),
           free_count_(0),
           underlying_allocator_(
-              0,                                      // numa_node = 0 (default)
+              0,                                              // numa_node = 0 (default)
               std::vector<memory::sub_allocator::Visitor>{},  // no alloc visitors
               std::vector<memory::sub_allocator::Visitor>{}   // no free visitors
           )
@@ -172,7 +172,7 @@ std::pair<std::unique_ptr<allocator_pool>, counting_cpu_allocator*> create_test_
 /**
  * @brief Test basic allocation and deallocation with pooling
  */
-QUARISMATEST(AllocatorPool, basic_allocation_deallocation)
+MEMORYTEST(AllocatorPool, basic_allocation_deallocation)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -205,7 +205,7 @@ QUARISMATEST(AllocatorPool, basic_allocation_deallocation)
 /**
  * @brief Test pool size limits and LRU eviction
  */
-QUARISMATEST(AllocatorPool, pool_size_limits_and_lru)
+MEMORYTEST(AllocatorPool, pool_size_limits_and_lru)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -251,7 +251,7 @@ QUARISMATEST(AllocatorPool, pool_size_limits_and_lru)
 /**
  * @brief Test pool statistics and monitoring
  */
-QUARISMATEST(AllocatorPool, pool_statistics)
+MEMORYTEST(AllocatorPool, pool_statistics)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -289,7 +289,7 @@ QUARISMATEST(AllocatorPool, pool_statistics)
 /**
  * @brief Test Clear() functionality
  */
-QUARISMATEST(AllocatorPool, clear_functionality)
+MEMORYTEST(AllocatorPool, clear_functionality)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -330,7 +330,7 @@ QUARISMATEST(AllocatorPool, clear_functionality)
 /**
  * @brief Test allocator properties
  */
-QUARISMATEST(AllocatorPool, allocator_properties)
+MEMORYTEST(AllocatorPool, allocator_properties)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -349,7 +349,7 @@ QUARISMATEST(AllocatorPool, allocator_properties)
 /**
  * @brief Test zero-size allocation handling
  */
-QUARISMATEST(AllocatorPool, zero_size_allocation)
+MEMORYTEST(AllocatorPool, zero_size_allocation)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -365,7 +365,7 @@ QUARISMATEST(AllocatorPool, zero_size_allocation)
 /**
  * @brief Test null pointer deallocation
  */
-QUARISMATEST(AllocatorPool, null_pointer_deallocation)
+MEMORYTEST(AllocatorPool, null_pointer_deallocation)
 {
     auto [pool_allocator, sub_allocator_ptr] = create_test_pool_allocator();
 
@@ -583,7 +583,7 @@ TEST(AllocatorPool, allocation_timing)
     EXPECT_GT(ptrs.size(), num_allocations / 2);  // Most allocations should succeed
 
     // Pool allocations should be faster than initial allocations
-    QUARISMA_UNUSED auto pool_time =
+    MEMORY_UNUSED auto pool_time =
         std::chrono::duration_cast<std::chrono::microseconds>(pool_end_time - pool_start_time)
             .count();
 
@@ -591,12 +591,14 @@ TEST(AllocatorPool, allocation_timing)
 }
 
 // Test pool basic functionality
-QUARISMATEST(AllocatorPool, BasicFunctionality)
+MEMORYTEST(AllocatorPool, BasicFunctionality)
 {
     // Create a pool allocator with size limit of 5
-    auto sub_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
-    auto size_rounder = util::make_ptr_unique_mutable<NoopRounder>();
+    auto sub_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
+    auto size_rounder = std::make_unique<NoopRounder>();
 
     allocator_pool pool(5, false, std::move(sub_allocator), std::move(size_rounder), "test_pool");
 
@@ -618,11 +620,13 @@ QUARISMATEST(AllocatorPool, BasicFunctionality)
 }
 
 // Test pool zero-size handling
-QUARISMATEST(AllocatorPool, ZeroSizeHandling)
+MEMORYTEST(AllocatorPool, ZeroSizeHandling)
 {
-    auto sub_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
-    auto size_rounder = util::make_ptr_unique_mutable<NoopRounder>();
+    auto sub_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
+    auto size_rounder = std::make_unique<NoopRounder>();
 
     allocator_pool pool(
         2, false, std::move(sub_allocator), std::move(size_rounder), "test_pool_zero");
@@ -646,11 +650,13 @@ QUARISMATEST(AllocatorPool, ZeroSizeHandling)
 }
 
 // Test pool alignment requirements
-QUARISMATEST(AllocatorPool, AlignmentRequirements)
+MEMORYTEST(AllocatorPool, AlignmentRequirements)
 {
-    auto sub_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
-    auto size_rounder = util::make_ptr_unique_mutable<NoopRounder>();
+    auto sub_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
+    auto size_rounder = std::make_unique<NoopRounder>();
 
     allocator_pool pool(
         0, false, std::move(sub_allocator), std::move(size_rounder), "test_pool_alignment");

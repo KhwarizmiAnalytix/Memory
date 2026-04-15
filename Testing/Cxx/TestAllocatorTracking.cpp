@@ -18,14 +18,14 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
-#include "common/pointer.h"
+#include "MemoryTest.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
+#include "common/pointer.h"
 #include "cpu/allocator_cpu.h"
 #include "helper/memory_allocator.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -95,7 +95,7 @@ void cleanup_tracking_allocator(allocator_tracking* tracking_allocator)
 /**
  * @brief Test basic allocation tracking functionality
  */
-QUARISMATEST(AllocatorTracking, basic_allocation_tracking)
+MEMORYTEST(AllocatorTracking, basic_allocation_tracking)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -122,7 +122,7 @@ QUARISMATEST(AllocatorTracking, basic_allocation_tracking)
 /**
  * @brief Test allocation size tracking capabilities
  */
-QUARISMATEST(AllocatorTracking, allocation_size_tracking)
+MEMORYTEST(AllocatorTracking, allocation_size_tracking)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -150,7 +150,7 @@ QUARISMATEST(AllocatorTracking, allocation_size_tracking)
 /**
  * @brief Test statistics collection and monitoring
  */
-QUARISMATEST(AllocatorTracking, statistics_collection)
+MEMORYTEST(AllocatorTracking, statistics_collection)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -199,7 +199,7 @@ QUARISMATEST(AllocatorTracking, statistics_collection)
 /**
  * @brief Test enhanced tracking features
  */
-QUARISMATEST(AllocatorTracking, enhanced_tracking_features)
+MEMORYTEST(AllocatorTracking, enhanced_tracking_features)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -233,7 +233,7 @@ QUARISMATEST(AllocatorTracking, enhanced_tracking_features)
 /**
  * @brief Test logging level configuration
  */
-QUARISMATEST(AllocatorTracking, logging_level_configuration)
+MEMORYTEST(AllocatorTracking, logging_level_configuration)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -257,7 +257,7 @@ QUARISMATEST(AllocatorTracking, logging_level_configuration)
 /**
  * @brief Test timing statistics reset
  */
-QUARISMATEST(AllocatorTracking, timing_statistics_reset)
+MEMORYTEST(AllocatorTracking, timing_statistics_reset)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -292,7 +292,7 @@ QUARISMATEST(AllocatorTracking, timing_statistics_reset)
 /**
  * @brief Test allocator properties delegation
  */
-QUARISMATEST(AllocatorTracking, allocator_properties_delegation)
+MEMORYTEST(AllocatorTracking, allocator_properties_delegation)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -309,7 +309,7 @@ QUARISMATEST(AllocatorTracking, allocator_properties_delegation)
 /**
  * @brief Test zero-size allocation handling
  */
-QUARISMATEST(AllocatorTracking, zero_size_allocation)
+MEMORYTEST(AllocatorTracking, zero_size_allocation)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -325,7 +325,7 @@ QUARISMATEST(AllocatorTracking, zero_size_allocation)
 /**
  * @brief Test null pointer deallocation
  */
-QUARISMATEST(AllocatorTracking, null_pointer_deallocation)
+MEMORYTEST(AllocatorTracking, null_pointer_deallocation)
 {
     auto [tracking_allocator, underlying_ptr] = create_test_tracking_allocator();
 
@@ -354,9 +354,9 @@ TEST(AllocatorTracking, local_size_tracking)
         }
 
         void* allocate_raw(
-            size_t                                       alignment,
-            size_t                                       num_bytes,
-            QUARISMA_UNUSED const allocation_attributes& attrs) override
+            size_t                                     alignment,
+            size_t                                     num_bytes,
+            MEMORY_UNUSED const allocation_attributes& attrs) override
         {
             return allocate_raw(alignment, num_bytes);
         }
@@ -365,9 +365,9 @@ TEST(AllocatorTracking, local_size_tracking)
 
         bool tracks_allocation_sizes() const noexcept override { return false; }
 
-        size_t  RequestedSize(QUARISMA_UNUSED const void* ptr) const noexcept override { return 0; }
-        size_t  AllocatedSize(QUARISMA_UNUSED const void* ptr) const noexcept override { return 0; }
-        int64_t AllocationId(QUARISMA_UNUSED const void* ptr) const override { return 0; }
+        size_t  RequestedSize(MEMORY_UNUSED const void* ptr) const noexcept override { return 0; }
+        size_t  AllocatedSize(MEMORY_UNUSED const void* ptr) const noexcept override { return 0; }
+        int64_t AllocationId(MEMORY_UNUSED const void* ptr) const override { return 0; }
 
         std::optional<allocator_stats> GetStats() const override { return std::nullopt; }
         std::string                    Name() const override { return "non_tracking_allocator"; }
@@ -554,17 +554,15 @@ TEST(AllocatorTracking, reference_counting)
 }
 
 // Test allocator_tracking functionality
-QUARISMATEST(AllocatorTracking, BasicTracking)
+MEMORYTEST(AllocatorTracking, BasicTracking)
 {
     // Create a base allocator
-    auto base_allocator = util::make_ptr_unique_mutable<basic_cpu_allocator>(
-        0, std::vector<memory::sub_allocator::Visitor>{}, std::vector<memory::sub_allocator::Visitor>{});
+    auto base_allocator = std::make_unique<basic_cpu_allocator>(
+        0,
+        std::vector<memory::sub_allocator::Visitor>{},
+        std::vector<memory::sub_allocator::Visitor>{});
     auto pool = std::make_unique<allocator_pool>(
-        10,
-        false,
-        std::move(base_allocator),
-        util::make_ptr_unique_mutable<NoopRounder>(),
-        "base_pool");
+        10, false, std::move(base_allocator), std::make_unique<NoopRounder>(), "base_pool");
 
     // Create tracking allocator (use pointer due to protected destructor)
     auto tracker = new allocator_tracking(pool.get(), true);

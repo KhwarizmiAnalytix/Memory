@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -25,17 +25,17 @@
 #include <string>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_device_manager.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test GPU device manager singleton access
  */
-QUARISMATEST(GpuDeviceManager, provides_singleton_instance)
+MEMORYTEST(GpuDeviceManager, provides_singleton_instance)
 {
     // Test singleton access
     auto& manager1 = gpu_device_manager::instance();
@@ -50,7 +50,7 @@ QUARISMATEST(GpuDeviceManager, provides_singleton_instance)
 /**
  * @brief Test GPU device manager initialization
  */
-QUARISMATEST(GpuDeviceManager, initializes_successfully)
+MEMORYTEST(GpuDeviceManager, initializes_successfully)
 {
     auto& manager = gpu_device_manager::instance();
 
@@ -71,7 +71,7 @@ QUARISMATEST(GpuDeviceManager, initializes_successfully)
 /**
  * @brief Test runtime information retrieval
  */
-QUARISMATEST(GpuDeviceManager, provides_runtime_information)
+MEMORYTEST(GpuDeviceManager, provides_runtime_information)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -100,7 +100,7 @@ QUARISMATEST(GpuDeviceManager, provides_runtime_information)
 /**
  * @brief Test available devices enumeration
  */
-QUARISMATEST(GpuDeviceManager, enumerates_available_devices)
+MEMORYTEST(GpuDeviceManager, enumerates_available_devices)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -131,7 +131,7 @@ QUARISMATEST(GpuDeviceManager, enumerates_available_devices)
 /**
  * @brief Test device information retrieval for specific devices
  */
-QUARISMATEST(GpuDeviceManager, retrieves_specific_device_info)
+MEMORYTEST(GpuDeviceManager, retrieves_specific_device_info)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -171,7 +171,7 @@ QUARISMATEST(GpuDeviceManager, retrieves_specific_device_info)
 /**
  * @brief Test device availability checking
  */
-QUARISMATEST(GpuDeviceManager, checks_device_availability)
+MEMORYTEST(GpuDeviceManager, checks_device_availability)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -197,7 +197,7 @@ QUARISMATEST(GpuDeviceManager, checks_device_availability)
 /**
  * @brief Test device context management
  */
-QUARISMATEST(GpuDeviceManager, manages_device_context)
+MEMORYTEST(GpuDeviceManager, manages_device_context)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -235,7 +235,7 @@ QUARISMATEST(GpuDeviceManager, manages_device_context)
 /**
  * @brief Test device information refresh
  */
-QUARISMATEST(GpuDeviceManager, refreshes_device_information)
+MEMORYTEST(GpuDeviceManager, refreshes_device_information)
 {
 #if 0
     auto& manager = gpu_device_manager::instance();
@@ -253,7 +253,7 @@ QUARISMATEST(GpuDeviceManager, refreshes_device_information)
 /**
  * @brief Test system report generation
  */
-QUARISMATEST(GpuDeviceManager, generates_system_report)
+MEMORYTEST(GpuDeviceManager, generates_system_report)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();
@@ -276,7 +276,7 @@ QUARISMATEST(GpuDeviceManager, generates_system_report)
 /**
  * @brief Test error handling for invalid operations
  */
-QUARISMATEST(GpuDeviceManager, handles_invalid_operations)
+MEMORYTEST(GpuDeviceManager, handles_invalid_operations)
 {
     auto& manager = gpu_device_manager::instance();
     manager.initialize();

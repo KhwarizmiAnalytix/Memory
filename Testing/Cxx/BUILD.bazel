@@ -35,7 +35,7 @@ cc_test(
         "QUARISMA_GOOGLE_TEST",
         "USE_GTEST",
         "_VARIADIC_MAX=10",
-        "QUARISMA_HAS_GTEST=1",
+        "MEMORY_HAS_GTEST=1",
     ] + select({
         "//bazel:enable_cuda": ["QUARISMA_HAS_CUDA=1"],
         "//conditions:default": ["QUARISMA_HAS_CUDA=0"],
@@ -47,7 +47,7 @@ cc_test(
     linkopts = memory_linkopts(),
     deps = [
         "//Library/Memory:Memory",
-        "//Library/Core/Testing:quarismaTest_header",
+        "//Library/Memory/Testing:memoryTest_header",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
         "@loguru//:loguru",

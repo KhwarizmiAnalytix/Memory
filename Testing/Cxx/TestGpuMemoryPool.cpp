@@ -17,7 +17,7 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -25,17 +25,17 @@
 #include <memory>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_memory_pool.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test GPU memory pool configuration validation
  */
-QUARISMATEST(GpuMemoryPool, validates_configuration_parameters)
+MEMORYTEST(GpuMemoryPool, validates_configuration_parameters)
 {
     // Test default configuration
     gpu_memory_pool_config default_config;
@@ -70,7 +70,7 @@ QUARISMATEST(GpuMemoryPool, validates_configuration_parameters)
 /**
  * @brief Test GPU memory pool creation
  */
-QUARISMATEST(GpuMemoryPool, creates_pool_successfully)
+MEMORYTEST(GpuMemoryPool, creates_pool_successfully)
 {
     // Test pool creation with default configuration
     gpu_memory_pool_config config;
@@ -99,7 +99,7 @@ QUARISMATEST(GpuMemoryPool, creates_pool_successfully)
 /**
  * @brief Test GPU memory block structure and operations
  */
-QUARISMATEST(GpuMemoryBlock, manages_block_metadata_correctly)
+MEMORYTEST(GpuMemoryBlock, manages_block_metadata_correctly)
 {
     // Test default construction
     gpu_memory_block default_block;
@@ -137,7 +137,7 @@ QUARISMATEST(GpuMemoryBlock, manages_block_metadata_correctly)
 /**
  * @brief Test basic memory allocation and deallocation
  */
-QUARISMATEST(GpuMemoryPool, allocates_and_deallocates_memory)
+MEMORYTEST(GpuMemoryPool, allocates_and_deallocates_memory)
 {
     gpu_memory_pool_config config;
     config.min_block_size = 1024;
@@ -173,7 +173,7 @@ QUARISMATEST(GpuMemoryPool, allocates_and_deallocates_memory)
 /**
  * @brief Test multiple allocations and memory reuse
  */
-QUARISMATEST(GpuMemoryPool, handles_multiple_allocations)
+MEMORYTEST(GpuMemoryPool, handles_multiple_allocations)
 {
     gpu_memory_pool_config config;
     config.min_block_size    = 512;
@@ -215,7 +215,7 @@ QUARISMATEST(GpuMemoryPool, handles_multiple_allocations)
 /**
  * @brief Test memory pool statistics and reporting
  */
-QUARISMATEST(GpuMemoryPool, provides_accurate_statistics)
+MEMORYTEST(GpuMemoryPool, provides_accurate_statistics)
 {
     gpu_memory_pool_config config;
     config.min_block_size  = 1024;
@@ -265,7 +265,7 @@ QUARISMATEST(GpuMemoryPool, provides_accurate_statistics)
 /**
  * @brief Test cache management functionality
  */
-QUARISMATEST(GpuMemoryPool, manages_cache_effectively)
+MEMORYTEST(GpuMemoryPool, manages_cache_effectively)
 {
     gpu_memory_pool_config config;
     config.min_block_size    = 1024;
@@ -307,7 +307,7 @@ QUARISMATEST(GpuMemoryPool, manages_cache_effectively)
 /**
  * @brief Test memory pool with different device types
  */
-QUARISMATEST(GpuMemoryPool, supports_different_device_types)
+MEMORYTEST(GpuMemoryPool, supports_different_device_types)
 {
     gpu_memory_pool_config config;
     config.min_block_size = 1024;
@@ -348,7 +348,7 @@ QUARISMATEST(GpuMemoryPool, supports_different_device_types)
 /**
  * @brief Test memory pool error handling
  */
-QUARISMATEST(GpuMemoryPool, handles_errors_gracefully)
+MEMORYTEST(GpuMemoryPool, handles_errors_gracefully)
 {
     gpu_memory_pool_config config;
     config.min_block_size = 1024;

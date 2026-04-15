@@ -21,7 +21,7 @@
  * This file is kept for testing the remaining factory functionality (caching allocator creation).
  */
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "common/macros.h"
 
 #if PROJECT_HAS_CUDA
@@ -29,18 +29,18 @@
 #include <memory>
 #include <string>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/cuda_caching_allocator.h"
 #include "gpu/gpu_allocator_factory.h"
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 /**
  * @brief Test strategy recommendation functionality (legacy factory support)
  */
-QUARISMATEST(GpuAllocatorFactory, recommends_appropriate_strategies)
+MEMORYTEST(GpuAllocatorFactory, recommends_appropriate_strategies)
 {
     // Test strategy recommendation for different scenarios
     // Note: This tests the legacy factory pattern which is deprecated
@@ -68,7 +68,7 @@ QUARISMATEST(GpuAllocatorFactory, recommends_appropriate_strategies)
 /**
  * @brief Test device validation functionality (legacy factory support)
  */
-QUARISMATEST(GpuAllocatorFactory, validates_device_support_correctly)
+MEMORYTEST(GpuAllocatorFactory, validates_device_support_correctly)
 {
     // Test CUDA device validation
     // Note: This tests the legacy factory pattern which is deprecated
@@ -100,7 +100,7 @@ QUARISMATEST(GpuAllocatorFactory, validates_device_support_correctly)
 /**
  * @brief Test strategy name conversion
  */
-QUARISMATEST(GpuAllocatorFactory, provides_readable_strategy_names)
+MEMORYTEST(GpuAllocatorFactory, provides_readable_strategy_names)
 {
     // Test strategy name conversion
     std::string direct_name = gpu_allocator_factory::strategy_name(gpu_allocation_strategy::DIRECT);
@@ -130,7 +130,7 @@ QUARISMATEST(GpuAllocatorFactory, provides_readable_strategy_names)
 /**
  * @brief Test configuration creation for different use cases
  */
-QUARISMATEST(GpuAllocatorFactory, creates_optimized_configurations)
+MEMORYTEST(GpuAllocatorFactory, creates_optimized_configurations)
 {
     // Test default configuration creation
     auto default_config = gpu_allocator_config::create_default(gpu_allocation_strategy::DIRECT, 0);
@@ -159,7 +159,7 @@ QUARISMATEST(GpuAllocatorFactory, creates_optimized_configurations)
 /**
  * @brief Test caching allocator creation
  */
-QUARISMATEST(GpuAllocatorFactory, creates_caching_allocators)
+MEMORYTEST(GpuAllocatorFactory, creates_caching_allocators)
 {
     // Test caching allocator creation
     gpu_allocator_config config;
@@ -192,7 +192,7 @@ QUARISMATEST(GpuAllocatorFactory, creates_caching_allocators)
 /**
  * @brief Test factory error handling
  */
-QUARISMATEST(GpuAllocatorFactory, handles_invalid_configurations)
+MEMORYTEST(GpuAllocatorFactory, handles_invalid_configurations)
 {
     // Test invalid device configuration
     gpu_allocator_config invalid_config;
@@ -219,7 +219,7 @@ QUARISMATEST(GpuAllocatorFactory, handles_invalid_configurations)
 /**
  * @brief Test factory with different template parameters
  */
-QUARISMATEST(GpuAllocatorFactory, supports_different_template_parameters)
+MEMORYTEST(GpuAllocatorFactory, supports_different_template_parameters)
 {
     gpu_allocator_config config;
     config.strategy        = gpu_allocation_strategy::CACHING;

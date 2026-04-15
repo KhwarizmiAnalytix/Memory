@@ -19,43 +19,84 @@
 
 #pragma once
 
-#include "../../Logging/util/exception.h"
+#include <fmt/format.h>
 
+#include <cstdio>
+#include <stdexcept>
+#include <string>
+
+#include "common/memory_macros.h"
+
+// ============================================================================
+// memory::details::format_check_msg
+//
+// Formats a check-failure message with an optional fmt-style user message.
+// Used by MEMORY_CHECK and MEMORY_CHECK_DEBUG.
+// ============================================================================
 namespace memory
 {
-using exception_mode     = logging::exception_mode;
-using exception_category = logging::exception_category;
-using source_location    = logging::source_location;
-using exception          = logging::exception;
+namespace details
+{
+template <typename... Args>
+inline std::string format_check_msg(
+    const char* cond_str, fmt::format_string<Args...> fmt_str, Args&&... args)
+{
+    return fmt::format(
+        "Check failed: {} - {}", cond_str, fmt::format(fmt_str, std::forward<Args>(args)...));
+}
 
-inline exception_mode get_exception_mode() noexcept
+inline std::string format_check_msg(const char* cond_str)
 {
-    return logging::get_exception_mode();
+    return fmt::format("Check failed: {}", cond_str);
 }
-inline void set_exception_mode(exception_mode mode) noexcept
-{
-    logging::set_exception_mode(mode);
-}
-inline void init_exception_mode_from_env() noexcept
-{
-    logging::init_exception_mode_from_env();
-}
-namespace details = logging::details;
+}  // namespace details
 }  // namespace memory
 
 // ============================================================================
 // MEMORY_THROW(format_str, ...)
 //
-// Throws (or fatally logs, depending on the global exception mode) a
-// Memory-scoped error with an fmt-style formatted message.
-//
-// Delegates to LOGGING_THROW so that exception mode, category, and
-// source-location capture are handled consistently by the Logging module.
+// Throws std::runtime_error with an fmt-style formatted message.
 //
 // Usage:
 //   MEMORY_THROW("allocating {} bytes failed", num_bytes);
 //   MEMORY_THROW("CUDA error: {}", cuda_error_string(err));
 // ============================================================================
 #ifndef MEMORY_THROW
-#define MEMORY_THROW(format_str, ...) LOGGING_THROW(format_str, ##__VA_ARGS__)
+#define MEMORY_THROW(format_str, ...) \
+    throw std::runtime_error(fmt::format(fmt::runtime(format_str), ##__VA_ARGS__))
+#endif
+
+#ifndef MEMORY_CHECK
+#define MEMORY_CHECK(cond, ...)                                                               \
+    if MEMORY_UNLIKELY (!(cond))                                                              \
+    {                                                                                         \
+        std::string _mem_check_msg = memory::details::format_check_msg(#cond, ##__VA_ARGS__); \
+        MEMORY_THROW("{}", _mem_check_msg);                                                   \
+    }
+#endif
+
+#ifdef NDEBUG
+#define MEMORY_CHECK_DEBUG(condition, ...)
+#else
+#define MEMORY_CHECK_DEBUG(condition, ...)      \
+    do                                          \
+    {                                           \
+        MEMORY_CHECK(condition, ##__VA_ARGS__); \
+    } while (0)
+#endif
+
+#ifndef MEMORY_LOG_WARNING
+#define MEMORY_LOG_WARNING(format_str, ...) \
+    std::fprintf(                           \
+        stderr,                             \
+        "[MEMORY WARNING] %s\n",            \
+        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#endif
+
+#ifndef MEMORY_LOG_INFO
+#define MEMORY_LOG_INFO(format_str, ...) \
+    std::fprintf(                        \
+        stdout,                          \
+        "[MEMORY INFO] %s\n",            \
+        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
 #endif

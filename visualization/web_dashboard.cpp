@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-#include "logger.h"
+//#include "logger/logger.h"
 #include "cpu/allocator.h"
 
 namespace memory
@@ -30,7 +30,7 @@ bool web_dashboard::start_dashboard(int port)
 {
     if (server_running_.load())
     {
-        LOGGING_LOG_WARNING("Dashboard is already running");
+        MEMORY_LOG_WARNING("Dashboard is already running");
         return false;
     }
 
@@ -48,7 +48,7 @@ bool web_dashboard::start_dashboard(int port)
     // Start metrics collection thread
     metrics_thread_ = std::thread(&web_dashboard::metrics_thread_main, this);
 
-    LOGGING_LOG_INFO("Web dashboard started on {}:{}", config_.host, config_.port);
+    MEMORY_LOG_INFO("Web dashboard started on {}:{}", config_.host, config_.port);
     return true;
 }
 
@@ -79,14 +79,14 @@ void web_dashboard::stop_dashboard()
         websocket_clients_.clear();
     }
 
-    LOGGING_LOG_INFO("Web dashboard stopped");
+    MEMORY_LOG_INFO("Web dashboard stopped");
 }
 
 bool web_dashboard::register_allocator(const std::string& name, Allocator* allocator)
 {
     if (allocator == nullptr)
     {
-        LOGGING_LOG_ERROR("Cannot register null allocator: {}", name);
+        MEMORY_LOG_ERROR("Cannot register null allocator: {}", name);
         return false;
     }
 
@@ -94,7 +94,7 @@ bool web_dashboard::register_allocator(const std::string& name, Allocator* alloc
 
     if (registered_allocators_.find(name) != registered_allocators_.end())  //NOLINT
     {
-        LOGGING_LOG_WARNING("Allocator already registered: {}", name);
+        MEMORY_LOG_WARNING("Allocator already registered: {}", name);
         return false;
     }
 
@@ -107,7 +107,7 @@ bool web_dashboard::register_allocator(const std::string& name, Allocator* alloc
 
     registered_allocators_[name] = info;
 
-    LOGGING_LOG_INFO("Registered allocator: {} (type: {})", name, info.type);
+    MEMORY_LOG_INFO("Registered allocator: {} (type: {})", name, info.type);
     return true;
 }
 
@@ -118,7 +118,7 @@ bool web_dashboard::unregister_allocator(const std::string& name)
     auto it = registered_allocators_.find(name);
     if (it == registered_allocators_.end())
     {
-        LOGGING_LOG_WARNING("Allocator not found for unregistration: {}", name);
+        MEMORY_LOG_WARNING("Allocator not found for unregistration: {}", name);
         return false;
     }
 
@@ -130,7 +130,7 @@ bool web_dashboard::unregister_allocator(const std::string& name)
         metrics_history_.erase(name);
     }
 
-    LOGGING_LOG_INFO("Unregistered allocator: {}", name);
+    MEMORY_LOG_INFO("Unregistered allocator: {}", name);
     return true;
 }
 
@@ -358,7 +358,7 @@ void web_dashboard::update_metrics_now()
 
 void web_dashboard::server_thread_main()
 {
-    LOGGING_LOG_INFO("Starting web dashboard server thread on port {}", config_.port);
+    MEMORY_LOG_INFO("Starting web dashboard server thread on port {}", config_.port);
 
     // Simple HTTP server implementation
     // In a real implementation, this would use a proper HTTP library like httplib or similar
@@ -372,12 +372,12 @@ void web_dashboard::server_thread_main()
         // This is a simplified implementation - in practice would use proper HTTP library
     }
 
-    LOGGING_LOG_INFO("Web dashboard server thread stopped");
+    MEMORY_LOG_INFO("Web dashboard server thread stopped");
 }
 
 void web_dashboard::metrics_thread_main()
 {
-    LOGGING_LOG_INFO("Starting metrics collection thread");
+    MEMORY_LOG_INFO("Starting metrics collection thread");
 
     while (!should_stop_.load())
     {
@@ -385,7 +385,7 @@ void web_dashboard::metrics_thread_main()
         std::this_thread::sleep_for(config_.update_interval);
     }
 
-    LOGGING_LOG_INFO("Metrics collection thread stopped");
+    MEMORY_LOG_INFO("Metrics collection thread stopped");
 }
 
 void web_dashboard::collect_metrics()

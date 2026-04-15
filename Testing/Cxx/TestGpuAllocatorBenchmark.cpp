@@ -16,7 +16,7 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "gpu/allocator_gpu.h"
 #include "gpu/cuda_caching_allocator.h"
 
@@ -24,8 +24,8 @@
 #include <cuda_runtime.h>
 #endif
 
-using namespace quarisma;
-using namespace quarisma::gpu;
+using namespace memory;
+using namespace memory::gpu;
 
 namespace
 {
@@ -609,7 +609,7 @@ void generate_benchmark_report(const std::vector<gpu_benchmark_results>& results
 /**
  * @brief Comprehensive GPU allocator benchmark comparing all strategies
  */
-QUARISMATEST(GpuAllocatorBenchmark, ComprehensiveBenchmark)
+MEMORYTEST(GpuAllocatorBenchmark, ComprehensiveBenchmark)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)
@@ -697,7 +697,7 @@ QUARISMATEST(GpuAllocatorBenchmark, ComprehensiveBenchmark)
 /**
  * @brief Allocation method comparison test (requires different builds)
  */
-QUARISMATEST(GpuAllocatorBenchmark, AllocationMethodComparison)
+MEMORYTEST(GpuAllocatorBenchmark, AllocationMethodComparison)
 {
     int device_count = get_cuda_device_count();
     if (device_count == 0)

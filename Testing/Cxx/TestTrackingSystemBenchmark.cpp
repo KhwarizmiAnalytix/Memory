@@ -13,14 +13,14 @@
 #include <thread>
 #include <vector>
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
 #include "backend/allocator_tracking.h"
 #include "cpu/allocator_cpu.h"
 #include "gpu/gpu_allocator_tracking.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
 namespace
@@ -360,7 +360,7 @@ void print_tracking_benchmark_results(const std::vector<tracking_benchmark_resul
 /**
  * @brief Comprehensive tracking system benchmark
  */
-QUARISMATEST(TrackingSystemBenchmark, ComprehensiveTrackingBenchmark)
+MEMORYTEST(TrackingSystemBenchmark, ComprehensiveTrackingBenchmark)
 {
     std::vector<tracking_benchmark_results> all_results;
 

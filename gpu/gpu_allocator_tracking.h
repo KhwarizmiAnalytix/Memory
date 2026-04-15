@@ -37,7 +37,7 @@
 #include <vector>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "common/device.h"
 #include "gpu/gpu_device_manager.h"
 #include "gpu/gpu_memory_pool.h"
@@ -47,6 +47,7 @@
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+
 #include "common/memory_export.h"
 #endif
 
@@ -588,9 +589,9 @@ T* gpu_allocator_tracking::allocate(
     std::shared_ptr<gpu_memory_pool> pool,
     const std::string&               tag,
     void*                            stream,
-    MEMORY_UNUSED const char*      source_file,
-    MEMORY_UNUSED int              source_line,
-    MEMORY_UNUSED const char*      function_name)
+    MEMORY_UNUSED const char*        source_file,
+    MEMORY_UNUSED int                source_line,
+    MEMORY_UNUSED const char*        function_name)
 {
     if (count == 0)
         return nullptr;

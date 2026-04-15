@@ -24,23 +24,23 @@
 #include <string>
 #include <vector>
 
-#include "CoreTest.h"
+#include "MemoryTest.h"
 #include "cpu/allocator_device.h"
 #include "profiler/unified_memory_stats.h"
 
-using namespace quarisma;
+using namespace memory;
 using namespace memory;
 
-namespace quarisma
+namespace memory
 {
 
 // Forward declarations of helper functions defined in TestCPUMemory.cpp
 struct TestStruct;
 bool IsAligned(void* ptr, size_t alignment);
 bool ValidateMemory(const void* ptr, size_t size, uint8_t pattern);
-}  // namespace quarisma
+}  // namespace memory
 
-QUARISMATEST(CPUMemoryStats, unified_resource_stats_basic_functionality)
+MEMORYTEST(CPUMemoryStats, unified_resource_stats_basic_functionality)
 {
     unified_resource_stats stats;
 
@@ -82,7 +82,7 @@ QUARISMATEST(CPUMemoryStats, unified_resource_stats_basic_functionality)
     END_TEST();
 }
 
-QUARISMATEST(CPUMemoryStats, atomic_timing_stats_functionality)
+MEMORYTEST(CPUMemoryStats, atomic_timing_stats_functionality)
 {
     atomic_timing_stats stats;
 
@@ -113,7 +113,7 @@ QUARISMATEST(CPUMemoryStats, atomic_timing_stats_functionality)
     END_TEST();
 }
 
-QUARISMATEST(CPUMemoryStats, timing_stats_snapshot)
+MEMORYTEST(CPUMemoryStats, timing_stats_snapshot)
 {
     // Create atomic version and populate it
     atomic_timing_stats atomic_stats;
@@ -142,7 +142,7 @@ QUARISMATEST(CPUMemoryStats, timing_stats_snapshot)
     END_TEST();
 }
 
-QUARISMATEST(CPUMemoryStats, unified_cache_stats_functionality)
+MEMORYTEST(CPUMemoryStats, unified_cache_stats_functionality)
 {
     unified_cache_stats stats;
 
@@ -181,7 +181,7 @@ QUARISMATEST(CPUMemoryStats, unified_cache_stats_functionality)
 /**
      * @brief Test memory fragmentation metrics calculation
      */
-QUARISMATEST(CPUMemoryStats, test_memory_fragmentation_metrics)
+MEMORYTEST(CPUMemoryStats, test_memory_fragmentation_metrics)
 {
     QUARISMA_LOG_INFO("Testing memory_fragmentation_metrics calculation...");
 
@@ -226,7 +226,7 @@ QUARISMATEST(CPUMemoryStats, test_memory_fragmentation_metrics)
 /**
      * @brief Test comprehensive memory statistics integration
      */
-QUARISMATEST(CPUMemoryStats, test_comprehensive_memory_stats)
+MEMORYTEST(CPUMemoryStats, test_comprehensive_memory_stats)
 {
     QUARISMA_LOG_INFO("Testing comprehensive_memory_stats integration...");
 
@@ -277,19 +277,19 @@ QUARISMATEST(CPUMemoryStats, test_comprehensive_memory_stats)
     QUARISMA_LOG_INFO("✓ comprehensive_memory_stats integration passed");
 }
 
-QUARISMATEST(CPUMemoryStats, comprehensive_tests)
+MEMORYTEST(CPUMemoryStats, comprehensive_tests)
 {
     // Test unified resource statistics
-    QUARISMATEST_CALL(CPUMemoryStats, unified_resource_stats_basic_functionality);
+    MEMORYTEST_CALL(CPUMemoryStats, unified_resource_stats_basic_functionality);
 
     // Test atomic timing statistics
-    QUARISMATEST_CALL(CPUMemoryStats, atomic_timing_stats_functionality);
+    MEMORYTEST_CALL(CPUMemoryStats, atomic_timing_stats_functionality);
 
     // Test timing stats snapshot
-    QUARISMATEST_CALL(CPUMemoryStats, timing_stats_snapshot);
+    MEMORYTEST_CALL(CPUMemoryStats, timing_stats_snapshot);
 
     // Test unified cache statistics
-    QUARISMATEST_CALL(CPUMemoryStats, unified_cache_stats_functionality);
+    MEMORYTEST_CALL(CPUMemoryStats, unified_cache_stats_functionality);
 
     END_TEST();
 }

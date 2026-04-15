@@ -4,7 +4,7 @@
 #include <stdexcept>
 
 #include "common/memory_macros.h"
-#include "logger.h"
+//#include "logger/logger.h"
 #include "gpu/gpu_device_manager.h"
 
 #if MEMORY_HAS_CUDA
