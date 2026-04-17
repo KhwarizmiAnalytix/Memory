@@ -35,7 +35,6 @@
 #include "cpu/allocator_cpu.h"
 
 using namespace memory;
-namespace util = quarisma::util;
 
 // =============================================================================
 // Benchmark Configuration
