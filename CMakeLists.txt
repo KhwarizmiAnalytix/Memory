@@ -102,50 +102,25 @@ endif()
 # =============================================================================
 # SECTION 2 — MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions
 #
-# Maps each feature flag to a MEMORY_HAS_* token consumed by source via #if.
-# Note: MEMORY_ENABLE_CUDA, MEMORY_ENABLE_HIP, MEMORY_ENABLE_TBB, and
-#       MEMORY_ENABLE_NUMA are set by the module-owned finders in Section 3.
-#       This block is therefore evaluated after those includes run, but is
-#       kept here for consistent structural grouping.
+# User-declared option flags (mimalloc, memkind) are mapped here because they
+# are set in Section 1 and do not depend on any include.
+#
+# IMPORTANT: MEMORY_ENABLE_TBB, MEMORY_ENABLE_CUDA, MEMORY_ENABLE_HIP, and
+# MEMORY_ENABLE_NUMA are set by the module-owned finders inside Section 3
+# (include(tbb_memory), include(cuda), include(hip), include(numa)).
+# Those flags DO NOT exist yet here — their HAS_ mappings are placed AFTER
+# Section 3 in the "Section 2 — detection-based HAS" block below.
 # =============================================================================
 set(MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${PROJECT_DEPENDENCY_COMPILE_DEFINITIONS})
 
-# TBB scalable allocator — set by include(tbb_memory) in Section 3.
-if(MEMORY_ENABLE_TBB)
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=1)
-else()
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=0)
-endif()
-
-# CUDA device memory — set by include(cuda) in Section 3.
-if(MEMORY_ENABLE_CUDA)
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1)
-else()
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0)
-endif()
-
-# HIP/ROCm device memory — set by include(hip) in Section 3.
-if(MEMORY_ENABLE_HIP)
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=1)
-else()
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=0)
-endif()
-
-# mimalloc high-performance allocator.
+# mimalloc — declared as an option in Section 1; safe to map here.
 if(MEMORY_ENABLE_MIMALLOC)
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MIMALLOC=1)
 else()
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MIMALLOC=0)
 endif()
 
-# NUMA-aware allocation — set by include(numa) in Section 3 (Linux only).
-if(MEMORY_ENABLE_NUMA)
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=1)
-else()
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=0)
-endif()
-
-# memkind extended-memory — forced OFF on non-Linux by platform constraints above.
+# memkind — declared as an option in Section 1; forced OFF on non-Linux above.
 if(MEMORY_ENABLE_MEMKIND)
   list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_MEMKIND=1)
 else()
@@ -154,8 +129,6 @@ endif()
 
 # Per-allocator call-site tracking (opt-in; adds overhead).
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_ALLOCATION_STATS)
-
-list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # =============================================================================
 # SECTION 3 — CMake module includes
@@ -198,6 +171,44 @@ if(MEMORY_ENABLE_COVERAGE)
   set(MEMORY_ENABLE_LTO OFF)
   include(coverage)
 endif()
+
+# =============================================================================
+# SECTION 2 (continued) — detection-based MEMORY_HAS_* compile definitions
+#
+# MEMORY_ENABLE_TBB, MEMORY_ENABLE_CUDA, MEMORY_ENABLE_HIP, and
+# MEMORY_ENABLE_NUMA are set by the module-owned finders in Section 3 above.
+# This block MUST appear after those includes so the flags are readable.
+# =============================================================================
+
+# TBB scalable allocator — set by include(tbb_memory).
+if(MEMORY_ENABLE_TBB)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_TBB=0)
+endif()
+
+# CUDA device memory — set by include(cuda).
+if(MEMORY_ENABLE_CUDA)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0)
+endif()
+
+# HIP/ROCm device memory — set by include(hip).
+if(MEMORY_ENABLE_HIP)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_HIP=0)
+endif()
+
+# NUMA-aware allocation — set by include(numa); Linux only.
+if(MEMORY_ENABLE_NUMA)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_NUMA=0)
+endif()
+
+list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # =============================================================================
 # Runtime library wiring
