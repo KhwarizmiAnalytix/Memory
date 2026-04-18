@@ -312,10 +312,6 @@ endif()
 
 add_library(Memory::Memory ALIAS Memory)
 
-if(DEFINED MEMORY_LINKER_FLAGS_COMMON)
-  target_link_options(Memory PRIVATE ${MEMORY_LINKER_FLAGS_COMMON})
-endif()
-
 
 if(COMMAND memory_apply_iwyu)
   memory_apply_iwyu(Memory)
