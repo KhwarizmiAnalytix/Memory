@@ -1,28 +1,21 @@
-# ============================================================================= Library/Memory —
-# CMakeLists.txt
+# =============================================================================
+# Library/Memory — CMakeLists.txt
 #
-# Provides the Memory library: CPU/GPU allocators (BFC, pool, tracking, retry), mimalloc
-# integration, CUDA/HIP device memory, NUMA-aware allocation, and per-allocator statistics.
+# CPU/GPU allocators, mimalloc integration, CUDA/HIP device memory, NUMA-aware
+# allocation, and per-allocator statistics.
 #
-# Public compile definitions emitted by this file: MEMORY_HAS_TBB=1/0       — TBB scalable allocator
-# active MEMORY_HAS_CUDA=1/0      — CUDA device-memory support compiled in MEMORY_HAS_HIP=1/0 —
-# HIP/ROCm device-memory support compiled in MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator
-# active MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available MEMORY_HAS_MEMKIND=1/0 — memkind
-# extended-memory library available
+# Public compile definitions:
+#   MEMORY_HAS_TBB=1/0       — TBB scalable allocator active
+#   MEMORY_HAS_CUDA=1/0      — CUDA device-memory support compiled in
+#   MEMORY_HAS_HIP=1/0       — HIP/ROCm device-memory support compiled in
+#   MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator active
+#   MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available
+#   MEMORY_HAS_MEMKIND=1/0   — memkind extended-memory library available
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
 
-# ============================================================================= SECTION 1 — Feature
-# flags (MEMORY_ENABLE_*) and backend selectors
-#
-# These cache variables are the public configuration API for this module. Pass them on the CMake
-# command line: -DMEMORY_ENABLE_CUDA=ON
-#
-# Note: MEMORY_ENABLE_CUDA is declared inside include(cuda) and MEMORY_ENABLE_HIP inside
-# include(hip) — both are module-owned finders located in Library/Memory/Cmake/ and included in
-# Section 3. MEMORY_ENABLE_TBB and MEMORY_ENABLE_NUMA are likewise owned by include(tbb_memory) and
-# include(numa) respectively.
-# =============================================================================
+# --- Section 1: Feature flags (MEMORY_ENABLE_*) ---
+# MEMORY_ENABLE_CUDA/HIP/TBB/NUMA are set by module-owned finders in Section 3.
 
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
@@ -132,15 +125,8 @@ if(NOT UNIX OR APPLE)
   set(MEMORY_ENABLE_MEMKIND OFF CACHE BOOL "Enable memkind allocator (Linux only)" FORCE)
 endif()
 
-# ============================================================================= SECTION 3 — CMake
-# module includes
-#
-# Inclusion order: a) Standard CMake introspection helpers b) Shared toolchain helpers
-# (Cmake/tools/, Cmake/flags/) c) Memory-owned feature finders (Library/Memory/Cmake/) — sole owners
-# of their MEMORY_ENABLE_* flags; may override user choices based on platform availability d)
-# Coverage gate — must follow all feature finders; LTO/linker follow so IPO matches
-# coverage/sanitizer before quarisma_find_linker()
-# =============================================================================
+# --- Section 3: CMake module includes ---
+# Order: introspection → toolchain helpers → Memory-owned finders → coverage/sanitizer → LTO/linker.
 
 # LTO is incompatible with coverage/sanitizer — clear before any include().
 if(MEMORY_ENABLE_COVERAGE OR MEMORY_ENABLE_SANITIZER)
@@ -179,9 +165,7 @@ if(MEMORY_ENABLE_VALGRIND)
 endif()
 include(helper_macros)
 
-# d) Coverage gate When enabled, appends -fprofile-instr-generate / --coverage to global
-# CMAKE_CXX_FLAGS for this module.  LTO is cleared before Section 3 includes when coverage or
-# sanitizer is ON.
+# d) Coverage gate — appends -fprofile-instr-generate / --coverage; LTO already cleared above.
 if(MEMORY_ENABLE_COVERAGE)
   include(coverage)
 elseif(MSVC)
@@ -208,17 +192,8 @@ endif()
 include(linker)
 quarisma_find_linker(${MEMORY_LINKER_CHOICE})
 
-# ============================================================================= SECTION 2 —
-# MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions
-#
-# User-declared option flags (mimalloc, memkind) are mapped here because they are set in Section 1
-# and do not depend on any include.
-#
-# IMPORTANT: MEMORY_ENABLE_TBB, MEMORY_ENABLE_CUDA, MEMORY_ENABLE_HIP, and MEMORY_ENABLE_NUMA are
-# set by the module-owned finders inside Section 3 (include(tbb_memory), include(cuda),
-# include(hip), include(numa)). Those flags DO NOT exist yet here — their HAS_ mappings are placed
-# AFTER Section 3 in the "Section 2 — detection-based HAS" block below.
-# =============================================================================
+# --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions ---
+# TBB/CUDA/HIP/NUMA flags come from Section 3 finders; mapped after those includes.
 include(compile_definitions)
 # Per-allocator call-site tracking (opt-in; adds overhead).
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_ALLOCATION_STATS)
@@ -230,10 +205,7 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_CUDA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_HIP)
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
-# ============================================================================= Runtime library
-# wiring Collect third-party targets found by the Section 3 finders into MEMORY_DEPENDENCY_LIBS for
-# the single target_link_libraries() call below.
-# =============================================================================
+# --- Runtime library wiring ---
 if(MEMORY_ENABLE_CUDA AND DEFINED PROJECT_CUDA_LIBRARIES)
   list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
 endif()
@@ -247,14 +219,9 @@ if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
   list(APPEND MEMORY_DEPENDENCY_LIBS Mimalloc::mimalloc)
 endif()
 
-# ============================================================================= Source discovery
-# =============================================================================
+# --- Source discovery ---
 set(memory_headers "")
 set(memory_sources "")
-
-# Per-module override — propagates to all targets in this directory scope, including test targets in
-# Testing/Cxx.  CMAKE_CXX_STANDARD_REQUIRED and CMAKE_CXX_EXTENSIONS are set globally in the root
-# CMakeLists.txt.
 set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
 
 file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
@@ -278,16 +245,15 @@ if(NOT MEMORY_ENABLE_CUDA AND NOT MEMORY_ENABLE_HIP)
   list(REMOVE_ITEM memory_headers "${CMAKE_CURRENT_SOURCE_DIR}/cpu/allocator_device.h")
 endif()
 
-# ============================================================================= Target definition
-# =============================================================================
+# --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(Memory PUBLIC MEMORY_SHARED_DEFINE PRIVATE MEMORY_BUILDING_DLL)
-  if(COMMAND memory_set_target_output_directories)
-    memory_set_target_output_directories(Memory)
+  if(COMMAND quarisma_set_target_output_directories)
+    quarisma_set_target_output_directories(Memory)
   endif()
 else()
   target_compile_definitions(Memory PUBLIC MEMORY_STATIC_DEFINE)
@@ -295,13 +261,7 @@ endif()
 
 add_library(Memory::Memory ALIAS Memory)
 
-if(COMMAND memory_apply_iwyu)
-  memory_apply_iwyu(Memory)
-endif()
-
-if(COMMAND memory_module_create_filters)
-  memory_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
-endif()
+quarisma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
 
 set_target_properties(
   Memory PROPERTIES CXX_STANDARD ${MEMORY_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
@@ -365,8 +325,7 @@ if(MEMORY_ENABLE_MIMALLOC AND TARGET Memory::mimalloc)
   add_dependencies(Memory Memory::mimalloc)
 endif()
 
-# ============================================================================= Installation
-# =============================================================================
+# --- Installation ---
 install(
   TARGETS Memory
   EXPORT MemoryTargets
@@ -378,8 +337,7 @@ install(
 )
 install(FILES ${memory_headers} DESTINATION include/Memory/Memory COMPONENT Development)
 
-# ============================================================================= Testing
-# =============================================================================
+# --- Testing ---
 if(MEMORY_ENABLE_TESTING)
   add_subdirectory(Testing/Cxx)
 endif()
