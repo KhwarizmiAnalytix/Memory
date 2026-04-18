@@ -1,5 +1,5 @@
-# =============================================================================
-# Memory Library C++ Tests
+# ============================================================================= Memory Library C++
+# Tests
 # =============================================================================
 
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
@@ -56,7 +56,9 @@ if(COMMAND memory_set_target_output_directories)
 endif()
 
 if(MEMORY_ENABLE_BENCHMARK)
-  file(GLOB_RECURSE bench_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Benchmark*.cpp")
+  file(GLOB_RECURSE bench_sources LIST_DIRECTORIES false
+       "${CMAKE_CURRENT_SOURCE_DIR}/Benchmark*.cpp"
+  )
 
   foreach(_bench_source IN ITEMS ${bench_sources})
     get_filename_component(bench_name "${_bench_source}" NAME_WE)

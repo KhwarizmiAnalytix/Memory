@@ -1,21 +1,18 @@
-#=============================================================================
-# Quarisma Intel TBB - Memory Allocator Backend
-# (Threading Building Blocks) Scalable Memory Allocation
+# ============================================================================= Quarisma Intel TBB -
+# Memory Allocator Backend (Threading Building Blocks) Scalable Memory Allocation
 
-# This module configures Intel TBB's scalable memory allocator (tbbmalloc).
-# It is activated when MEMORY_ENABLE_TBB=ON.
+# This module configures Intel TBB's scalable memory allocator (tbbmalloc). It is activated when
+# MEMORY_ENABLE_TBB=ON.
 #
-# If tbb_multithreading.cmake has already acquired TBB (PARALLEL_ENABLE_TBB=ON),
-# the TBB::tbbmalloc target is available and this module just wraps it.
-# Otherwise it acquires TBB from source itself before creating Tbb::tbbmalloc.
+# If tbb_multithreading.cmake has already acquired TBB (PARALLEL_ENABLE_TBB=ON), the TBB::tbbmalloc
+# target is available and this module just wraps it. Otherwise it acquires TBB from source itself
+# before creating Tbb::tbbmalloc.
 
 cmake_minimum_required(VERSION 3.16)
 
 include_guard(GLOBAL)
 
-option(MEMORY_ENABLE_TBB
-       "Enable Intel TBB scalable memory allocator (tbbmalloc) support." OFF
-)
+option(MEMORY_ENABLE_TBB "Enable Intel TBB scalable memory allocator (tbbmalloc) support." OFF)
 mark_as_advanced(MEMORY_ENABLE_TBB)
 
 # Gate: only proceed if TBB memory allocator is requested
@@ -26,12 +23,12 @@ endif()
 
 message(STATUS "Configuring Intel TBB memory allocator support...")
 
-#=============================================================================
-# Step 1: Acquire TBB if not already done by tbb_multithreading.cmake
+# ============================================================================= Step 1: Acquire TBB
+# if not already done by tbb_multithreading.cmake
 
 if(NOT TARGET TBB::tbb)
-  # TBB has not been acquired yet — acquire it now.
-  # (tbb_multithreading.cmake was skipped because PARALLEL_ENABLE_TBB=OFF)
+  # TBB has not been acquired yet — acquire it now. (tbb_multithreading.cmake was skipped because
+  # PARALLEL_ENABLE_TBB=OFF)
 
   # Re-use the same configuration options if already defined, otherwise declare them
   if(NOT DEFINED PROJECT_TBB_FORCE_BUILD_FROM_SOURCE)
@@ -47,8 +44,8 @@ if(NOT TARGET TBB::tbb)
   endif()
 
   if(NOT DEFINED PROJECT_TBB_REPOSITORY)
-    set(PROJECT_TBB_REPOSITORY "https://github.com/oneapi-src/oneTBB.git" CACHE STRING
-                                                                               "TBB repository URL"
+    set(PROJECT_TBB_REPOSITORY "https://github.com/oneapi-src/oneTBB.git"
+        CACHE STRING "TBB repository URL"
     )
     mark_as_advanced(PROJECT_TBB_REPOSITORY)
   endif()
@@ -178,16 +175,18 @@ if(NOT TARGET TBB::tbb)
   endif()
 endif()
 
-#=============================================================================
-# Step 2: Verify tbbmalloc target is available
+# ============================================================================= Step 2: Verify
+# tbbmalloc target is available
 
 if(NOT TARGET TBB::tbbmalloc)
-  message(WARNING "TBB::tbbmalloc target is not available - memory allocator support may be limited")
+  message(
+    WARNING "TBB::tbbmalloc target is not available - memory allocator support may be limited"
+  )
   return()
 endif()
 
-#=============================================================================
-# Step 3: Create Tbb::tbbmalloc interface target
+# ============================================================================= Step 3: Create
+# Tbb::tbbmalloc interface target
 
 if(NOT TARGET Tbb::tbbmalloc)
   add_library(Tbb::tbbmalloc INTERFACE IMPORTED)
@@ -196,8 +195,8 @@ endif()
 
 message(STATUS "   TBB::tbbmalloc target available")
 
-#=============================================================================
-# Step 4: Configure output directories for the tbbmalloc target
+# ============================================================================= Step 4: Configure
+# output directories for the tbbmalloc target
 
 if(TBB_FROM_SOURCE AND TARGET tbbmalloc)
   foreach(config Debug Release RelWithDebInfo MinSizeRel)

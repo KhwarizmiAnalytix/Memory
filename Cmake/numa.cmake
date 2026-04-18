@@ -1,10 +1,9 @@
-#=============================================================================
-# Quarisma NUMA
+# ============================================================================= Quarisma NUMA
 # (Non-Uniform Memory Access) Configuration Module
 
 # This module configures NUMA support for multi-socket systems. It enables memory-aware thread
-# scheduling and allocation on NUMA architectures.
-# It is activated when MEMORY_ENABLE_NUMA=ON and is owned by the Memory module.
+# scheduling and allocation on NUMA architectures. It is activated when MEMORY_ENABLE_NUMA=ON and is
+# owned by the Memory module.
 
 cmake_minimum_required(VERSION 3.16)
 
