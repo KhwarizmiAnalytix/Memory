@@ -38,6 +38,19 @@ option(MEMORY_ENABLE_LTO
 option(MEMORY_ENABLE_COVERAGE
   "Enable coverage instrumentation for Memory" OFF)
 
+# Testing — gates add_subdirectory(Testing/Cxx).
+option(MEMORY_ENABLE_TESTING
+  "Build Memory test suite" ON)
+
+# Examples — gates add_subdirectory(Examples) when Memory examples exist.
+option(MEMORY_ENABLE_EXAMPLES
+  "Build Memory example programs" OFF)
+
+# Google Test integration for Memory tests.
+option(MEMORY_ENABLE_GTEST
+  "Enable GoogleTest for Memory" ON)
+  
+
 # Microsoft mimalloc — high-performance drop-in malloc replacement.
 # ON by default to match the CMake project default.
 option(MEMORY_ENABLE_MIMALLOC
@@ -162,7 +175,13 @@ include(cuda)          # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
 include(hip)           # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIP=ON
 include(tbb_memory)    # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
 include(numa)          # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
-
+include(sanitize)
+include(clang_tidy)
+include(spell)
+include(iwyu)
+include(valgrind)
+include(helper_macros)
+include(linker)
 # d) Coverage gate
 #    When enabled, appends -fprofile-instr-generate / --coverage to global
 #    CMAKE_CXX_FLAGS for this module.  LTO is forced OFF here because LTO
@@ -266,6 +285,16 @@ endif()
 # =============================================================================
 # Target definition
 # =============================================================================
+if(MEMORY_ENABLE_LTO)
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+  message(STATUS "Link Time Optimization (LTO) enabled via CMAKE_INTERPROCEDURAL_OPTIMIZATION")
+else()
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
+  message(STATUS "Link Time Optimization (LTO) disabled")
+endif()
+
 add_library(Memory ${memory_sources} ${memory_headers})
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
@@ -283,12 +312,10 @@ endif()
 
 add_library(Memory::Memory ALIAS Memory)
 
-if(MEMORY_ENABLE_LTO)
-  set_target_properties(Memory PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
-  message(STATUS "Memory: LTO enabled")
-else()
-  message(STATUS "Memory: LTO disabled")
+if(DEFINED MEMORY_LINKER_FLAGS_COMMON)
+  target_link_options(Memory PRIVATE ${MEMORY_LINKER_FLAGS_COMMON})
 endif()
+
 
 if(COMMAND memory_apply_iwyu)
   memory_apply_iwyu(Memory)
@@ -375,6 +402,10 @@ install(FILES ${memory_headers}
 # =============================================================================
 # Testing
 # =============================================================================
-if(BUILD_TESTING)
+if(MEMORY_ENABLE_TESTING)
   add_subdirectory(Testing/Cxx)
+endif()
+
+if(PROJECT_ENABLE_VALGRIND AND MEMORY_ENABLE_TESTING)
+  quarisma_apply_valgrind_timeouts()
 endif()
