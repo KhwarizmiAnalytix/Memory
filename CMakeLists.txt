@@ -190,7 +190,6 @@ else()
 endif()
 
 include(linker)
-quarisma_find_linker(${MEMORY_LINKER_CHOICE})
 
 # --- Third-party dependencies owned by Memory ---
 set(_tpdir "${CMAKE_SOURCE_DIR}/ThirdParty")
@@ -310,6 +309,7 @@ endif()
 
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
+quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory)
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
 
@@ -359,8 +359,6 @@ endif()
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
-
-target_link_libraries(Memory PUBLIC Memory::build)
 
 if(MEMORY_ENABLE_CLANGTIDY)
   include(clang_tidy)

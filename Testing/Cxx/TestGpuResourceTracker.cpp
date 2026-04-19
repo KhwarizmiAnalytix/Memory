@@ -18,7 +18,7 @@
  */
 #if 0
 #include "MemoryTest.h"
-#include "common/macros.h"
+#include "common/memory_macros.h"
 
 #if PROJECT_HAS_CUDA
 

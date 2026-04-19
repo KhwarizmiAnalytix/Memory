@@ -65,7 +65,7 @@ target_compile_definitions(
 )
 
 target_link_libraries(
-  MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory Memory::build
+  MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory
 )
 
 set_target_properties(
@@ -129,7 +129,7 @@ if(MEMORY_ENABLE_BENCHMARK)
 
     add_executable(${target_name} "${_bench_source}")
     target_link_libraries(
-      ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory Memory::build
+      ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory
     )
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${target_name})

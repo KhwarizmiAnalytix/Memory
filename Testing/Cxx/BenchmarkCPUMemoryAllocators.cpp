@@ -25,7 +25,7 @@
 #include <random>
 #include <vector>
 
-#include "common/macros.h"
+#include "common/memory_macros.h"
 #include "helper/memory_allocator.h"
 
 // Standard aligned allocation

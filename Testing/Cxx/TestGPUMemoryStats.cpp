@@ -18,7 +18,7 @@
  */
 
 #include "MemoryTest.h"
-#include "common/macros.h"
+#include "common/memory_macros.h"
 
 #if MEMORY_HAS_CUDA
 

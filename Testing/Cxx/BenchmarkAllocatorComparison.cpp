@@ -22,11 +22,10 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
-#include <memory>
 #include <random>
 #include <vector>
 
-#include "common/macros.h"
+#include "common/memory_macros.h"
 //#include "logger/logger.h"
 #include "backend/allocator_bfc.h"
 #include "backend/allocator_pool.h"
