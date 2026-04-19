@@ -79,6 +79,23 @@ if(NOT CMAKE_CUDA_COMPILE_OBJECT)
 endif()
 set(CMAKE_CUDA_COMPILE_OBJECT "${CMAKE_CUDA_COMPILE_OBJECT}" CACHE INTERNAL "CUDA compile-object rule" FORCE)
 
+
+# CMAKE_INCLUDE_FLAG_CUDA is set by CMakeCUDAInformation.cmake as a regular (non-cache) variable
+# scoped to the Memory subdirectory where enable_language(CUDA) runs.  Sibling directories that
+# compile .cu files (e.g. Core/Testing/Cxx) never see it, so CMake generates $INCLUDES as bare
+# paths without the -I prefix — clang then treats them as linker inputs and emits
+# -Wunused-command-line-argument warnings.  Persist the value to CACHE INTERNAL so every directory
+# scope that compiles CUDA TUs gets the correct flag.
+#
+# NOTE: Do NOT cache CMAKE_INCLUDE_FLAG_SEP_CUDA.  When that variable is *defined* (even to ""),
+# CMake's GetIncludeFlags() switches to a separator-join codepath that concatenates all paths after
+# a single -I flag.  Leaving it undefined lets CMake use its default space-separated behaviour,
+# producing the correct "-I/path1 -I/path2 ..." form.
+if(NOT CMAKE_INCLUDE_FLAG_CUDA)
+  set(CMAKE_INCLUDE_FLAG_CUDA "-I")
+endif()
+set(CMAKE_INCLUDE_FLAG_CUDA "${CMAKE_INCLUDE_FLAG_CUDA}" CACHE INTERNAL "CUDA include flag" FORCE)
+
 # Version checks using consistent CUDAToolkit variables
 if(CUDAToolkit_VERSION VERSION_LESS "12.0")
   message(FATAL_ERROR "Quarisma requires CUDA 12.0 or above. Found: ${CUDAToolkit_VERSION}")
