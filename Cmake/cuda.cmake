@@ -58,18 +58,26 @@ enable_language(CUDA)
 # CMakeCUDAInformation.cmake, so it cannot find these variables. Storing them as CACHE INTERNAL
 # makes them globally visible across all directory scopes without overriding any per-directory
 # regular variable.
+# Persist CUDA language rules to the CMake cache (FORCE) so every directory scope can read them
+# during the generation phase.  enable_language(CUDA) sets these as regular variables that are only
+# visible in the Memory subdirectory scope; without CACHE INTERNAL they are invisible to sibling
+# directories (e.g. Core/Testing/Cxx) that compile .cu files but never called enable_language.
+# Strategy: use whatever value enable_language just set, falling back to the Clang default when the
+# variable was not populated (CMAKE_CUDA_COMPILER_FORCED skips parts of the compiler test).
 if(NOT _CMAKE_CUDA_WHOLE_FLAG)
   # Clang uses plain -c; no whole-archive wrapper is needed.
-  set(_CMAKE_CUDA_WHOLE_FLAG "-c" CACHE INTERNAL "Clang CUDA whole-object flag")
+  set(_CMAKE_CUDA_WHOLE_FLAG "-c")
 endif()
+set(_CMAKE_CUDA_WHOLE_FLAG "${_CMAKE_CUDA_WHOLE_FLAG}" CACHE INTERNAL "CUDA whole-object flag" FORCE)
+
 if(NOT CMAKE_CUDA_COMPILE_OBJECT)
   # Mirrors the template in CMakeCUDAInformation.cmake for Clang. _CMAKE_COMPILE_AS_CUDA_FLAG = "-x
   # cuda" (from Clang-CUDA.cmake)
   set(CMAKE_CUDA_COMPILE_OBJECT
       "<CMAKE_CUDA_COMPILER>  <DEFINES> <INCLUDES> <FLAGS> -x cuda <CUDA_COMPILE_MODE> <SOURCE> -o <OBJECT>"
-      CACHE INTERNAL "CUDA compile-object rule for Clang"
   )
 endif()
+set(CMAKE_CUDA_COMPILE_OBJECT "${CMAKE_CUDA_COMPILE_OBJECT}" CACHE INTERNAL "CUDA compile-object rule" FORCE)
 
 # Version checks using consistent CUDAToolkit variables
 if(CUDAToolkit_VERSION VERSION_LESS "12.0")
