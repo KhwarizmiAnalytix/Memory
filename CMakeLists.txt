@@ -206,6 +206,10 @@ add_third_party_library(mimalloc
     AUTO_ADD_TO_DEPENDENCIES OFF
 )
 
+if(MEMORY_ENABLE_MIMALLOC)
+  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tpdir}/mimalloc/include")
+endif()
+
 # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
 if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
   set(_mi_win_syslibs psapi shell32 user32 advapi32 bcrypt)
@@ -262,6 +266,9 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_HIP)
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # --- Runtime library wiring ---
+if(TARGET Fmt::fmt)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Fmt::fmt)
+endif()
 if(MEMORY_ENABLE_CUDA AND DEFINED PROJECT_CUDA_LIBRARIES)
   list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
 endif()
