@@ -196,7 +196,19 @@ include(linker)
 # --- Third-party dependencies owned by Memory ---
 set(_tpdir "${CMAKE_SOURCE_DIR}/ThirdParty")
 
+set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
+set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
+
 if(MEMORY_ENABLE_MIMALLOC)
+  # mimalloc-specific options
+  set(MI_BUILD_TESTS OFF CACHE BOOL "Disable mimalloc tests" FORCE)
+  set(MI_BUILD_OBJECT OFF CACHE BOOL "Disable mimalloc object library" FORCE)
+  set(MI_INSTALL_TOPLEVEL OFF CACHE BOOL "Disable mimalloc top-level install" FORCE)
+  set(MI_OVERRIDE OFF CACHE BOOL "Disable mimalloc malloc override" FORCE)
+  set(MI_BUILD_SHARED OFF CACHE BOOL "Build mimalloc as static library" FORCE)
+  set(MI_BUILD_STATIC ON CACHE BOOL "Build mimalloc as static library" FORCE)
+
   add_third_party_library(mimalloc
       CONDITION MEMORY_ENABLE_MIMALLOC
       LIBRARY_TYPE STATIC
