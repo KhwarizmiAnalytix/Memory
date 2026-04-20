@@ -140,12 +140,14 @@ include(CheckSymbolExists)
 
 # b) Shared toolchain helpers
 include(compiler_checks) # Detects compiler capabilities; sets PROJECT_* flags
-include(cache) # Configures per-target compiler cache launcher
-include(build_type) # Validates / normalises CMAKE_BUILD_TYPE
 include(checks) # Additional feature-check macros
-include(memory_utils) # Memory-specific compiler checks (NUMA availability)
+include(build_type) # Validates / normalises CMAKE_BUILD_TYPE
 include(platform) # Platform flags (macOS rpath, Windows /utf-8, …)
+include(utils) # Utility macros shared across all modules
 include(CMakeDependentOption)
+
+include(cache) # Configures per-target compiler cache launcher
+include(memory_utils) # Memory-specific compiler checks (NUMA availability)
 
 # c) Memory-owned feature finders (Library/Memory/Cmake/)
 include(cuda) # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
@@ -194,63 +196,64 @@ include(linker)
 # --- Third-party dependencies owned by Memory ---
 set(_tpdir "${CMAKE_SOURCE_DIR}/ThirdParty")
 
-add_third_party_library(mimalloc
-    CONDITION MEMORY_ENABLE_MIMALLOC
-    LIBRARY_TYPE STATIC
-    SOURCE_DIR "${_tpdir}/mimalloc"
-    LIBRARY_TYPE_VAR MI_BUILD_STATIC
-    FILTER_FLAGS "-Wno-strict-prototypes" "-flto=thin" "-flto=full"
-    QUARISMA_TARGETS "Mimalloc::mimalloc=mimalloc|mimalloc-static"
-    INCLUDE_DIR "${_tpdir}/mimalloc/include"
-    AUTO_ADD_TO_DEPENDENCIES OFF
-)
-
 if(MEMORY_ENABLE_MIMALLOC)
+  add_third_party_library(mimalloc
+      CONDITION MEMORY_ENABLE_MIMALLOC
+      LIBRARY_TYPE STATIC
+      SOURCE_DIR "${_tpdir}/mimalloc"
+      LIBRARY_TYPE_VAR MI_BUILD_STATIC
+      FILTER_FLAGS "-Wno-strict-prototypes" "-flto=thin" "-flto=full"
+      QUARISMA_TARGETS "Mimalloc::mimalloc=mimalloc|mimalloc-static"
+      INCLUDE_DIR "${_tpdir}/mimalloc/include"
+      AUTO_ADD_TO_DEPENDENCIES OFF
+  )
+
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tpdir}/mimalloc/include")
-endif()
 
-# MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
-if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
-  set(_mi_win_syslibs psapi shell32 user32 advapi32 bcrypt)
-  get_target_property(_mi_ll mimalloc-static LINK_LIBRARIES)
-  if(_mi_ll)
-    set(_changed FALSE)
-    foreach(_lib IN LISTS _mi_win_syslibs)
-      if("${_lib}" IN_LIST _mi_ll)
-        list(REMOVE_ITEM _mi_ll "${_lib}")
-        list(APPEND     _mi_ll "-l${_lib}")
-        set(_changed TRUE)
+
+  # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
+  if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
+    set(_mi_win_syslibs psapi shell32 user32 advapi32 bcrypt)
+    get_target_property(_mi_ll mimalloc-static LINK_LIBRARIES)
+    if(_mi_ll)
+      set(_changed FALSE)
+      foreach(_lib IN LISTS _mi_win_syslibs)
+        if("${_lib}" IN_LIST _mi_ll)
+          list(REMOVE_ITEM _mi_ll "${_lib}")
+          list(APPEND     _mi_ll "-l${_lib}")
+          set(_changed TRUE)
+        endif()
+      endforeach()
+      if(_changed)
+        set_property(TARGET mimalloc-static PROPERTY LINK_LIBRARIES "${_mi_ll}")
+        message(STATUS "mimalloc: patched LINK_LIBRARIES for MinGW (-l prefix)")
       endif()
-    endforeach()
-    if(_changed)
-      set_property(TARGET mimalloc-static PROPERTY LINK_LIBRARIES "${_mi_ll}")
-      message(STATUS "mimalloc: patched LINK_LIBRARIES for MinGW (-l prefix)")
+    endif()
+    get_target_property(_mi_il mimalloc-static INTERFACE_LINK_LIBRARIES)
+    if(_mi_il)
+      set(_changed FALSE)
+      foreach(_lib IN LISTS _mi_win_syslibs)
+        if("${_lib}" IN_LIST _mi_il)
+          list(REMOVE_ITEM _mi_il "${_lib}")
+          list(APPEND     _mi_il "-l${_lib}")
+          set(_changed TRUE)
+        endif()
+        set(_ge  "$<LINK_ONLY:${_lib}>")
+        set(_ge2 "$<LINK_ONLY:-l${_lib}>")
+        if("${_ge}" IN_LIST _mi_il)
+          list(REMOVE_ITEM _mi_il "${_ge}")
+          list(APPEND     _mi_il "${_ge2}")
+          set(_changed TRUE)
+        endif()
+      endforeach()
+      if(_changed)
+        set_property(TARGET mimalloc-static PROPERTY INTERFACE_LINK_LIBRARIES "${_mi_il}")
+        message(STATUS "mimalloc: patched INTERFACE_LINK_LIBRARIES for MinGW (-l prefix)")
+      endif()
     endif()
   endif()
-  get_target_property(_mi_il mimalloc-static INTERFACE_LINK_LIBRARIES)
-  if(_mi_il)
-    set(_changed FALSE)
-    foreach(_lib IN LISTS _mi_win_syslibs)
-      if("${_lib}" IN_LIST _mi_il)
-        list(REMOVE_ITEM _mi_il "${_lib}")
-        list(APPEND     _mi_il "-l${_lib}")
-        set(_changed TRUE)
-      endif()
-      set(_ge  "$<LINK_ONLY:${_lib}>")
-      set(_ge2 "$<LINK_ONLY:-l${_lib}>")
-      if("${_ge}" IN_LIST _mi_il)
-        list(REMOVE_ITEM _mi_il "${_ge}")
-        list(APPEND     _mi_il "${_ge2}")
-        set(_changed TRUE)
-      endif()
-    endforeach()
-    if(_changed)
-      set_property(TARGET mimalloc-static PROPERTY INTERFACE_LINK_LIBRARIES "${_mi_il}")
-      message(STATUS "mimalloc: patched INTERFACE_LINK_LIBRARIES for MinGW (-l prefix)")
-    endif()
-  endif()
-endif()
 
+endif()
 # --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions ---
 # TBB/CUDA/HIP/NUMA flags come from Section 3 finders; mapped after those includes.
 include(compile_definitions)
@@ -416,7 +419,6 @@ message("  Tbb              : ${MEMORY_ENABLE_TBB}")
 message("  Cuda             : ${MEMORY_ENABLE_CUDA}")
 message("  Hip              : ${MEMORY_ENABLE_HIP}")
 message("  Gpu alloc        : ${MEMORY_GPU_ALLOC}")
-message("  Cxx standard     : ${MEMORY_CXX_STANDARD}")
 message("  Cache            : ${MEMORY_ENABLE_CACHE}")
 message("  Cache backend    : ${MEMORY_CACHE_BACKEND}")
 message("  Icecc            : ${MEMORY_ENABLE_ICECC}")
@@ -446,14 +448,11 @@ if(MEMORY_ENABLE_CUDA)
   message("  CMAKE_CUDA_COMPILER                    : ${CMAKE_CUDA_COMPILER}")
   message("  CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES : ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
 endif()
-get_target_property(C_FLAGS Memory COMPILE_OPTIONS)
-get_target_property(CXX_FLAGS Memory COMPILE_OPTIONS)
-
 message("")
 message("Build:")
 message("  Default C++ standard     : ${CMAKE_CXX_STANDARD}")
-message("  C flags                  : ${C_FLAGS}")
-message("  CXX flags                : ${CXX_FLAGS}")
+message("  C flags                  : ${CMAKE_C_FLAGS}")
+message("  CXX flags                : ${CMAKE_CXX_FLAGS}")
 message("  Shared linker flags      : ${CMAKE_SHARED_LINKER_FLAGS}")
 message("  Static linker flags      : ${CMAKE_STATIC_LINKER_FLAGS}")
 message("  Module linker flags      : ${CMAKE_MODULE_LINKER_FLAGS}")

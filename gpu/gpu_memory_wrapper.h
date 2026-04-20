@@ -782,7 +782,7 @@ public:
      * @brief Check if pool is unique (only this wrapper references it)
      * @return True if pool has only one reference
      */
-    [[nodiscard]] bool pool_unique() const noexcept { return pool_ && pool_.unique(); }
+    [[nodiscard]] bool pool_unique() const noexcept { return pool_ && pool_.use_count() == 1; }
 
     /**
      * @brief Get pool ownership mode
