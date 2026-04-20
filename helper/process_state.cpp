@@ -102,7 +102,7 @@ Allocator* process_state::GetCPUAllocator(int numa_node)
         const bool alloc_visitors_defined =
             (!cpu_alloc_visitors_.empty() || !cpu_free_visitors_.empty());
 
-        bool       use_allocator_bfc      = false;
+        const bool use_allocator_bfc      = false;
         bool const use_allocator_tracking = false;
         //fixme:
         //MEMORY_UNUSED auto status = logging::utils::read_env_bool(
