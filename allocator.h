@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstddef>    // for size_t, ptrdiff_t
 #include <cstdint>    // for uintptr_t
 #include <cstring>    // for memcpy
