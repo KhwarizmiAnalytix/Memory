@@ -25,13 +25,14 @@
 #include <type_traits>
 #include <utility>
 
-#include "common/memory_macros.h"
 #include "common/device.h"
+#include "common/memory_macros.h"
 #include "gpu/gpu_memory_pool.h"
 #include "gpu/gpu_resource_tracker.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+
 #include "common/memory_export.h"
 #endif
 
@@ -220,8 +221,8 @@ private:
      */
     static bool is_pool_compatible_with_device(
         std::shared_ptr<gpu_memory_pool> pool,
-        MEMORY_UNUSED device_enum      device_type,
-        MEMORY_UNUSED int              device_index)
+        MEMORY_UNUSED device_enum        device_type,
+        MEMORY_UNUSED int                device_index)
     {
         if (!pool)
             return false;
@@ -516,7 +517,7 @@ public:
         device_enum                      device_type,
         int                              device_index = 0,
         std::shared_ptr<gpu_memory_pool> pool         = nullptr,
-        MEMORY_UNUSED const std::string& tag        = "")
+        MEMORY_UNUSED const std::string& tag          = "")
     {
         if (count == 0)
         {
@@ -605,11 +606,11 @@ public:
      * @return GPU memory wrapper managing the existing memory
      */
     MEMORY_NODISCARD static gpu_memory_wrapper wrap(
-        pointer               ptr,
-        size_type             count,
-        device_enum           device_type,
-        int                   device_index     = 0,
-        deleter_type          deleter          = nullptr,
+        pointer             ptr,
+        size_type           count,
+        device_enum         device_type,
+        int                 device_index     = 0,
+        deleter_type        deleter          = nullptr,
         MEMORY_UNUSED const std::string& tag = "")
     {
         device_option device(device_type, device_index);
@@ -931,7 +932,7 @@ private:
     }
 
 public:
-    gpu_memory_wrapper() = default;
+    gpu_memory_wrapper() = delete;
 
     gpu_memory_wrapper(
         pointer                          ptr,
