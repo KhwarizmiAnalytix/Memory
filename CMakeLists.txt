@@ -49,7 +49,7 @@ mark_as_advanced(MEMORY_ENABLE_MIMALLOC)
 option(MEMORY_ENABLE_MEMKIND "Enable memkind extended-memory allocator (Linux only)" OFF)
 
 # Google Benchmark integration for micro-benchmarking allocator paths.
-option(MEMORY_ENABLE_BENCHMARK "Enable Google Benchmark for Memory" OFF)
+option(MEMORY_ENABLE_BENCHMARK "Enable Google Benchmark for Memory" ON)
 
 # Icecream distributed compilation launcher (rarely needed; hidden by default).
 option(MEMORY_ENABLE_ICECC "Use Icecream (icecc) distributed compiler for Memory" OFF)
@@ -218,7 +218,9 @@ if(MEMORY_ENABLE_MIMALLOC)
       LIBRARY_TYPE STATIC
       SOURCE_DIR "${_tpdir}/mimalloc"
       LIBRARY_TYPE_VAR MI_BUILD_STATIC
-      FILTER_FLAGS "-Wno-strict-prototypes" "-flto=thin" "-flto=full"
+      # Do not list -Wno-strict-prototypes here: FILTER_FLAGS removes flags from CMAKE_*_FLAGS,
+      # which would drop the toolchain's prototype warning suppression for mimalloc C sources.
+      FILTER_FLAGS "-flto=thin" "-flto=full"
       QUARISMA_TARGETS "Mimalloc::mimalloc=mimalloc|mimalloc-static"
       INCLUDE_DIR "${_tpdir}/mimalloc/include"
       AUTO_ADD_TO_DEPENDENCIES OFF
