@@ -1,22 +1,21 @@
 # =============================================================================
-# Library/Memory — CMakeLists.txt
+# Library/Memory —
+# CMakeLists.txt
 #
-# CPU/GPU allocators, mimalloc integration, CUDA/HIP device memory, NUMA-aware
-# allocation, and per-allocator statistics.
+# CPU/GPU allocators, mimalloc integration, CUDA/HIP device memory, NUMA-aware allocation, and
+# per-allocator statistics.
 #
-# Public compile definitions:
-#   MEMORY_HAS_TBB=1/0       — TBB scalable allocator active
-#   MEMORY_HAS_CUDA=1/0      — CUDA device-memory support compiled in
-#   MEMORY_HAS_HIP=1/0       — HIP/ROCm device-memory support compiled in
-#   MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator active
-#   MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available
-#   MEMORY_HAS_MEMKIND=1/0   — memkind extended-memory library available
-#   MEMORY_HAS_LOGGING=1/0   — Logging linked and logging headers preferred (see MEMORY_ENABLE_LOGGING)
+# Public compile definitions: MEMORY_HAS_TBB=1/0       — TBB scalable allocator active
+# MEMORY_HAS_CUDA=1/0      — CUDA device-memory support compiled in MEMORY_HAS_HIP=1/0       —
+# HIP/ROCm device-memory support compiled in MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator
+# active MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available MEMORY_HAS_MEMKIND=1/0   —
+# memkind extended-memory library available MEMORY_HAS_LOGGING=1/0   — Logging linked and logging
+# headers preferred (see MEMORY_ENABLE_LOGGING)
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
 
-# --- Section 1: Feature flags (MEMORY_ENABLE_*) ---
-# MEMORY_ENABLE_CUDA/HIP/TBB/NUMA are set by module-owned finders in Section 3.
+# --- Section 1: Feature flags (MEMORY_ENABLE_*) --- MEMORY_ENABLE_CUDA/HIP/TBB/NUMA are set by
+# module-owned finders in Section 3.
 
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
@@ -130,8 +129,8 @@ if(NOT UNIX OR APPLE)
   set(MEMORY_ENABLE_MEMKIND OFF CACHE BOOL "Enable memkind allocator (Linux only)" FORCE)
 endif()
 
-# --- Section 3: CMake module includes ---
-# Order: introspection → toolchain helpers → Memory-owned finders → coverage/sanitizer → LTO/linker.
+# --- Section 3: CMake module includes --- Order: introspection → toolchain helpers → Memory-owned
+# finders → coverage/sanitizer → LTO/linker.
 
 # LTO is incompatible with coverage/sanitizer — clear before any include().
 if(MEMORY_ENABLE_COVERAGE OR MEMORY_ENABLE_SANITIZER)
@@ -213,21 +212,30 @@ if(MEMORY_ENABLE_MIMALLOC)
   set(MI_BUILD_SHARED OFF CACHE BOOL "Build mimalloc as static library" FORCE)
   set(MI_BUILD_STATIC ON CACHE BOOL "Build mimalloc as static library" FORCE)
 
-  add_third_party_library(mimalloc
-      CONDITION MEMORY_ENABLE_MIMALLOC
-      LIBRARY_TYPE STATIC
-      SOURCE_DIR "${_tpdir}/mimalloc"
-      LIBRARY_TYPE_VAR MI_BUILD_STATIC
-      # Do not list -Wno-strict-prototypes here: FILTER_FLAGS removes flags from CMAKE_*_FLAGS,
-      # which would drop the toolchain's prototype warning suppression for mimalloc C sources.
-      FILTER_FLAGS "-flto=thin" "-flto=full"
-      QUARISMA_TARGETS "Mimalloc::mimalloc=mimalloc|mimalloc-static"
-      INCLUDE_DIR "${_tpdir}/mimalloc/include"
-      AUTO_ADD_TO_DEPENDENCIES OFF
+  add_third_party_library(
+    mimalloc
+    CONDITION
+    MEMORY_ENABLE_MIMALLOC
+    LIBRARY_TYPE
+    STATIC
+    SOURCE_DIR
+    "${_tpdir}/mimalloc"
+    LIBRARY_TYPE_VAR
+    MI_BUILD_STATIC
+    # Do not list -Wno-strict-prototypes here: FILTER_FLAGS removes flags from CMAKE_*_FLAGS, which
+    # would drop the toolchain's prototype warning suppression for mimalloc C sources.
+    FILTER_FLAGS
+    "-flto=thin"
+    "-flto=full"
+    QUARISMA_TARGETS
+    "Mimalloc::mimalloc=mimalloc|mimalloc-static"
+    INCLUDE_DIR
+    "${_tpdir}/mimalloc/include"
+    AUTO_ADD_TO_DEPENDENCIES
+    OFF
   )
 
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tpdir}/mimalloc/include")
-
 
   # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
   if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
@@ -238,7 +246,7 @@ if(MEMORY_ENABLE_MIMALLOC)
       foreach(_lib IN LISTS _mi_win_syslibs)
         if("${_lib}" IN_LIST _mi_ll)
           list(REMOVE_ITEM _mi_ll "${_lib}")
-          list(APPEND     _mi_ll "-l${_lib}")
+          list(APPEND _mi_ll "-l${_lib}")
           set(_changed TRUE)
         endif()
       endforeach()
@@ -253,14 +261,14 @@ if(MEMORY_ENABLE_MIMALLOC)
       foreach(_lib IN LISTS _mi_win_syslibs)
         if("${_lib}" IN_LIST _mi_il)
           list(REMOVE_ITEM _mi_il "${_lib}")
-          list(APPEND     _mi_il "-l${_lib}")
+          list(APPEND _mi_il "-l${_lib}")
           set(_changed TRUE)
         endif()
-        set(_ge  "$<LINK_ONLY:${_lib}>")
+        set(_ge "$<LINK_ONLY:${_lib}>")
         set(_ge2 "$<LINK_ONLY:-l${_lib}>")
         if("${_ge}" IN_LIST _mi_il)
           list(REMOVE_ITEM _mi_il "${_ge}")
-          list(APPEND     _mi_il "${_ge2}")
+          list(APPEND _mi_il "${_ge2}")
           set(_changed TRUE)
         endif()
       endforeach()
@@ -272,8 +280,8 @@ if(MEMORY_ENABLE_MIMALLOC)
   endif()
 
 endif()
-# --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions ---
-# TBB/CUDA/HIP/NUMA flags come from Section 3 finders; mapped after those includes.
+# --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions --- TBB/CUDA/HIP/NUMA flags come
+# from Section 3 finders; mapped after those includes.
 include(compile_definitions)
 # Per-allocator call-site tracking (opt-in; adds overhead).
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_ALLOCATION_STATS)
@@ -285,7 +293,8 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_CUDA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_HIP)
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
-# Optional Logging sibling module — only wire includes/link when MEMORY_ENABLE_LOGGING and target exists.
+# Optional Logging sibling module — only wire includes/link when MEMORY_ENABLE_LOGGING and target
+# exists.
 set(MEMORY_HAS_LOGGING_BUILD 0)
 if(MEMORY_ENABLE_LOGGING AND TARGET Logging::Logging)
   set(MEMORY_HAS_LOGGING_BUILD 1)
@@ -393,14 +402,12 @@ endif()
 # pulling Logging into the include path when logging integration is disabled.
 if(MEMORY_HAS_LOGGING_BUILD)
   target_include_directories(
-    Memory
-    BEFORE
-    PUBLIC
-      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging>"
-      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/logger>"
-      "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging>"
-      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/Testing>"
-      "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging/Testing>"
+    Memory BEFORE
+    PUBLIC "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging>"
+           "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/logger>"
+           "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging>"
+           "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/Testing>"
+           "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging/Testing>"
   )
 endif()
 

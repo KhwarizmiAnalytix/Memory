@@ -1,4 +1,5 @@
-# ============================================================================= Quarisma HIP
+# =============================================================================
+# Quarisma HIP
 # (Heterogeneous-compute Interface for Portability) Configuration Module
 
 # This module configures HIP for AMD GPU acceleration and ROCm support. It manages HIP toolkit

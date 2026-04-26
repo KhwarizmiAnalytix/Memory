@@ -1,7 +1,7 @@
-# ============================================================================= Memory Library C++
+# =============================================================================
+# Memory Library C++
 # Tests
 # =============================================================================
-
 # --- GoogleTest setup ---
 if(NOT TARGET gtest)
   set(_gtest_external_found FALSE)
@@ -9,8 +9,9 @@ if(NOT TARGET gtest)
     find_package(GTest QUIET)
     if(GTest_FOUND)
       message(STATUS "Found external Google Test")
-      _create_third_party_interface_targets("Gtest::gtest=GTest::gtest|gtest"
-                                            "Gtest::gtest_main=GTest::gtest_main|gtest_main")
+      _create_third_party_interface_targets(
+        "Gtest::gtest=GTest::gtest|gtest" "Gtest::gtest_main=GTest::gtest_main|gtest_main"
+      )
       set(_gtest_external_found TRUE)
     endif()
   endif()
@@ -23,16 +24,17 @@ if(NOT TARGET gtest)
       set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     endif()
     add_subdirectory(
-      "${QUARISMA_THIRDPARTY_DIR}/googletest"
-      "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build"
+      "${QUARISMA_THIRDPARTY_DIR}/googletest" "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build"
       EXCLUDE_FROM_ALL
     )
-    _set_third_party_folder_properties("googletest"
-                                       "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build")
+    _set_third_party_folder_properties(
+      "googletest" "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build"
+    )
   endif()
 endif()
-_create_third_party_interface_targets("Gtest::gtest=GTest::gtest|gtest"
-                                      "Gtest::gtest_main=GTest::gtest_main|gtest_main")
+_create_third_party_interface_targets(
+  "Gtest::gtest=GTest::gtest|gtest" "Gtest::gtest_main=GTest::gtest_main|gtest_main"
+)
 
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 
@@ -63,7 +65,8 @@ endforeach()
 
 add_executable(MemoryCxxTests ${TestFiles})
 
-# Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory interface.
+# Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory
+# interface.
 target_include_directories(
   MemoryCxxTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_BINARY_DIR}/.."
 )
@@ -76,14 +79,12 @@ target_compile_definitions(
                          QUARISMA_GOOGLE_TEST USE_GTEST _VARIADIC_MAX=10
 )
 
-target_link_libraries(
-  MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory
-)
+target_link_libraries(MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory)
 if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS})
 endif()
-# Logging::Logging is in MEMORY_DEPENDENCY_LIBS when MEMORY_HAS_LOGGING=1; Memory::Memory also
-# links it PUBLIC, so Logging headers and MEMORY_HAS_LOGGING propagate to this target.
+# Logging::Logging is in MEMORY_DEPENDENCY_LIBS when MEMORY_HAS_LOGGING=1; Memory::Memory also links
+# it PUBLIC, so Logging headers and MEMORY_HAS_LOGGING propagate to this target.
 
 set_target_properties(
   MemoryCxxTests PROPERTIES FOLDER "Tests" VS_DEBUGGER_WORKING_DIRECTORY
@@ -132,12 +133,12 @@ if(MEMORY_ENABLE_BENCHMARK)
       set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Don't use bundled gtest for benchmark" FORCE)
       set(BENCHMARK_DOWNLOAD_DEPENDENCIES OFF CACHE BOOL "Don't download dependencies" FORCE)
       add_subdirectory(
-        "${QUARISMA_THIRDPARTY_DIR}/benchmark"
-        "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
+        "${QUARISMA_THIRDPARTY_DIR}/benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
         EXCLUDE_FROM_ALL
       )
-      _set_third_party_folder_properties("benchmark"
-                                         "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build")
+      _set_third_party_folder_properties(
+        "benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
+      )
     endif()
   endif()
   _create_third_party_interface_targets(

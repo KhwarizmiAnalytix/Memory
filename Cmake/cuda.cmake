@@ -1,4 +1,5 @@
-# ============================================================================= Quarisma CUDA
+# =============================================================================
+# Quarisma CUDA
 # Configuration Module
 
 # This module handles CUDA compilation support for GPU acceleration. It manages CUDA toolkit
@@ -57,18 +58,20 @@ enable_language(CUDA)
 # (which contains CudaEnzymeADTest.cu) in a separate directory scope that never ran
 # CMakeCUDAInformation.cmake, so it cannot find these variables. Storing them as CACHE INTERNAL
 # makes them globally visible across all directory scopes without overriding any per-directory
-# regular variable.
-# Persist CUDA language rules to the CMake cache (FORCE) so every directory scope can read them
-# during the generation phase.  enable_language(CUDA) sets these as regular variables that are only
-# visible in the Memory subdirectory scope; without CACHE INTERNAL they are invisible to sibling
-# directories (e.g. Core/Testing/Cxx) that compile .cu files but never called enable_language.
-# Strategy: use whatever value enable_language just set, falling back to the Clang default when the
-# variable was not populated (CMAKE_CUDA_COMPILER_FORCED skips parts of the compiler test).
+# regular variable. Persist CUDA language rules to the CMake cache (FORCE) so every directory scope
+# can read them during the generation phase.  enable_language(CUDA) sets these as regular variables
+# that are only visible in the Memory subdirectory scope; without CACHE INTERNAL they are invisible
+# to sibling directories (e.g. Core/Testing/Cxx) that compile .cu files but never called
+# enable_language. Strategy: use whatever value enable_language just set, falling back to the Clang
+# default when the variable was not populated (CMAKE_CUDA_COMPILER_FORCED skips parts of the
+# compiler test).
 if(NOT _CMAKE_CUDA_WHOLE_FLAG)
   # Clang uses plain -c; no whole-archive wrapper is needed.
   set(_CMAKE_CUDA_WHOLE_FLAG "-c")
 endif()
-set(_CMAKE_CUDA_WHOLE_FLAG "${_CMAKE_CUDA_WHOLE_FLAG}" CACHE INTERNAL "CUDA whole-object flag" FORCE)
+set(_CMAKE_CUDA_WHOLE_FLAG "${_CMAKE_CUDA_WHOLE_FLAG}" CACHE INTERNAL "CUDA whole-object flag"
+                                                             FORCE
+)
 
 if(NOT CMAKE_CUDA_COMPILE_OBJECT)
   # Mirrors the template in CMakeCUDAInformation.cmake for Clang. _CMAKE_COMPILE_AS_CUDA_FLAG = "-x
@@ -77,13 +80,14 @@ if(NOT CMAKE_CUDA_COMPILE_OBJECT)
       "<CMAKE_CUDA_COMPILER>  <DEFINES> <INCLUDES> <FLAGS> -x cuda <CUDA_COMPILE_MODE> <SOURCE> -o <OBJECT>"
   )
 endif()
-set(CMAKE_CUDA_COMPILE_OBJECT "${CMAKE_CUDA_COMPILE_OBJECT}" CACHE INTERNAL "CUDA compile-object rule" FORCE)
-
+set(CMAKE_CUDA_COMPILE_OBJECT "${CMAKE_CUDA_COMPILE_OBJECT}" CACHE INTERNAL
+                                                                   "CUDA compile-object rule" FORCE
+)
 
 # CMAKE_INCLUDE_FLAG_CUDA is set by CMakeCUDAInformation.cmake as a regular (non-cache) variable
 # scoped to the Memory subdirectory where enable_language(CUDA) runs.  Sibling directories that
-# compile .cu files (e.g. Core/Testing/Cxx) never see it, so CMake generates $INCLUDES as bare
-# paths without the -I prefix — clang then treats them as linker inputs and emits
+# compile .cu files (e.g. Core/Testing/Cxx) never see it, so CMake generates $INCLUDES as bare paths
+# without the -I prefix — clang then treats them as linker inputs and emits
 # -Wunused-command-line-argument warnings.  Persist the value to CACHE INTERNAL so every directory
 # scope that compiles CUDA TUs gets the correct flag.
 #

@@ -1,4 +1,5 @@
-# ============================================================================= Quarisma Intel TBB -
+# =============================================================================
+# Quarisma Intel TBB -
 # Memory Allocator Backend (Threading Building Blocks) Scalable Memory Allocation
 
 # This module configures Intel TBB's scalable memory allocator (tbbmalloc). It is activated when
@@ -23,7 +24,8 @@ endif()
 
 message(STATUS "Configuring Intel TBB memory allocator support...")
 
-# ============================================================================= Step 1: Acquire TBB
+# =============================================================================
+# Step 1: Acquire TBB
 # if not already done by tbb_multithreading.cmake
 
 if(NOT TARGET TBB::tbb)
@@ -175,7 +177,8 @@ if(NOT TARGET TBB::tbb)
   endif()
 endif()
 
-# ============================================================================= Step 2: Verify
+# =============================================================================
+# Step 2: Verify
 # tbbmalloc target is available
 
 if(NOT TARGET TBB::tbbmalloc)
@@ -185,7 +188,8 @@ if(NOT TARGET TBB::tbbmalloc)
   return()
 endif()
 
-# ============================================================================= Step 3: Create
+# =============================================================================
+# Step 3: Create
 # Tbb::tbbmalloc interface target
 
 if(NOT TARGET Tbb::tbbmalloc)
@@ -195,7 +199,8 @@ endif()
 
 message(STATUS "   TBB::tbbmalloc target available")
 
-# ============================================================================= Step 4: Configure
+# =============================================================================
+# Step 4: Configure
 # output directories for the tbbmalloc target
 
 if(TBB_FROM_SOURCE AND TARGET tbbmalloc)
