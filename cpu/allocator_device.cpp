@@ -25,7 +25,7 @@
 #include "common/memory_macros.h"
 #include "cpu/allocator.h"
 #include "helper/memory_allocator.h"  // for allocate, free
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>

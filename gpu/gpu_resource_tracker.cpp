@@ -10,7 +10,7 @@
 
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 // Hash specialization for std::pair<device_enum, int>
 namespace std

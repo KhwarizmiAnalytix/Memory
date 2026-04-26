@@ -22,7 +22,7 @@
 #include "backend/allocator_pool.h"
 #include "cpu/allocator.h"
 #include "helper/memory_allocator.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 using namespace memory;
 using namespace memory;

@@ -11,6 +11,7 @@
 #   MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator active
 #   MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available
 #   MEMORY_HAS_MEMKIND=1/0   — memkind extended-memory library available
+#   MEMORY_HAS_LOGGING=1/0   — Logging linked and logging headers preferred (see MEMORY_ENABLE_LOGGING)
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
 
@@ -33,6 +34,10 @@ option(MEMORY_ENABLE_EXAMPLES "Build Memory example programs" OFF)
 
 # Google Test integration for Memory tests.
 option(MEMORY_ENABLE_GTEST "Enable GoogleTest for Memory" ON)
+
+# When ON and target Logging::Logging exists: link Logging, set MEMORY_HAS_LOGGING=1, and prepend
+# Logging include dirs so "logger/logger.h" and other Logging headers resolve in Memory TUs.
+option(MEMORY_ENABLE_LOGGING "Link Memory with the Logging library when available" ON)
 
 # Microsoft mimalloc — high-performance drop-in malloc replacement. ON by default to match the CMake
 # project default.
@@ -278,6 +283,14 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_CUDA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_HIP)
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
+# Optional Logging sibling module — only wire includes/link when MEMORY_ENABLE_LOGGING and target exists.
+set(MEMORY_HAS_LOGGING_BUILD 0)
+if(MEMORY_ENABLE_LOGGING AND TARGET Logging::Logging)
+  set(MEMORY_HAS_LOGGING_BUILD 1)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
+endif()
+list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_LOGGING=${MEMORY_HAS_LOGGING_BUILD})
+
 # --- Runtime library wiring ---
 if(TARGET Fmt::fmt)
   list(APPEND MEMORY_DEPENDENCY_LIBS Fmt::fmt)
@@ -374,6 +387,21 @@ if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 
+# Prepend Logging roots only when MEMORY_HAS_LOGGING=1 for logger and related headers without
+# pulling Logging into the include path when logging integration is disabled.
+if(MEMORY_HAS_LOGGING_BUILD)
+  target_include_directories(
+    Memory
+    BEFORE
+    PUBLIC
+      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging>"
+      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/logger>"
+      "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging>"
+      "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/Testing>"
+      "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging/Testing>"
+  )
+endif()
+
 if(MEMORY_ENABLE_CLANGTIDY)
   include(clang_tidy)
   quarisma_target_clang_tidy(Memory ${MEMORY_ENABLE_FIX})
@@ -424,6 +452,8 @@ endif()
 message("")
 message("******** Memory module (CMake flags) ********")
 message("  Mimalloc         : ${MEMORY_ENABLE_MIMALLOC}")
+message("  Logging enable   : ${MEMORY_ENABLE_LOGGING}")
+message("  Logging (HAS)    : ${MEMORY_HAS_LOGGING_BUILD}")
 message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")
 message("  Numa             : ${MEMORY_ENABLE_NUMA}")
 message("  Tbb              : ${MEMORY_ENABLE_TBB}")

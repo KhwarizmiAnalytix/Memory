@@ -82,6 +82,8 @@ target_link_libraries(
 if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS})
 endif()
+# Logging::Logging is in MEMORY_DEPENDENCY_LIBS when MEMORY_HAS_LOGGING=1; Memory::Memory also
+# links it PUBLIC, so Logging headers and MEMORY_HAS_LOGGING propagate to this target.
 
 set_target_properties(
   MemoryCxxTests PROPERTIES FOLDER "Tests" VS_DEBUGGER_WORKING_DIRECTORY
@@ -155,6 +157,7 @@ if(MEMORY_ENABLE_BENCHMARK)
     if(MEMORY_DEPENDENCY_LIBS)
       target_link_libraries(${target_name} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
     endif()
+    # Same Logging visibility as MemoryCxxTests (via Memory::Memory + MEMORY_DEPENDENCY_LIBS).
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${target_name})
     endif()

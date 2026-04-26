@@ -35,7 +35,7 @@
 #include <sstream>
 #include <utility>
 
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 namespace memory
 {

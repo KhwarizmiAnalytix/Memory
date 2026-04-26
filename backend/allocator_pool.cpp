@@ -50,7 +50,7 @@
 #if MEMORY_HAS_NATIVE_PROFILER && 0
 #include "native/tracing/traceme.h"
 #endif
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 namespace memory
 {

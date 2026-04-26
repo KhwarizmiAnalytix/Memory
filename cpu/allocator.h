@@ -41,7 +41,10 @@
 #include "common/memory_export.h"           // for MEMORY_API
 #include "common/memory_macros.h"           // for MEMORY_UNUSED
 #include "profiler/unified_memory_stats.h"  // for allocator_stats
-#include "util/exception.h"                 // for check_msg_impl, LOGGING_CHECK
+#if MEMORY_HAS_LOGGING
+#  include "logger/logger.h"  // when MEMORY_HAS_LOGGING
+#endif
+#include "util/memory_exception.h"  // MEMORY_CHECK / MEMORY_THROW
 
 namespace memory
 {

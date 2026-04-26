@@ -48,7 +48,7 @@
 //#include "logger/logger.h"
 #include "cpu/allocator.h"
 #include "profiler/unified_memory_stats.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 namespace memory
 {

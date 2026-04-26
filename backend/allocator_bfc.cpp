@@ -49,7 +49,7 @@
 
 #include "common/memory_macros.h"
 #include "cpu/allocator.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 #if MEMORY_HAS_NATIVE_PROFILER && 0
 #include "native/memory/scoped_memory_debug_annotation.h"

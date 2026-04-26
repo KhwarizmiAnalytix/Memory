@@ -44,7 +44,7 @@
 #include "backend/allocator_tracking.h"
 #include "common/memory_macros.h"
 #include "cpu/allocator.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 namespace memory
 {

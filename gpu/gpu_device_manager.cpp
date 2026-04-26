@@ -7,7 +7,7 @@
 
 #include "common/memory_macros.h"
 //#include "logger/logger.h"
-#include "util/exception.h"
+#include "util/memory_exception.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
