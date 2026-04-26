@@ -63,6 +63,14 @@ endforeach()
 
 add_executable(MemoryCxxTests ${TestFiles})
 
+# Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory interface.
+target_include_directories(
+  MemoryCxxTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_BINARY_DIR}/.."
+)
+if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
+  target_include_directories(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+endif()
+
 target_compile_definitions(
   MemoryCxxTests PRIVATE MEMORY_HAS_GTEST=1 MEMORY_GOOGLE_TEST QUARISMA_HAS_GTEST=1
                          QUARISMA_GOOGLE_TEST USE_GTEST _VARIADIC_MAX=10
@@ -71,6 +79,9 @@ target_compile_definitions(
 target_link_libraries(
   MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory
 )
+if(MEMORY_DEPENDENCY_LIBS)
+  target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS})
+endif()
 
 set_target_properties(
   MemoryCxxTests PROPERTIES FOLDER "Tests" VS_DEBUGGER_WORKING_DIRECTORY
@@ -132,9 +143,18 @@ if(MEMORY_ENABLE_BENCHMARK)
     set(target_name "benchmark_memory_${bench_suffix_lower}")
 
     add_executable(${target_name} "${_bench_source}")
+    target_include_directories(
+      ${target_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_BINARY_DIR}/.."
+    )
+    if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
+      target_include_directories(${target_name} PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+    endif()
     target_link_libraries(
       ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory
     )
+    if(MEMORY_DEPENDENCY_LIBS)
+      target_link_libraries(${target_name} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
+    endif()
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${target_name})
     endif()
