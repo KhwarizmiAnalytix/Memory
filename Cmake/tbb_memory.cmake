@@ -32,7 +32,7 @@ if(NOT TARGET TBB::tbb)
   # TBB has not been acquired yet — acquire it now. (tbb_multithreading.cmake was skipped because
   # PARALLEL_ENABLE_TBB=OFF)
 
-  # Re-use the same configuration options if already defined, otherwise declare them
+  # Reuse the same configuration options if already defined, otherwise declare them
   if(NOT DEFINED PROJECT_TBB_FORCE_BUILD_FROM_SOURCE)
     option(PROJECT_TBB_FORCE_BUILD_FROM_SOURCE
            "Force building TBB from source instead of using system TBB" OFF
