@@ -26,7 +26,7 @@
 #include <stdexcept>  // for invalid_argument
 
 #include "common/device.h"         // for device_enum
-#include "common/memory_macros.h"  // for MEMORY_FORCE_INLINE, MEMORY_ALIGNMENT, XSIG...
+#include "common/memory_macros.h"  // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
 #include "cpu/allocator.h"         // for Allocator
 #include "cpu/allocator_device.h"
 #include "helper/process_state.h"  // for process_state
