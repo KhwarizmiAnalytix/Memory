@@ -72,7 +72,6 @@ cc_library(
         "//ThirdParty/cpuinfo:cpuinfo",
     ] + select({
         "//bazel:disable_mimalloc": [],
-        "@platforms//os:windows": [],
         "//conditions:default": ["@mimalloc//:mimalloc"],
     }) + select({
         "//bazel:enable_cuda": ["@local_config_cuda//:cuda"],
