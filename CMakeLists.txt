@@ -160,7 +160,6 @@ include(numa) # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
 if(MEMORY_ENABLE_SANITIZER)
   set(MEMORY_ENABLE_MIMALLOC OFF)
   include(sanitize)
-  quarisma_configure_sanitizer(MEMORY)
 endif()
 if(MEMORY_ENABLE_SPELL)
   include(spell)
@@ -347,6 +346,9 @@ endif()
 
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
+if(MEMORY_ENABLE_SANITIZER)
+  quarisma_configure_sanitizer(MEMORY)
+endif()
 quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory)
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
