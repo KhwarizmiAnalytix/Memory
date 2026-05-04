@@ -202,6 +202,31 @@ set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FOR
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
 
+# fmt — used by util/memory_exception.h and others. Library/Logging normally registers Fmt::fmt
+# before Memory; standalone Memory (e.g. QUARISMA_LIBRARY_PROJECT=Memory) must do it here.
+if(NOT TARGET Fmt::fmt)
+  set(FMT_TEST OFF CACHE BOOL "Disable fmt tests" FORCE)
+  set(FMT_DOC OFF CACHE BOOL "Disable fmt documentation" FORCE)
+  set(FMT_INSTALL OFF CACHE BOOL "Disable fmt install" FORCE)
+  set(FMT_HEADER_ONLY ON CACHE BOOL "Use header-only fmt library" FORCE)
+
+  add_third_party_library(
+    fmt
+    LIBRARY_TYPE
+    STATIC
+    SOURCE_DIR
+    "${_tpdir}/fmt"
+    ALIASES
+    "fmt::fmt-header-only"
+    QUARISMA_TARGETS
+    "Fmt::fmt=fmt::fmt-header-only|fmt::fmt|fmt"
+    INCLUDE_DIR
+    "${_tpdir}/fmt/include"
+    AUTO_ADD_TO_DEPENDENCIES
+    OFF
+  )
+endif()
+
 if(MEMORY_ENABLE_MIMALLOC)
   # mimalloc-specific options
   set(MI_BUILD_TESTS OFF CACHE BOOL "Disable mimalloc tests" FORCE)
