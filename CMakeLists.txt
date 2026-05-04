@@ -19,10 +19,14 @@ cmake_minimum_required(VERSION 3.16)
 
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
-option(MEMORY_ENABLE_LTO "Enable Link Time Optimization for Memory" OFF)
+include(lto)
+quarisma_lto_compute_default(_lto_default PROFILE PERFORMANCE)
+set(MEMORY_LTO_MODE "${_lto_default}"
+    CACHE STRING "LTO mode for Memory: off | thin | full | ipo | auto")
+set_property(CACHE MEMORY_LTO_MODE PROPERTY STRINGS off thin full ipo auto)
 
-# Coverage instrumentation — forces MEMORY_ENABLE_LTO=OFF and activates -fprofile-instr-generate /
-# --coverage compiler flags for this module only.
+# Coverage instrumentation — activates -fprofile-instr-generate / --coverage compiler flags for
+# this module only. LTO is automatically skipped when coverage is enabled.
 option(MEMORY_ENABLE_COVERAGE "Enable coverage instrumentation for Memory" OFF)
 
 # Testing — gates add_subdirectory(Testing/Cxx).
@@ -132,11 +136,6 @@ endif()
 # --- Section 3: CMake module includes --- Order: introspection → toolchain helpers → Memory-owned
 # finders → coverage/sanitizer → LTO/linker.
 
-# LTO is incompatible with coverage/sanitizer — clear before any include().
-if(MEMORY_ENABLE_COVERAGE OR MEMORY_ENABLE_SANITIZER)
-  set(MEMORY_ENABLE_LTO OFF)
-endif()
-
 # a) Standard CMake introspection
 include(CheckCXXSourceCompiles)
 include(CheckCXXSourceRuns)
@@ -175,22 +174,6 @@ if(MEMORY_ENABLE_COVERAGE)
 elseif(MSVC)
   string(APPEND CMAKE_EXE_LINKER_FLAGS " /DEBUG:FULL")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " /DEBUG:FULL")
-endif()
-
-if(MEMORY_ENABLE_LTO AND NOT MEMORY_ENABLE_COVERAGE AND NOT MEMORY_ENABLE_SANITIZER)
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-  message(STATUS "Link Time Optimization (LTO) enabled via CMAKE_INTERPROCEDURAL_OPTIMIZATION")
-else()
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF)
-  if(MEMORY_ENABLE_LTO AND (MEMORY_ENABLE_COVERAGE OR MEMORY_ENABLE_SANITIZER))
-    message(
-      STATUS "Link Time Optimization (LTO) disabled (incompatible with coverage and/or sanitizer)"
-    )
-  else()
-    message(STATUS "Link Time Optimization (LTO) disabled")
-  endif()
 endif()
 
 include(linker)
@@ -371,10 +354,11 @@ endif()
 
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
+quarisma_target_apply_lto(Memory MEMORY)
 if(MEMORY_ENABLE_SANITIZER)
   quarisma_configure_sanitizer(MEMORY)
 endif()
-quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory)
+quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
 
@@ -500,7 +484,7 @@ message("  Cache            : ${MEMORY_ENABLE_CACHE}")
 message("  Cache backend    : ${MEMORY_CACHE_BACKEND}")
 message("  Icecc            : ${MEMORY_ENABLE_ICECC}")
 message("  Linker           : ${MEMORY_LINKER_CHOICE}")
-message("  Lto              : ${MEMORY_ENABLE_LTO}")
+message("  Lto mode         : ${MEMORY_LTO_MODE}")
 message("  Coverage         : ${MEMORY_ENABLE_COVERAGE}")
 message("  Testing          : ${MEMORY_ENABLE_TESTING}")
 message("  Examples         : ${MEMORY_ENABLE_EXAMPLES}")
@@ -533,7 +517,6 @@ message("  CXX flags                : ${CMAKE_CXX_FLAGS}")
 message("  Shared linker flags      : ${CMAKE_SHARED_LINKER_FLAGS}")
 message("  Static linker flags      : ${CMAKE_STATIC_LINKER_FLAGS}")
 message("  Module linker flags      : ${CMAKE_MODULE_LINKER_FLAGS}")
-message("  IPO / LTO (CMake)        : ${CMAKE_INTERPROCEDURAL_OPTIMIZATION}")
 get_directory_property(_summary_compile_defs DIRECTORY ${PROJECT_SOURCE_DIR} COMPILE_DEFINITIONS)
 message("  Top-level compile defs   : ${_summary_compile_defs}")
 message("")
