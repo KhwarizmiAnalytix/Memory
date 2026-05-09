@@ -160,6 +160,13 @@ if(MEMORY_ENABLE_SANITIZER)
   set(MEMORY_ENABLE_MIMALLOC OFF)
   include(sanitize)
 endif()
+
+# Valgrind and mimalloc do not play nicely together: mimalloc can reserve very large
+# virtual address ranges which triggers Valgrind internal errors/crashes.
+if(MEMORY_ENABLE_VALGRIND)
+  set(MEMORY_ENABLE_MIMALLOC OFF CACHE BOOL
+      "Disable mimalloc when running under Valgrind" FORCE)
+endif()
 if(MEMORY_ENABLE_SPELL)
   include(spell)
 endif()
@@ -356,6 +363,18 @@ quarisma_target_apply_lto(Memory MEMORY)
 if(MEMORY_ENABLE_SANITIZER)
   quarisma_configure_sanitizer(MEMORY)
 endif()
+
+# Clang 20.x has been observed to crash in Debug builds on a few large TU's when
+# debug info is enabled (LLVM pass: Live DEBUG_VALUE analysis). Valgrind builds
+# don't require per-file debug symbols, so disable -g selectively to keep the
+# build stable while preserving Debug elsewhere.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/visualization/web_dashboard.cpp"
+    PROPERTIES COMPILE_OPTIONS "-g0"
+  )
+endif()
 quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
@@ -380,7 +399,12 @@ set_target_properties(
 if(MSVC)
   target_compile_options(Memory PRIVATE /WX)
 else()
-  target_compile_options(Memory PRIVATE -include cstdlib)
+  # Some toolchains implicitly provide standard headers; others (notably Clang 20.x in Debug builds)
+  # have exhibited compiler instability with forced `-include cstdlib` on large translation units.
+  # The project includes <cstdlib> where needed, so keep this workaround off for Clang.
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(Memory PRIVATE -include cstdlib)
+  endif()
 endif()
 
 configure_file(
