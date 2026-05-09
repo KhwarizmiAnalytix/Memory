@@ -62,7 +62,7 @@ alignment_config gpu_memory_alignment::get_optimal_config(
 
     case memory_access_pattern::STRIDED:
         // Strided access may need larger alignment
-        config.base_alignment       = std::max(config.base_alignment, size_t(256ULL));
+        config.base_alignment       = std::max(config.base_alignment, static_cast<size_t>(256ULL));
         config.enable_coalescing    = true;
         config.avoid_bank_conflicts = true;
         break;
@@ -88,7 +88,7 @@ alignment_config gpu_memory_alignment::get_optimal_config(
 
     case memory_access_pattern::TRANSPOSE:
         // Matrix transpose needs careful alignment
-        config.base_alignment       = std::max(config.base_alignment, size_t(256ULL));
+        config.base_alignment       = std::max(config.base_alignment, static_cast<size_t>(256ULL));
         config.avoid_bank_conflicts = true;
         config.enable_coalescing    = true;
         break;

@@ -13,7 +13,8 @@
 #include "common/memory_macros.h"
 #include "util/memory_exception.h"
 
-// Hash specialization for std::pair<device_enum, int>
+// Hash specialization for std::pair<device_enum, int> (allowed for program-defined types).
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 namespace std
 {
 template <>
@@ -25,6 +26,7 @@ struct hash<std::pair<memory::device_enum, int>>
     }
 };
 }  // namespace std
+// NOLINTEND(bugprone-std-namespace-modification)
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>

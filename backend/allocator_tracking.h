@@ -35,7 +35,9 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "common/memory_macros.h"
@@ -190,20 +192,20 @@ struct enhanced_alloc_record : public alloc_record
      * @param func Function name (optional)
      */
     enhanced_alloc_record(
-        size_t             requested_size,
-        size_t             actual_size,
-        size_t             align,
-        int64_t            alloc_time,
-        int64_t            alloc_id,
-        const std::string& allocation_tag = "",
-        const char*        file           = nullptr,
-        int                line           = 0,
-        const char*        func           = nullptr) noexcept
+        size_t      requested_size,
+        size_t      actual_size,
+        size_t      align,
+        int64_t     alloc_time,
+        int64_t     alloc_id,
+        std::string allocation_tag = "",
+        const char* file           = nullptr,
+        int         line           = 0,
+        const char* func           = nullptr) noexcept
         : alloc_record(static_cast<int64_t>(actual_size), alloc_time),
           requested_bytes(requested_size),
           alignment(align),
           allocation_id(alloc_id),
-          tag(allocation_tag),
+          tag(std::move(allocation_tag)),
           source_file(file),
           source_line(line),
           function_name(func)

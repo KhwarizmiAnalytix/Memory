@@ -65,6 +65,10 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr const& rhs)
     {
+        if (this == &rhs)
+        {
+            return *this;
+        }
         size_      = rhs.size_;
         allocated_ = deepcopy;
 

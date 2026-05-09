@@ -12,7 +12,8 @@
 #include "common/memory_macros.h"
 #include "util/memory_exception.h"
 
-// Hash specialization for std::pair<device_enum, int>
+// Hash specialization for std::pair<device_enum, int> (allowed for program-defined types).
+// NOLINTBEGIN(bugprone-std-namespace-modification)
 namespace std
 {
 template <>
@@ -24,6 +25,7 @@ struct hash<std::pair<memory::device_enum, int>>
     }
 };
 }  // namespace std
+// NOLINTEND(bugprone-std-namespace-modification)
 
 namespace memory
 {
@@ -108,7 +110,7 @@ private:
                             MEMORY_LOG_WARNING(
                                 "GPU memory leak detection found {} potential leaks", leaks.size());
                             // Log details of first few leaks
-                            for (size_t i = 0; i < std::min(leaks.size(), size_t(5)); ++i)
+                            for (size_t i = 0; i < std::min(leaks.size(), static_cast<size_t>(5)); ++i)
                             {
                                 const auto& leak = leaks[i];
                                 MEMORY_LOG_WARNING(
@@ -558,7 +560,7 @@ public:
             [](const auto& a, const auto& b) { return a->size > b->size; });
 
         oss << "\nTop 10 Largest Active Allocations:\n";
-        for (size_t i = 0; i < std::min(sorted_allocations.size(), size_t(10)); ++i)
+        for (size_t i = 0; i < std::min(sorted_allocations.size(), static_cast<size_t>(10)); ++i)
         {
             const auto& info = sorted_allocations[i];
             oss << "  " << (i + 1) << ". " << std::fixed << std::setprecision(2)

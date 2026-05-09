@@ -79,9 +79,9 @@ public:
 #endif
 
     // Type traits and constants
-    static inline constexpr size_type scalar_size    = sizeof(value_type);
-    static inline constexpr size_type alignment_size = alignment / scalar_size;
-    static inline constexpr size_type alignment_mask = alignment_size - 1;
+    static constexpr size_type scalar_size    = sizeof(value_type);
+    static constexpr size_type alignment_size = alignment / scalar_size;
+    static constexpr size_type alignment_mask = alignment_size - 1;
 
     /**
      * @brief Allocate memory on the specified device
@@ -95,7 +95,9 @@ public:
         size_type n, device_enum type = device_enum::CPU, int device_index = 0)
     {
         if (n == 0)
+        {
             return nullptr;
+        }
 
         pointer ptr = nullptr;
 
@@ -132,7 +134,7 @@ public:
             throw std::invalid_argument("Unsupported device type for allocation");
         }
 
-        if (!ptr)
+        if (ptr == nullptr)
         {
             throw std::bad_alloc();
         }
@@ -152,16 +154,19 @@ public:
         int         device_index = 0,
         size_type   count        = 0)
     {
-        if (!ptr)
+        (void)count;
+        if (ptr == nullptr)
+        {
             return;
+        }
 
         // CPU deallocation
         if (type == device_enum::CPU)
         {
 #if MEMORY_HAS_NUMA
-            int numa_node = GetCurrentNUMANode();
+            int const numa_node = GetCurrentNUMANode();
 #else
-            int numa_node = 0;
+            int const numa_node = 0;
 #endif
             memory::process_state::singleton()->GetCPUAllocator(numa_node)->deallocate_raw(ptr);
         }
@@ -215,8 +220,12 @@ public:
         int           to_index   = 0,
         stream_t      stream     = nullptr)
     {
-        if (!from || !to || n == 0)
+        (void)from_index;
+        (void)to_index;
+        if (from == nullptr || to == nullptr || n == 0)
+        {
             return;
+        }
 
         const auto nbytes = n * scalar_size;
 
@@ -259,7 +268,7 @@ public:
 
             // Perform the memory copy
             cudaError_t result;
-            if (stream)
+            if (stream != nullptr)
             {
                 // Asynchronous copy
                 result =
@@ -293,21 +302,23 @@ public:
             return size;
         }
 
-        if (reinterpret_cast<std::uintptr_t>(array) & (scalar_size - 1))
+        if ((reinterpret_cast<std::uintptr_t>(array) & (scalar_size - 1)) != 0U)
         {
             return size;
         }
 
-        size_type first = (alignment_size - (reinterpret_cast<std::uintptr_t>(array) / scalar_size &
-                                             alignment_mask)) &
-                          alignment_mask;
+        size_type const first = (alignment_size -
+                                 ((reinterpret_cast<std::uintptr_t>(array) / scalar_size) &
+                                  alignment_mask)) &
+                                alignment_mask;
         return (first < size) ? first : size;
     }
 
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
     {
-        return aligned_start + ((size - aligned_start) / simd_stride) * simd_stride;
+        return aligned_start +
+               (((size - aligned_start) / simd_stride) * simd_stride);
     }
 
     // GPU-specific convenience methods
@@ -321,7 +332,9 @@ public:
     MEMORY_FORCE_INLINE static pointer allocate_pinned(size_type n)
     {
         if (n == 0)
+        {
             return nullptr;
+        }
 
         void* ptr = nullptr;  // allocator_device::allocate(n * scalar_size);
         return static_cast<pointer>(ptr);
@@ -333,8 +346,10 @@ public:
      */
     MEMORY_FORCE_INLINE static void free_pinned(pointer& ptr)
     {
-        if (!ptr)
+        if (ptr == nullptr)
+        {
             return;
+        }
 
         //allocator_device::free(ptr);
         //ptr = nullptr;
@@ -389,7 +404,7 @@ public:
  * @param device_type Target device type
  * @return Recommended alignment in bytes
  */
-inline constexpr std::size_t optimal_alignment(device_enum device_type)
+constexpr std::size_t optimal_alignment(device_enum device_type)
 {
     switch (device_type)
     {
@@ -408,7 +423,7 @@ inline constexpr std::size_t optimal_alignment(device_enum device_type)
  * @param device_type device_option type to check
  * @return True if device supports GPU operations
  */
-inline constexpr bool is_gpu_device(device_enum device_type)
+constexpr bool is_gpu_device(device_enum device_type)
 {
     return device_type == device_enum::CUDA || device_type == device_enum::HIP;
 }
@@ -417,7 +432,7 @@ inline constexpr bool is_gpu_device(device_enum device_type)
  * @brief Helper function to check if GPU support is compiled in
  * @return True if GPU support is available
  */
-inline constexpr bool has_gpu_support()
+constexpr bool has_gpu_support()
 {
 #if MEMORY_HAS_CUDA
     return true;

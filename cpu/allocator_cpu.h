@@ -42,26 +42,7 @@
 namespace memory
 {
 
-/**
- * @brief Enables comprehensive CPU allocator statistics collection.
- *
- * Activates detailed memory tracking including allocation counts, peak usage,
- * and memory pressure warnings. Useful for debugging and performance analysis.
- *
- * **Thread Safety**: Thread-safe atomic operation
- * **Performance**: Adds ~1-2% overhead to allocation operations
- * **Use Cases**: Debugging, memory leak detection, performance profiling
- */
-MEMORY_API void EnableCPUAllocatorStats() noexcept;
-
-/**
- * @brief Disables CPU allocator statistics collection for optimal performance.
- *
- * **Thread Safety**: Thread-safe atomic operation
- * **Performance**: Eliminates statistics overhead
- * **Use Cases**: Production deployments, performance-critical applications
- */
-MEMORY_API void DisableCPUAllocatorStats() noexcept;
+// EnableCPUAllocatorStats / DisableCPUAllocatorStats are declared in cpu/allocator.h.
 
 /**
  * @brief Checks if CPU allocator statistics collection is enabled.

@@ -594,7 +594,9 @@ T* gpu_allocator_tracking::allocate(
     MEMORY_UNUSED const char*        function_name)
 {
     if (count == 0)
+    {
         return nullptr;
+    }
 
     const size_t bytes   = count * sizeof(T);
     void*        raw_ptr = allocate_raw(bytes, alignment, pool, tag, stream);
@@ -605,7 +607,9 @@ template <typename T>
 void gpu_allocator_tracking::deallocate(T* ptr, size_t count, void* stream)
 {
     if (!ptr || count == 0)
+    {
         return;
+    }
 
     const size_t bytes = count * sizeof(T);
     deallocate_raw(ptr, bytes, stream);

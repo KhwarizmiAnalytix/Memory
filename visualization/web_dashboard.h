@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "cpu/allocator.h"
@@ -91,7 +92,7 @@ public:
      * @brief Construct web dashboard with custom configuration
      * @param config Dashboard configuration
      */
-    explicit web_dashboard(const dashboard_config& config) : config_(config) {}
+    explicit web_dashboard(dashboard_config config) : config_(std::move(config)) {}
 
     /**
      * @brief Destructor - stops dashboard if running

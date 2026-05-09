@@ -409,7 +409,8 @@ public:
         oss << "  Total allocations: " << total_allocations_.load() << "\n";
         oss << "  Cache hits: " << cache_hits_.load() << "\n";
         oss << "  Cache hit rate: " << std::fixed << std::setprecision(2)
-            << (100.0 * cache_hits_.load() / std::max(total_allocations_.load(), size_t(1)))
+            << (100.0 * cache_hits_.load()
+                / std::max(total_allocations_.load(), static_cast<size_t>(1)))
             << "%\n";
 
         size_t total_cached = 0;

@@ -89,7 +89,7 @@ public:
     // REQUIRES: must be called before GetCPUAllocator.
     MEMORY_API void AddCPUFreeVisitor(sub_allocator::Visitor v);
 
-    typedef memory_map<const void*, MemDesc> MDMap;
+    using MDMap = memory_map<const void*, MemDesc>;
 
     // Helper method for unit tests to reset the process_state singleton by
     // cleaning up everything. Never use in production.
@@ -97,7 +97,7 @@ public:
 
 protected:
     process_state();
-    virtual ~process_state() {}
+    virtual ~process_state() = default;
     friend class gpu_process_State;
     friend class pluggable_device_process_state;
 
@@ -144,14 +144,14 @@ public:
     std::string Name() const override { return a_->Name(); }
     void*       allocate_raw(size_t alignment, size_t num_bytes) override
     {
-        void*                       p = a_->allocate_raw(alignment, num_bytes);
-        std::lock_guard<std::mutex> l(*mu_);
+        void*                    p = a_->allocate_raw(alignment, num_bytes);
+        std::scoped_lock<std::mutex> const lock(*mu_);
         (*mm_)[p] = md_;
         return p;
     }
     void deallocate_raw(void* p) override
     {
-        std::lock_guard<std::mutex> l(*mu_);
+        std::scoped_lock<std::mutex> const lock(*mu_);
         auto                        iter = mm_->find(p);
         mm_->erase(iter);
         a_->deallocate_raw(p);

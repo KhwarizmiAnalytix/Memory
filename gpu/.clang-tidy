@@ -1,0 +1,5 @@
+# Work around LLVM clang-tidy crash (modernize-macro-to-enum on gpu_allocator_tracking.cpp).
+# Inherits repo root config; this line adds an extra disable when configs are merged.
+---
+InheritParentConfig: true
+Checks: '-modernize-macro-to-enum'

@@ -69,7 +69,7 @@ private:
 // Implementation details below
 inline void allocator_retry::NotifyDealloc()
 {
-    std::unique_lock<std::mutex> l(mu_);
+    std::unique_lock<std::mutex> const l(mu_);
     memory_returned_.notify_all();
 }
 }  // namespace memory

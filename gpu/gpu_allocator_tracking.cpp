@@ -675,7 +675,7 @@ std::string gpu_allocator_tracking::GenerateGPUReport(
     report << "  Name: " << device_info_.name << "\n";
     report << "  Type: " << (device_type_ == device_enum::CUDA ? "CUDA" : "Other") << "\n";
     report << "  Index: " << device_index_ << "\n";
-    report << "  Total Memory: " << (device_info_.total_memory_bytes / (1024ULL)) << " MB\n";
+    report << "  Total Memory: " << (device_info_.total_memory_bytes / 1024ULL) << " MB\n";
     report << "  Memory Bandwidth: " << device_info_.memory_bandwidth_gb_per_sec << " GB/s\n\n";
 
     // Memory Usage Summary
@@ -684,10 +684,10 @@ std::string gpu_allocator_tracking::GenerateGPUReport(
     auto pinned_mem  = total_pinned_memory_.load(std::memory_order_relaxed);
 
     report << "Memory Usage Summary:\n";
-    report << "  Device Memory: " << (device_mem / (1024ULL)) << " MB\n";
-    report << "  Unified Memory: " << (unified_mem / (1024ULL)) << " MB\n";
-    report << "  Pinned Memory: " << (pinned_mem / (1024ULL)) << " MB\n";
-    report << "  Total Allocated: " << ((device_mem + unified_mem + pinned_mem) / (1024ULL))
+    report << "  Device Memory: " << (device_mem / 1024ULL) << " MB\n";
+    report << "  Unified Memory: " << (unified_mem / 1024ULL) << " MB\n";
+    report << "  Pinned Memory: " << (pinned_mem / 1024ULL) << " MB\n";
+    report << "  Total Allocated: " << ((device_mem + unified_mem + pinned_mem) / 1024ULL)
            << " MB\n\n";
 
     // Performance Statistics
@@ -731,7 +731,8 @@ std::string gpu_allocator_tracking::GenerateGPUReport(
     // Individual allocation details
     if (include_allocations && !gpu_records_.empty())
     {
-        report << "Recent Allocations (last " << std::min(size_t(10), gpu_records_.size())
+        report << "Recent Allocations (last "
+               << std::min(static_cast<size_t>(10), gpu_records_.size())
                << "):\n";
         size_t count = 0;
         for (auto it = gpu_records_.rbegin(); it != gpu_records_.rend() && count < 10;
