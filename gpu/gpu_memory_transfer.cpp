@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <iomanip>
 #include <mutex>
 #include <queue>
