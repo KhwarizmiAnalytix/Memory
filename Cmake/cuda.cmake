@@ -9,24 +9,9 @@
 # Include guard to prevent multiple inclusions
 include_guard(GLOBAL)
 
-# CUDA Support Flag Controls whether CUDA GPU acceleration is enabled for the build. When enabled,
-# requires CUDA 12.0+ and configures GPU compilation.
-option(MEMORY_ENABLE_CUDA "Enable CUDA compilation" OFF)
-mark_as_advanced(MEMORY_ENABLE_CUDA)
-
-# CUDA is not supported with the MinGW/MSYS2 toolchain in this project. Keep configuration simple
-# and deterministic: force-disable and skip all CUDA setup.
+# CUDA is not supported with the MinGW/MSYS2 toolchain in this project.
 if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64"))
-  if(MEMORY_ENABLE_CUDA)
-    message(
-      STATUS "CUDA: disabled on Windows+MinGW/MSYS2 toolchains (forcing MEMORY_ENABLE_CUDA=OFF)"
-    )
-  endif()
-  set(MEMORY_ENABLE_CUDA OFF CACHE BOOL "Enable CUDA compilation" FORCE)
-  return()
-endif()
-
-if(NOT MEMORY_ENABLE_CUDA)
+  message(STATUS "CUDA: disabled on Windows+MinGW/MSYS2 toolchains")
   return()
 endif()
 

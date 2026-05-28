@@ -14,8 +14,7 @@
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
 
-# --- Section 1: Feature flags (MEMORY_ENABLE_*) --- MEMORY_ENABLE_CUDA/HIP/TBB/NUMA are set by
-# module-owned finders in Section 3.
+# --- Section 1: Feature flags (MEMORY_ENABLE_*) ---
 
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
@@ -116,6 +115,16 @@ if(NOT MEMORY_GPU_ALLOC MATCHES "^(SYNC|ASYNC|POOL_ASYNC)$")
   )
 endif()
 
+# GPU backend selector — drives CUDA/HIP toolchain detection and compile definitions.
+# Can be set from the command line: -DMEMORY_GPU_BACKEND=cuda|hip|none
+set(MEMORY_GPU_BACKEND "none"
+    CACHE STRING "GPU backend for Memory: none, cuda, hip"
+)
+set_property(CACHE MEMORY_GPU_BACKEND PROPERTY STRINGS none cuda hip)
+if(NOT MEMORY_GPU_BACKEND MATCHES "^(none|cuda|hip)$")
+  message(FATAL_ERROR "MEMORY_GPU_BACKEND must be one of: none, cuda, hip (got '${MEMORY_GPU_BACKEND}')")
+endif()
+
 # C++ standard — applied to every TU in this module via CMAKE_CXX_STANDARD.
 set(MEMORY_CXX_STANDARD "20" CACHE STRING "C++ standard for Memory. Options: 11 14 17 20 23")
 set_property(CACHE MEMORY_CXX_STANDARD PROPERTY STRINGS 11 14 17 20 23)
@@ -152,8 +161,11 @@ include(cache) # Configures per-target compiler cache launcher
 include(memory_utils) # Memory-specific compiler checks (NUMA availability)
 
 # c) Memory-owned feature finders (Library/Memory/Cmake/)
-include(cuda) # Detects/configures CUDA when MEMORY_ENABLE_CUDA=ON
-include(hip) # Detects/configures HIP/ROCm when MEMORY_ENABLE_HIP=ON
+if(MEMORY_GPU_BACKEND STREQUAL "cuda")
+  include(cuda) # Detects/configures CUDA
+elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
+  include(hip) # Detects/configures HIP/ROCm
+endif()
 include(tbb_memory) # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
 include(numa) # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
 if(MEMORY_ENABLE_SANITIZER)
@@ -301,8 +313,13 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MEMKIND)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_NUMA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_TBB)
-compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_CUDA)
-compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_HIP)
+if(MEMORY_GPU_BACKEND STREQUAL "cuda")
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0)
+elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=1)
+else()
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=0)
+endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # Optional Logging sibling module — only wire includes/link when MEMORY_ENABLE_LOGGING and target
@@ -318,7 +335,7 @@ list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_LOGGING=${MEMORY_HA
 if(TARGET Fmt::fmt)
   list(APPEND MEMORY_DEPENDENCY_LIBS Fmt::fmt)
 endif()
-if(MEMORY_ENABLE_CUDA AND DEFINED PROJECT_CUDA_LIBRARIES)
+if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND DEFINED PROJECT_CUDA_LIBRARIES)
   list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
 endif()
 if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
@@ -345,8 +362,8 @@ file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_
 list(FILTER memory_sources EXCLUDE REGEX ".*/Testing/.*")
 list(FILTER memory_headers EXCLUDE REGEX ".*/Testing/.*")
 
-# GPU sources are only compiled when at least one GPU backend is active.
-if(NOT MEMORY_ENABLE_CUDA AND NOT MEMORY_ENABLE_HIP)
+# GPU sources are only compiled when a GPU backend is active.
+if(MEMORY_GPU_BACKEND STREQUAL "none")
   file(GLOB_RECURSE GPU_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.cpp")
   file(GLOB_RECURSE GPU_HEADER_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.h"
        "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.hxx"
@@ -499,8 +516,7 @@ message("  Logging (HAS)    : ${MEMORY_HAS_LOGGING_BUILD}")
 message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")
 message("  Numa             : ${MEMORY_ENABLE_NUMA}")
 message("  Tbb              : ${MEMORY_ENABLE_TBB}")
-message("  Cuda             : ${MEMORY_ENABLE_CUDA}")
-message("  Hip              : ${MEMORY_ENABLE_HIP}")
+message("  GPU backend      : ${MEMORY_GPU_BACKEND}")
 message("  Gpu alloc        : ${MEMORY_GPU_ALLOC}")
 message("  Cache            : ${MEMORY_ENABLE_CACHE}")
 message("  Cache backend    : ${MEMORY_CACHE_BACKEND}")
@@ -518,7 +534,7 @@ message("  Sanitizer        : ${MEMORY_ENABLE_SANITIZER}")
 message("  Sanitizer type   : ${MEMORY_SANITIZER_TYPE}")
 message("  Spell            : ${MEMORY_ENABLE_SPELL}")
 message("  Valgrind         : ${MEMORY_ENABLE_VALGRIND}")
-if(MEMORY_ENABLE_CUDA)
+if(MEMORY_GPU_BACKEND STREQUAL "cuda")
   message("CUDA (Memory):")
   message("  CUDA_INCLUDE_DIRS                      : ${CUDA_INCLUDE_DIRS}")
   message("  CUDA_NVCC_EXECUTABLE                   : ${CUDA_NVCC_EXECUTABLE}")

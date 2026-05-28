@@ -8,26 +8,9 @@
 # Include guard to prevent multiple inclusions
 include_guard(GLOBAL)
 
-# HIP GPU Support Flag Controls whether HIP GPU acceleration is enabled for AMD GPUs. When enabled,
-# requires CMake 3.21+ and ROCm/HIP toolkit. Mutually exclusive with MEMORY_ENABLE_CUDA.
-cmake_dependent_option(
-  MEMORY_ENABLE_HIP "Support HIP backend accelerator" OFF
-  "CMAKE_VERSION VERSION_GREATER_EQUAL 3.21;NOT MEMORY_ENABLE_CUDA" OFF
-)
-mark_as_advanced(MEMORY_ENABLE_HIP)
-
-if(NOT MEMORY_ENABLE_HIP)
-  return()
-endif()
-
 # HIP requires CMake 3.21 or later for proper support
 if(CMAKE_VERSION VERSION_LESS "3.21")
   message(FATAL_ERROR "HIP support requires CMake 3.21 or later. Found: ${CMAKE_VERSION}")
-endif()
-
-# Ensure CUDA is not enabled when HIP is enabled
-if(MEMORY_ENABLE_CUDA)
-  message(FATAL_ERROR "Cannot enable both CUDA and HIP simultaneously. Please choose one.")
 endif()
 
 # Find HIP package
@@ -136,8 +119,5 @@ endif()
 
 # For backward compatibility, set legacy variables (if needed elsewhere)
 set(PROJECT_HIP_FOUND TRUE)
-set(MEMORY_ENABLE_HIP ON)
 
-# Enable GPU compilation for HIP
 add_compile_definitions(MEMORY_ENABLE_GPU)
-add_compile_definitions(MEMORY_ENABLE_HIP)
