@@ -7,6 +7,15 @@
 #include "common/device.h"
 #include "common/memory_macros.h"
 
+// Trivial accessors (data/begin/end/size) are called from CUDA kernel argument
+// structs via tensor's __host__ __device__ accessors.  Annotate them so Clang
+// CUDA does not reject the call as a __host__-only reference.
+#if defined(__CUDACC__) || defined(__HIPCC__)
+#  define DATA_PTR_GPU_CALLABLE __host__ __device__
+#else
+#  define DATA_PTR_GPU_CALLABLE
+#endif
+
 namespace memory
 {
 template <typename value_t, bool clone>
@@ -137,7 +146,7 @@ struct data_ptr
     {
         if (allocated_ && data_ != nullptr)
         {
-            allocator_t::free(data_);
+            allocator_t::free(data_, type_);
             data_ = nullptr;
         }
     }
@@ -158,18 +167,18 @@ struct data_ptr
         }
     }
 
-    MEMORY_FORCE_INLINE const value_t* data() const { return data_; }
-    MEMORY_FORCE_INLINE const value_t* get() const { return data_; }
-    MEMORY_FORCE_INLINE const value_t* begin() const { return data(); }
-    MEMORY_FORCE_INLINE const value_t* end() const { return data() + size_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* data() const { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* get() const { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* begin() const { return data(); }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* end() const { return data() + size_; }
 
-    MEMORY_FORCE_INLINE value_t* data() { return data_; }
-    MEMORY_FORCE_INLINE value_t* get() { return data_; }
-    MEMORY_FORCE_INLINE value_t* begin() { return data(); }
-    MEMORY_FORCE_INLINE value_t* end() { return data() + size_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data() { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get() { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* begin() { return data(); }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() { return data() + size_; }
 
-    MEMORY_FORCE_INLINE size_t size() const { return size_; }
-    MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
 
     value_t*    data_{nullptr};
     size_t      size_{0};
