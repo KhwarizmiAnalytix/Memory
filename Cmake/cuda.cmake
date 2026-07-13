@@ -31,6 +31,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(CMAKE_CUDA_COMPILER_FORCED TRUE)
 endif()
 
+# Pre-set CMAKE_CUDA_ARCHITECTURES before enable_language(CUDA). When
+# CMAKE_CUDA_COMPILER_FORCED is TRUE, CMake skips the GPU hardware probe that
+# resolves "native", causing enable_language to abort with "Failed to detect a
+# default CUDA architecture". Provide an explicit Turing-and-above list so the
+# configure step succeeds without a GPU present at configure time.
+if(CMAKE_CUDA_COMPILER_FORCED AND NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90")
+  message(STATUS "CUDA: Clang+COMPILER_FORCED — pre-setting architectures to 75;80;86;89;90")
+endif()
+
 # Enable CUDA language support
 enable_language(CUDA)
 
@@ -240,6 +250,15 @@ if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
 else()
   # Clang CUDA flags
   string(APPEND CMAKE_CUDA_FLAGS " -Wno-unknown-cuda-version")
+  # When CMAKE_CUDA_COMPILER_FORCED=TRUE, CMake never loads CMakeCUDAInformation.cmake
+  # in the normal way, so the C++ standard flag from CMAKE_CXX_STANDARD is not
+  # automatically added to <FLAGS> in the custom CMAKE_CUDA_COMPILE_OBJECT rule.
+  # Inject it explicitly so CUDA TUs can use std::span and other C++20 features.
+  if(CMAKE_CUDA_STANDARD)
+    string(APPEND CMAKE_CUDA_FLAGS " -std=gnu++${CMAKE_CUDA_STANDARD}")
+  elseif(CMAKE_CXX_STANDARD)
+    string(APPEND CMAKE_CUDA_FLAGS " -std=gnu++${CMAKE_CXX_STANDARD}")
+  endif()
   if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     string(APPEND CMAKE_CUDA_FLAGS " -g")
   else()
