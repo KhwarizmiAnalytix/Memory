@@ -13,7 +13,7 @@
  */
 
 #include <chrono>
-#include <memory>
+#include <cstring>
 #include <memory>
 #include <thread>
 #include <vector>
