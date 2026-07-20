@@ -13,7 +13,8 @@ enum class device_enum : int16_t
     CPU         = 0,
     CUDA        = 1,
     HIP         = 2,
-    PrivateUse1 = 3
+    PrivateUse1 = 3,
+    METAL       = 4
 };
 
 MEMORY_API std::ostream& operator<<(std::ostream& str, device_enum const& s);

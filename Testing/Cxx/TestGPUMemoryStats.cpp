@@ -19,6 +19,7 @@
 
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
+#include "util/memory_exception.h"  // for MEMORY_LOG_INFO (used in the #else stub below)
 
 #if MEMORY_HAS_CUDA
 

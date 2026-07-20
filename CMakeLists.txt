@@ -118,11 +118,14 @@ endif()
 # GPU backend selector — drives CUDA/HIP toolchain detection and compile definitions.
 # Can be set from the command line: -DMEMORY_GPU_BACKEND=cuda|hip|none
 set(MEMORY_GPU_BACKEND "none"
-    CACHE STRING "GPU backend for Memory: none, cuda, hip"
+    CACHE STRING "GPU backend for Memory: none, cuda, hip, metal"
 )
-set_property(CACHE MEMORY_GPU_BACKEND PROPERTY STRINGS none cuda hip)
-if(NOT MEMORY_GPU_BACKEND MATCHES "^(none|cuda|hip)$")
-  message(FATAL_ERROR "MEMORY_GPU_BACKEND must be one of: none, cuda, hip (got '${MEMORY_GPU_BACKEND}')")
+set_property(CACHE MEMORY_GPU_BACKEND PROPERTY STRINGS none cuda hip metal)
+if(NOT MEMORY_GPU_BACKEND MATCHES "^(none|cuda|hip|metal)$")
+  message(FATAL_ERROR "MEMORY_GPU_BACKEND must be one of: none, cuda, hip, metal (got '${MEMORY_GPU_BACKEND}')")
+endif()
+if(MEMORY_GPU_BACKEND STREQUAL "metal" AND NOT APPLE)
+  message(FATAL_ERROR "MEMORY_GPU_BACKEND=metal is only supported on Apple platforms.")
 endif()
 
 # C++ standard — applied to every TU in this module via CMAKE_CXX_STANDARD.
@@ -165,6 +168,8 @@ if(MEMORY_GPU_BACKEND STREQUAL "cuda")
   include(cuda) # Detects/configures CUDA
 elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
   include(hip) # Detects/configures HIP/ROCm
+elseif(MEMORY_GPU_BACKEND STREQUAL "metal")
+  include(metal) # Detects/configures Apple Metal
 endif()
 include(tbb_memory) # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
 include(numa) # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
@@ -314,11 +319,13 @@ compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MEMKIND)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_NUMA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_TBB)
 if(MEMORY_GPU_BACKEND STREQUAL "cuda")
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0 MEMORY_HAS_METAL=0)
 elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=1)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=1 MEMORY_HAS_METAL=0)
+elseif(MEMORY_GPU_BACKEND STREQUAL "metal")
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=0 MEMORY_HAS_METAL=1)
 else()
-  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=0)
+  list(APPEND MEMORY_COMPILE_DEFINITIONS MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=0 MEMORY_HAS_METAL=0)
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
@@ -358,9 +365,14 @@ file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_
 )
 file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
+# Objective-C++ sources (Metal backend only) are globbed separately since they require
+# OBJCXX language support, only enabled when MEMORY_GPU_BACKEND=metal (see below).
+file(GLOB_RECURSE memory_objcxx_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.mm")
+
 # Keep test sources out of the Memory library target.
 list(FILTER memory_sources EXCLUDE REGEX ".*/Testing/.*")
 list(FILTER memory_headers EXCLUDE REGEX ".*/Testing/.*")
+list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
@@ -372,6 +384,13 @@ if(MEMORY_GPU_BACKEND STREQUAL "none")
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
   list(REMOVE_ITEM memory_sources "${CMAKE_CURRENT_SOURCE_DIR}/cpu/allocator_device.cpp")
   list(REMOVE_ITEM memory_headers "${CMAKE_CURRENT_SOURCE_DIR}/cpu/allocator_device.h")
+endif()
+
+# .mm sources only compile (and only link Metal/Foundation) when the Metal backend is active;
+# on every other backend they're excluded, matching the gpu/*.cpp none-backend exclusion above.
+if(MEMORY_GPU_BACKEND STREQUAL "metal")
+  list(APPEND memory_sources ${memory_objcxx_sources})
+  set_source_files_properties(${memory_objcxx_sources} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 # --- Target definition ---

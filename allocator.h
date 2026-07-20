@@ -24,6 +24,7 @@
 #include <cstring>    // for memcpy
 #include <exception>  // for bad_alloc
 #include <stdexcept>  // for invalid_argument
+#include <type_traits>  // for is_same_v
 
 #include "common/device.h"         // for device_enum
 #include "common/memory_macros.h"  // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
@@ -34,6 +35,8 @@
 // GPU support includes
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+#elif MEMORY_HAS_METAL
+#include "gpu/metal/metal_buffer_allocator.h"
 #endif
 
 namespace memory
@@ -128,6 +131,21 @@ public:
                 throw std::bad_alloc();
             }
         }
+#elif MEMORY_HAS_METAL
+        // Metal allocation (Apple Silicon unified memory; float only — see below)
+        else if (type == device_enum::METAL)
+        {
+            if constexpr (std::is_same_v<T, double>)
+            {
+                throw std::invalid_argument(
+                    "Metal backend does not support double precision (no fp64 on Apple "
+                    "GPU hardware); use device_enum::CPU for double tensors.");
+            }
+            else
+            {
+                ptr = static_cast<pointer>(memory::metal::allocate(n * scalar_size));
+            }
+        }
 #endif
         else
         {
@@ -189,6 +207,11 @@ public:
                 // Log error but don't throw from free
                 // MEMORY_LOG_ERROR("CUDA free failed");
             }
+        }
+#elif MEMORY_HAS_METAL
+        else if (type == device_enum::METAL)
+        {
+            memory::metal::deallocate(ptr);
         }
 #endif
         else
@@ -287,6 +310,16 @@ public:
                     "CUDA memory copy failed: " + std::string(cudaGetErrorString(result)));
             }
 
+            return;
+        }
+#elif MEMORY_HAS_METAL
+        // Metal buffers are shared-storage (unified memory) on Apple Silicon: the pointer
+        // is host-addressable regardless of which side is CPU vs METAL, so every
+        // combination (CPU<->METAL, METAL<->METAL) is a plain memcpy — no explicit
+        // host/device transfer exists the way it does for CUDA/HIP.
+        if (from_type == device_enum::METAL || to_type == device_enum::METAL)
+        {
+            std::memcpy(to, from, nbytes);
             return;
         }
 #endif
@@ -412,6 +445,7 @@ constexpr std::size_t optimal_alignment(device_enum device_type)
         return MEMORY_ALIGNMENT;
     case device_enum::CUDA:
     case device_enum::HIP:
+    case device_enum::METAL:
         return 256;  // GPU coalescing alignment
     default:
         return 32;
@@ -425,7 +459,8 @@ constexpr std::size_t optimal_alignment(device_enum device_type)
  */
 constexpr bool is_gpu_device(device_enum device_type)
 {
-    return device_type == device_enum::CUDA || device_type == device_enum::HIP;
+    return device_type == device_enum::CUDA || device_type == device_enum::HIP ||
+           device_type == device_enum::METAL;
 }
 
 /**

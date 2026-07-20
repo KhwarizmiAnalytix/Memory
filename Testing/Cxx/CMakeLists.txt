@@ -28,6 +28,12 @@ foreach(_test_source IN ITEMS ${test_sources})
     endif()
   endif()
 
+  if(NOT MEMORY_GPU_BACKEND STREQUAL "metal")
+    if(file_name MATCHES "TestMetal")
+      continue()
+    endif()
+  endif()
+
   list(APPEND TestFiles "${_test_source}")
 endforeach()
 

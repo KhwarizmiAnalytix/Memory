@@ -56,6 +56,7 @@ class DeviceGuard
 public:
     explicit DeviceGuard(int device)
     {
+#if MEMORY_HAS_CUDA
         int current = 0;
         throw_on_cuda_error(cudaGetDevice(&current), "cudaGetDevice");
         prev_ = current;
@@ -64,6 +65,9 @@ public:
             throw_on_cuda_error(cudaSetDevice(device), "cudaSetDevice");
             changed_ = true;
         }
+#else
+        (void)device;
+#endif
     }
 
     DeviceGuard(const DeviceGuard&)            = delete;
@@ -71,10 +75,12 @@ public:
 
     ~DeviceGuard()
     {
+#if MEMORY_HAS_CUDA
         if (changed_)
         {
             cudaSetDevice(prev_);
         }
+#endif
     }
 
 private:
@@ -84,6 +90,14 @@ private:
 
 }  // namespace
 
+// cuda_caching_allocator is a CUDA-specific caching layer (direct cudaMalloc/cudaFree pooling
+// with stream-aware deferred reclamation via CUDA events); it has no HIP/Metal implementation.
+// Callers reach this type only through gpu_allocator_factory::create_caching_allocator, which
+// is itself guarded to MEMORY_HAS_CUDA (see gpu_allocator_factory.cpp) — so the #else stub below
+// is unreachable in non-CUDA builds; it exists purely so this translation unit still compiles
+// (Metal/HIP builds get only the direct-allocate path through memory::allocator<T>, matching
+// the pre-existing gap where this subsystem was never built/tested against HIP either).
+#if MEMORY_HAS_CUDA
 struct cuda_caching_allocator::Impl
 {
     struct Block
@@ -475,6 +489,29 @@ private:
     std::vector<Block*> deferred_blocks_;
     unified_cache_stats stats_;
 };
+#else
+struct cuda_caching_allocator::Impl
+{
+    Impl(int device, size_t max_cached_bytes) : device_(device), max_cached_bytes_(max_cached_bytes)
+    {
+    }
+
+    void* allocate(size_t, cuda_caching_allocator::stream_type)
+    {
+        throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda");
+    }
+    void                 deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
+    void                 empty_cache() {}
+    void                 set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }
+    size_t               max_cached_bytes() const { return max_cached_bytes_; }
+    unified_cache_stats  stats() const { return unified_cache_stats{}; }
+    int                  device() const { return device_; }
+
+private:
+    int    device_;
+    size_t max_cached_bytes_;
+};
+#endif  // MEMORY_HAS_CUDA
 
 cuda_caching_allocator::cuda_caching_allocator(int device, size_t max_cached_bytes)
     : impl_(std::make_unique<Impl>(device, max_cached_bytes))
