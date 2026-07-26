@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <future>
 #include <memory>
@@ -397,4 +397,4 @@ MEMORYTEST(GpuMemoryTransfer, handles_transfer_errors)
     }
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA

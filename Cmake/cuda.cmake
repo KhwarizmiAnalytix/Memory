@@ -205,18 +205,20 @@ elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "none")
   # Don't set any architectures, let parent project handle it
 endif()
 
-# CUDA Allocation Strategy Configuration (defined in main CMakeLists.txt)
-message(STATUS "CUDA allocation strategy: ${PROJECT_GPU_ALLOC}")
+# CUDA Allocation Strategy Configuration (MEMORY_GPU_ALLOC is defined in the main CMakeLists.txt)
+message(STATUS "CUDA allocation strategy: ${MEMORY_GPU_ALLOC}")
 
-# Set preprocessor definitions based on allocation strategy
-if(PROJECT_GPU_ALLOC STREQUAL "SYNC")
-  add_compile_definitions(PROJECT_CUDA_ALLOC_SYNC)
+# Set preprocessor definitions based on allocation strategy. NOTE: these macro names
+# (MEMORY_CUDA_ALLOC_*) must match what helper/memory_allocator.cpp and gpu/allocator_gpu.h check —
+# see Docs/CUDA_HIP_REMEDIATION_PLAN.md (D1) for the history of this mismatch.
+if(MEMORY_GPU_ALLOC STREQUAL "SYNC")
+  add_compile_definitions(MEMORY_CUDA_ALLOC_SYNC)
   message(STATUS "Using synchronous CUDA allocation (cuMemAlloc/cuMemFree)")
-elseif(PROJECT_GPU_ALLOC STREQUAL "ASYNC")
-  add_compile_definitions(PROJECT_CUDA_ALLOC_ASYNC)
+elseif(MEMORY_GPU_ALLOC STREQUAL "ASYNC")
+  add_compile_definitions(MEMORY_CUDA_ALLOC_ASYNC)
   message(STATUS "Using asynchronous CUDA allocation (cuMemAllocAsync/cuMemFreeAsync)")
-elseif(PROJECT_GPU_ALLOC STREQUAL "POOL_ASYNC")
-  add_compile_definitions(PROJECT_CUDA_ALLOC_POOL_ASYNC)
+elseif(MEMORY_GPU_ALLOC STREQUAL "POOL_ASYNC")
+  add_compile_definitions(MEMORY_CUDA_ALLOC_POOL_ASYNC)
   message(STATUS "Using pool-based asynchronous CUDA allocation (cuMemAllocFromPoolAsync)")
 endif()
 

@@ -15,7 +15,7 @@
 #include "gpu/cuda_caching_allocator.h"
 #include "helper/memory_allocator.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
 #endif
 
@@ -30,7 +30,7 @@ namespace
  */
 int get_cuda_device_count()
 {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
     int         device_count = 0;
     cudaError_t error        = cudaGetDeviceCount(&device_count);
     if (error != cudaSuccess)
@@ -51,7 +51,7 @@ class cuda_memory_validator
 public:
     explicit cuda_memory_validator(void* ptr, size_t size) : ptr_(ptr), size_(size)
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         if (ptr_ != nullptr)
         {
             // Verify pointer is valid GPU memory
@@ -66,7 +66,7 @@ public:
 
     bool test_memory_access() const
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         if (!valid_ || ptr_ == nullptr || size_ == 0)
         {
             return false;

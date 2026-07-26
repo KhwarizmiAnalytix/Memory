@@ -24,7 +24,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <memory>
 #include <string>
@@ -259,4 +259,4 @@ MEMORYTEST(GpuAllocatorFactory, supports_different_template_parameters)
     }
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA

@@ -8,6 +8,19 @@
 # Include guard to prevent multiple inclusions
 include_guard(GLOBAL)
 
+# HIP/ROCm is a Unix (Linux) technology: the ROCm toolkit and hipcc are not distributed or
+# validated for Windows in this project. Fail fast with a clear message instead of silently
+# attempting find_package(hip)/enable_language(HIP), which — even if a Windows HIP SDK happens
+# to be on PATH — has never been built or tested here and uses a different compiler front end
+# than the flags below assume. Use MEMORY_GPU_BACKEND=cuda on Windows instead.
+if(WIN32)
+  message(
+    FATAL_ERROR
+      "MEMORY_GPU_BACKEND=hip is not supported on Windows in this project (HIP/ROCm is Unix-only "
+      "here). Use MEMORY_GPU_BACKEND=cuda on Windows, or build on Linux for HIP."
+  )
+endif()
+
 # HIP requires CMake 3.21 or later for proper support
 if(CMAKE_VERSION VERSION_LESS "3.21")
   message(FATAL_ERROR "HIP support requires CMake 3.21 or later. Found: ${CMAKE_VERSION}")
@@ -82,18 +95,21 @@ elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "none")
   # Don't set any architectures, let parent project handle it
 endif()
 
-# HIP Allocation Strategy Configuration (uses same flag as CUDA)
-message(STATUS "HIP allocation strategy: ${PROJECT_GPU_ALLOC}")
+# HIP Allocation Strategy Configuration (uses the same MEMORY_GPU_ALLOC cache variable as CUDA,
+# defined in the main CMakeLists.txt)
+message(STATUS "HIP allocation strategy: ${MEMORY_GPU_ALLOC}")
 
-# Set preprocessor definitions based on allocation strategy
-if(PROJECT_GPU_ALLOC STREQUAL "SYNC")
-  add_compile_definitions(PROJECT_HIP_ALLOC_SYNC)
+# Set preprocessor definitions based on allocation strategy. NOTE: these macro names
+# (MEMORY_HIP_ALLOC_*) must match what helper/memory_allocator.cpp and gpu/allocator_gpu.h check —
+# see Docs/CUDA_HIP_REMEDIATION_PLAN.md (D1) for the history of this mismatch.
+if(MEMORY_GPU_ALLOC STREQUAL "SYNC")
+  add_compile_definitions(MEMORY_HIP_ALLOC_SYNC)
   message(STATUS "Using synchronous HIP allocation (hipMalloc/hipFree)")
-elseif(PROJECT_GPU_ALLOC STREQUAL "ASYNC")
-  add_compile_definitions(PROJECT_HIP_ALLOC_ASYNC)
+elseif(MEMORY_GPU_ALLOC STREQUAL "ASYNC")
+  add_compile_definitions(MEMORY_HIP_ALLOC_ASYNC)
   message(STATUS "Using asynchronous HIP allocation (hipMallocAsync/hipFreeAsync)")
-elseif(PROJECT_GPU_ALLOC STREQUAL "POOL_ASYNC")
-  add_compile_definitions(PROJECT_HIP_ALLOC_POOL_ASYNC)
+elseif(MEMORY_GPU_ALLOC STREQUAL "POOL_ASYNC")
+  add_compile_definitions(MEMORY_HIP_ALLOC_POOL_ASYNC)
   message(STATUS "Using pool-based asynchronous HIP allocation (hipMallocFromPoolAsync)")
 endif()
 
@@ -106,15 +122,15 @@ list(APPEND PROJECT_DEPENDENCY_LIBS ${PROJECT_HIP_LIBRARIES})
 # Add include directories
 include_directories(SYSTEM "${HIP_INCLUDE_DIRS}")
 
-# Add common HIP flags
-string(APPEND CMAKE_HIP_FLAGS " --expt-extended-lambda")
-
-if(NOT MSVC)
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    string(APPEND CMAKE_HIP_FLAGS " -g")
-  else()
-    string(APPEND CMAKE_HIP_FLAGS " -O3")
-  endif()
+# Add common HIP flags.
+# NOTE: --expt-extended-lambda is an nvcc-only flag and was previously copy-pasted here from
+# cuda.cmake; hipcc (Clang-based) does not recognize it and errors out — do not re-add it (see
+# Docs/CUDA_HIP_REMEDIATION_PLAN.md, D4). HIP is Unix-only in this project (see the WIN32 guard
+# above), so no MSVC branch is needed here.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  string(APPEND CMAKE_HIP_FLAGS " -g")
+else()
+  string(APPEND CMAKE_HIP_FLAGS " -O3")
 endif()
 
 # For backward compatibility, set legacy variables (if needed elsewhere)

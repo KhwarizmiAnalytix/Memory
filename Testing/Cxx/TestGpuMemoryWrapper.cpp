@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <memory>
 #include <vector>
@@ -450,4 +450,4 @@ MEMORYTEST(GpuMemoryWrapper, supports_swap_operation)
     }
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA

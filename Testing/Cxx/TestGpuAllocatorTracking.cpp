@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <chrono>
 #include <memory>
@@ -311,4 +311,4 @@ MEMORYTEST(GpuAllocatorTracking, generates_comprehensive_reports)
     MEMORY_LOG_INFO("GPU report generation test passed");
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA

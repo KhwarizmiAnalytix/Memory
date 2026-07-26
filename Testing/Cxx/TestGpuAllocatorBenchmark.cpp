@@ -20,7 +20,7 @@
 #include "gpu/allocator_gpu.h"
 #include "gpu/cuda_caching_allocator.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
 #endif
 
@@ -70,7 +70,7 @@ class gpu_timer
 public:
     gpu_timer()
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         cudaEventCreate(&start_event_);
         cudaEventCreate(&stop_event_);
 #endif
@@ -78,7 +78,7 @@ public:
 
     ~gpu_timer()
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         cudaEventDestroy(start_event_);
         cudaEventDestroy(stop_event_);
 #endif
@@ -86,7 +86,7 @@ public:
 
     void start()
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         cudaEventRecord(start_event_);
 #endif
         cpu_start_ = std::chrono::high_resolution_clock::now();
@@ -95,7 +95,7 @@ public:
     void stop()
     {
         cpu_end_ = std::chrono::high_resolution_clock::now();
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         cudaEventRecord(stop_event_);
         cudaEventSynchronize(stop_event_);
 #endif
@@ -103,7 +103,7 @@ public:
 
     double elapsed_ms() const
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         float gpu_time_ms = 0.0f;
         cudaEventElapsedTime(&gpu_time_ms, start_event_, stop_event_);
         return static_cast<double>(gpu_time_ms);
@@ -116,7 +116,7 @@ public:
     double elapsed_ns() const { return elapsed_ms() * 1000000.0; }
 
 private:
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
     cudaEvent_t start_event_;
     cudaEvent_t stop_event_;
 #endif
@@ -317,7 +317,7 @@ class direct_cuda_allocator_wrapper : public gpu_allocator_interface
 public:
     void* allocate(size_t size) override
     {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         void*       ptr   = nullptr;
         cudaError_t error = cudaMalloc(&ptr, size);
         return (error == cudaSuccess) ? ptr : nullptr;
@@ -330,7 +330,7 @@ public:
     void deallocate(void* ptr, size_t size) override
     {
         (void)size;
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
         if (ptr != nullptr)
         {
             cudaFree(ptr);
@@ -505,7 +505,7 @@ void print_gpu_benchmark_results(const std::vector<gpu_benchmark_results>& resul
 
 int get_cuda_device_count()
 {
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
     int         device_count = 0;
     cudaError_t error        = cudaGetDeviceCount(&device_count);
     return (error == cudaSuccess) ? device_count : 0;
@@ -712,11 +712,11 @@ MEMORYTEST(GpuAllocatorBenchmark, AllocationMethodComparison)
 
     // Display current allocation method
     std::cout << "Current allocation method: ";
-#if defined(QUARISMA_CUDA_ALLOC_SYNC) || defined(QUARISMA_HIP_ALLOC_SYNC)
+#if defined(MEMORY_CUDA_ALLOC_SYNC) || defined(MEMORY_HIP_ALLOC_SYNC)
     std::cout << "SYNC (cuMemAlloc/cuMemFree or hipMalloc/hipFree)\n";
-#elif defined(QUARISMA_CUDA_ALLOC_ASYNC) || defined(QUARISMA_HIP_ALLOC_ASYNC)
+#elif defined(MEMORY_CUDA_ALLOC_ASYNC) || defined(MEMORY_HIP_ALLOC_ASYNC)
     std::cout << "ASYNC (cuMemAllocAsync/cuMemFreeAsync or hipMallocAsync/hipFreeAsync)\n";
-#elif defined(QUARISMA_CUDA_ALLOC_POOL_ASYNC) || defined(QUARISMA_HIP_ALLOC_POOL_ASYNC)
+#elif defined(MEMORY_CUDA_ALLOC_POOL_ASYNC) || defined(MEMORY_HIP_ALLOC_POOL_ASYNC)
     std::cout << "POOL_ASYNC (cuMemAllocFromPoolAsync or hipMallocFromPoolAsync)\n";
 #else
     std::cout << "DEFAULT (SYNC fallback)\n";
@@ -737,10 +737,10 @@ MEMORYTEST(GpuAllocatorBenchmark, AllocationMethodComparison)
     std::cout << "  Total Allocations: " << results.total_allocations << "\n";
     std::cout << "  Allocation Failures: " << results.allocation_failures << "\n\n";
 
-    std::cout << "Note: To test different allocation methods, rebuild with:\n";
-    std::cout << "  -DQUARISMA_CUDA_ALLOC=SYNC     (for synchronous allocation)\n";
-    std::cout << "  -DQUARISMA_CUDA_ALLOC=ASYNC    (for asynchronous allocation)\n";
-    std::cout << "  -DQUARISMA_CUDA_ALLOC=POOL_ASYNC (for pool-based async allocation)\n\n";
+    std::cout << "Note: To test different allocation methods, reconfigure with:\n";
+    std::cout << "  -DMEMORY_GPU_ALLOC=SYNC       (for synchronous allocation)\n";
+    std::cout << "  -DMEMORY_GPU_ALLOC=ASYNC      (for asynchronous allocation)\n";
+    std::cout << "  -DMEMORY_GPU_ALLOC=POOL_ASYNC (for pool-based async allocation)\n\n";
 
     // Validation
     EXPECT_GT(results.total_allocations, 0);

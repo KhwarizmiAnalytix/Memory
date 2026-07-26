@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <string>
 #include <vector>
@@ -333,4 +333,4 @@ MEMORYTEST(GpuMemoryAlignment, generates_alignment_reports)
     MEMORY_LOG_INFO("GPU memory alignment report generation test passed");
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA

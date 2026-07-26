@@ -35,7 +35,7 @@
 #include "backend/allocator_tracking.h"  // for allocator_tracking, enhanced_alloc_record, tracking_log_level
 #include "cpu/allocator.h"  // for sub_allocator, allocation_attributes, Allocator, allocator_m...
 
-#if PROJECT_HAS_CUDA || PROJECT_HAS_HIP
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "cpu/allocator_device.h"  // for allocator_device
 #endif
 
@@ -50,7 +50,7 @@ using namespace memory;
 // ============================================================================
 // ALLOCATOR_DEVICE TESTS
 // ============================================================================
-#if PROJECT_HAS_CUDA || PROJECT_HAS_HIP
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 MEMORYTEST(AllocatorDevice, basic_allocation)
 {
     auto allocator = std::make_unique<allocator_device>();
@@ -1266,7 +1266,7 @@ MEMORYTEST(AllocatorBenchmark, PerformanceBenchmark)
         }
 
 // ========== ALLOCATOR_DEVICE ==========
-#if PROJECT_HAS_CUDA || PROJECT_HAS_HIP
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         {
             auto               device_allocator = std::make_unique<allocator_device>();
             std::vector<void*> ptrs;

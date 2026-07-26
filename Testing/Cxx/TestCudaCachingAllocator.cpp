@@ -20,7 +20,7 @@
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 
-#if PROJECT_HAS_CUDA
+#if MEMORY_HAS_CUDA
 
 #include <cuda_runtime.h>
 
@@ -315,4 +315,4 @@ MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
     MEMORY_LOG_INFO("CUDA caching allocator template statistics test passed");
 }
 
-#endif  // PROJECT_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA
