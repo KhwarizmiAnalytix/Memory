@@ -27,8 +27,8 @@
 #include <string>
 #include <vector>
 
-#include "common/memory_macros.h"
 #include "common/memory_export.h"
+#include "common/memory_macros.h"
 
 namespace memory
 {
@@ -169,6 +169,17 @@ struct MEMORY_VISIBILITY unified_cache_stats
     std::atomic<size_t> successful_allocations{0};
     std::atomic<size_t> successful_frees{0};
     std::atomic<size_t> bytes_allocated{0};
+
+    // PyTorch DeviceStats-style fields (cuda_caching_allocator): total segment
+    // bytes held from the driver, bytes in free split-off remainders that
+    // cannot be returned to the driver, OOM cache-flush retries, and
+    // allocations that failed even after the flush-and-retry chain.
+    std::atomic<size_t> bytes_reserved{0};
+    std::atomic<size_t> inactive_split_bytes{0};
+    std::atomic<size_t> num_alloc_retries{0};
+    std::atomic<size_t> num_ooms{0};
+    // Number of synchronize-and-free-events passes (empty_cache / OOM flush)
+    std::atomic<size_t> num_sync_all_streams{0};
 
     // Default constructor
     unified_cache_stats() = default;

@@ -20,16 +20,18 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
 
-#include "common/memory_macros.h"
 #include "common/device.h"
+#include "common/memory_macros.h"
 #include "profiler/unified_memory_stats.h"
 
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime_api.h>
+
 #include "common/memory_export.h"
 #endif
 
@@ -38,11 +40,28 @@ namespace memory
 namespace gpu
 {
 /**
- * @brief High-performance CUDA caching allocator for quantitative finance
+ * @brief CUDA caching allocator with PyTorch CUDACachingAllocator semantics
  *
- * This allocator provides efficient memory management through intelligent caching
- * of GPU memory blocks. It's optimized for Monte Carlo simulations and PDE solvers
- * where frequent allocation/deallocation patterns can benefit from caching.
+ * Behaviorally ports the core of PyTorch's CUDACachingAllocator
+ * (c10/cuda/CUDACachingAllocator.cpp):
+ * - Requests rounded to 512-byte multiples; small (<= 1 MiB) requests are
+ *   packed into 2 MiB segments, 1-10 MiB requests into 20 MiB segments, and
+ *   larger requests rounded up to 2 MiB multiples - one cudaMalloc per segment
+ * - Oversized cached blocks are split on reuse and the remainder returned to
+ *   the pool; freed blocks coalesce with free neighbors
+ * - Free pools are scoped per allocation stream; blocks are never reused on a
+ *   different stream than the one they were allocated on
+ * - Cross-stream uses are tracked via record_stream() (PyTorch recordStream
+ *   semantics) or the deallocate stream hint; reuse is deferred with CUDA
+ *   events until the recorded streams catch up
+ * - On cudaMalloc failure the entire cache is flushed (pending events
+ *   synchronized, whole cached segments released) and the allocation retried
+ *   once before throwing std::bad_alloc
+ *
+ * XSigma extensions beyond upstream:
+ * - Optional max_cached_bytes cap with largest-first trimming of releasable
+ *   (whole-segment) cached blocks on deallocate; the default is unlimited,
+ *   matching PyTorch
  *
  * Features:
  * - Stream-aware memory caching with CUDA events
@@ -90,12 +109,28 @@ public:
     /**
      * @brief Deallocate GPU memory (may cache for reuse)
      * @param ptr Pointer to memory to deallocate
-     * @param size Size of memory block (for validation)
-     * @param stream CUDA stream for stream-aware caching (optional)
+     * @param size Size of memory block (unused; kept for interface compatibility)
+     * @param stream Stream hint: a stream other than the allocation stream is
+     *        treated as a cross-stream use (recordStream semantics) and reuse
+     *        is deferred until that stream's pending work completes
      * @throws std::invalid_argument if ptr is not owned by this allocator
      * @throws std::logic_error if double free detected
      */
     MEMORY_API void deallocate(void* ptr, size_t size, stream_type stream = nullptr);
+
+    /**
+     * @brief Record a cross-stream use of a live allocation (PyTorch recordStream)
+     *
+     * Declares that the memory is (or will be) used on @p stream. When the
+     * allocation is later freed, its reuse is deferred with a CUDA event until
+     * all recorded streams' pending work has completed. Uses on the allocation
+     * stream itself need no recording and are ignored.
+     *
+     * @param ptr Live allocation previously returned by allocate()
+     * @param stream Stream on which the memory is used
+     * @throws std::runtime_error if ptr is not a live allocation of this allocator
+     */
+    MEMORY_API void record_stream(void* ptr, stream_type stream);
 
     /**
      * @brief Clear all cached memory immediately
@@ -116,6 +151,28 @@ public:
     MEMORY_API size_t max_cached_bytes() const;
 
     /**
+     * @brief Callback invoked when an allocation cannot be served from the cache
+     *
+     * Free-memory callbacks run between the first cache miss and the cudaMalloc
+     * fallback (upstream trigger_free_memory_callbacks). If any callback returns
+     * true (it freed memory), the cache is retried once before the driver call.
+     * Callbacks run while the allocator lock is held; the lock is recursive, so a
+     * callback may safely deallocate or empty_cache() on this same allocator.
+     */
+    using free_memory_callback = std::function<bool()>;
+
+    /**
+     * @brief Register a free-memory callback (upstream FreeCudaMemoryCallbacksRegistry)
+     * @param callback Returns true if it freed device memory
+     */
+    MEMORY_API void add_free_memory_callback(free_memory_callback callback);
+
+    /**
+     * @brief Remove all registered free-memory callbacks
+     */
+    MEMORY_API void clear_free_memory_callbacks();
+
+    /**
      * @brief Get comprehensive allocation statistics
      * @return Statistics structure with performance metrics
      */
@@ -128,8 +185,8 @@ public:
     MEMORY_API int device() const;
 
     // Non-copyable but movable
-    cuda_caching_allocator(const cuda_caching_allocator&)                         = delete;
-    cuda_caching_allocator&              operator=(const cuda_caching_allocator&) = delete;
+    cuda_caching_allocator(const cuda_caching_allocator&)                       = delete;
+    cuda_caching_allocator&            operator=(const cuda_caching_allocator&) = delete;
     MEMORY_API                         cuda_caching_allocator(cuda_caching_allocator&&) noexcept;
     MEMORY_API cuda_caching_allocator& operator=(cuda_caching_allocator&&) noexcept;
 
@@ -198,6 +255,11 @@ public:
         size_t aligned_bytes = ((bytes + alignment - 1) / alignment) * alignment;
         allocator_.deallocate(ptr, aligned_bytes, stream);
     }
+
+    /**
+     * @brief Record a cross-stream use of a live allocation (PyTorch recordStream)
+     */
+    void record_stream(pointer ptr, stream_type stream) { allocator_.record_stream(ptr, stream); }
 
     /**
      * @brief Get underlying allocator statistics

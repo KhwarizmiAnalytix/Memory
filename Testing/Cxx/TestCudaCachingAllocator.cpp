@@ -19,6 +19,7 @@
 
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
+#include "util/memory_exception.h"
 
 #if MEMORY_HAS_CUDA
 
@@ -136,7 +137,8 @@ MEMORYTEST(CudaCachingAllocator, manages_cache_correctly)
 
     // Verify cache was cleared
     auto stats_after = allocator.stats();
-    //EXPECT_GE(stats_before.cached_bytes, stats_after.cached_bytes);
+    EXPECT_GT(stats_before.bytes_cached.load(), stats_after.bytes_cached.load());
+    EXPECT_EQ(0, stats_after.bytes_cached.load());
 
     MEMORY_LOG_INFO("CUDA caching allocator cache management test passed");
 }
@@ -174,14 +176,14 @@ MEMORYTEST(CudaCachingAllocator, provides_accurate_statistics)
     void* ptr2 = allocator.allocate(4096);
 
     auto after_alloc_stats = allocator.stats();
-    //EXPECT_GT(after_alloc_stats.total_allocated_bytes, initial_stats.total_allocated_bytes);
+    EXPECT_GT(after_alloc_stats.bytes_allocated.load(), initial_stats.bytes_allocated.load());
 
     // Deallocate
     allocator.deallocate(ptr1, 2048);
     allocator.deallocate(ptr2, 4096);
 
     auto after_dealloc_stats = allocator.stats();
-    //EXPECT_GT(after_dealloc_stats.total_deallocated_bytes, initial_stats.total_deallocated_bytes);
+    EXPECT_EQ(0, after_dealloc_stats.bytes_allocated.load());
 
     MEMORY_LOG_INFO("CUDA caching allocator statistics test passed");
 }
@@ -303,16 +305,364 @@ MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
 
     // Check stats updated
     auto after_stats = allocator.stats();
-    //EXPECT_GT(after_stats.total_allocated_bytes, initial_stats.total_allocated_bytes);
+    EXPECT_GT(after_stats.bytes_allocated.load(), initial_stats.bytes_allocated.load());
 
     // Deallocate
     allocator.deallocate(ptr1, 1000);
     allocator.deallocate(ptr2, 2000);
+    EXPECT_EQ(0, allocator.stats().bytes_allocated.load());
 
     // Test cache clearing
     allocator.empty_cache();
 
     MEMORY_LOG_INFO("CUDA caching allocator template statistics test passed");
+}
+
+// ============================================================================
+// PyTorch parity behavior (rounding, segmentation, split/merge, per-stream
+// pools, OOM cache-flush retry chain, recordStream)
+// ============================================================================
+
+/**
+ * @brief Requests are rounded to 512-byte multiples before block sizing
+ */
+MEMORYTEST(CudaCachingAllocator, rounds_requests_to_512_byte_multiples)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* ptr1 = allocator.allocate(1);  // rounds to 512
+    void* ptr2 = allocator.allocate(512);
+    ASSERT_NE(nullptr, ptr1);
+    ASSERT_NE(nullptr, ptr2);
+
+    auto stats = allocator.stats();
+    // Both allocations are 512-byte blocks inside one 2 MiB small segment
+    EXPECT_EQ(1024, stats.bytes_allocated.load());
+    EXPECT_EQ(2 * 1024 * 1024, stats.bytes_reserved.load());
+
+    allocator.deallocate(ptr1, 1);
+    allocator.deallocate(ptr2, 512);
+    EXPECT_EQ(0, allocator.stats().bytes_allocated.load());
+
+    MEMORY_LOG_INFO("CUDA caching allocator size rounding test passed");
+}
+
+/**
+ * @brief Small requests are packed into shared 2 MiB segments (one cudaMalloc)
+ */
+MEMORYTEST(CudaCachingAllocator, packs_small_allocations_into_one_segment)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* ptr1 = allocator.allocate(1024);
+    void* ptr2 = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr1);
+    ASSERT_NE(nullptr, ptr2);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());  // single segment cudaMalloc
+    EXPECT_EQ(2 * 1024 * 1024, stats.bytes_reserved.load());
+    EXPECT_EQ(2048, stats.bytes_allocated.load());
+
+    allocator.deallocate(ptr1, 1024);
+    allocator.deallocate(ptr2, 1024);
+
+    MEMORY_LOG_INFO("CUDA caching allocator small segment packing test passed");
+}
+
+/**
+ * @brief Freed blocks are reused from the cache without new driver calls
+ */
+MEMORYTEST(CudaCachingAllocator, reuses_cached_blocks)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* ptr1 = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr1);
+    allocator.deallocate(ptr1, 1024);
+
+    void* ptr2 = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr2);
+    // Merge on free restores the full free segment, so the same address comes back
+    EXPECT_EQ(ptr1, ptr2);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());
+    EXPECT_EQ(1, stats.cache_hits.load());
+    EXPECT_EQ(1, stats.cache_misses.load());
+
+    allocator.deallocate(ptr2, 1024);
+
+    MEMORY_LOG_INFO("CUDA caching allocator cached block reuse test passed");
+}
+
+/**
+ * @brief Oversized cached blocks are split and the remainder returned to the pool
+ */
+MEMORYTEST(CudaCachingAllocator, splits_oversized_cached_blocks)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* big = allocator.allocate(4 * 1024 * 1024);  // 4 MiB block from a 20 MiB segment
+    ASSERT_NE(nullptr, big);
+    allocator.deallocate(big, 4 * 1024 * 1024);
+
+    // A 1 MiB request should split the cached 4 MiB block, leaving a 3 MiB remainder
+    void* small = allocator.allocate(1024 * 1024);
+    ASSERT_NE(nullptr, small);
+    EXPECT_EQ(big, small);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());  // no new cudaMalloc for the split
+    EXPECT_EQ(1024 * 1024, stats.bytes_allocated.load());
+    EXPECT_EQ(3 * 1024 * 1024, stats.inactive_split_bytes.load());
+
+    allocator.deallocate(small, 1024 * 1024);
+    // Merge restores the whole 4 MiB block; nothing split remains
+    EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
+
+    MEMORY_LOG_INFO("CUDA caching allocator block split test passed");
+}
+
+/**
+ * @brief Free blocks are scoped to their allocation stream and never reused
+ *        on a different stream
+ */
+MEMORYTEST(CudaCachingAllocator, never_reuses_blocks_across_streams)
+{
+    cuda_caching_allocator allocator(0);
+
+    cudaStream_t stream_a = nullptr;
+    cudaStream_t stream_b = nullptr;
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_a));
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_b));
+
+    void* ptr_a = allocator.allocate(1024, stream_a);
+    ASSERT_NE(nullptr, ptr_a);
+    allocator.deallocate(ptr_a, 1024, stream_a);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());
+
+    // Same-size request on stream_b must miss: cached blocks are stream-scoped
+    void* ptr_b = allocator.allocate(1024, stream_b);
+    ASSERT_NE(nullptr, ptr_b);
+
+    stats = allocator.stats();
+    EXPECT_EQ(2, stats.driver_allocations.load());  // new segment for stream_b
+    EXPECT_EQ(2, stats.cache_misses.load());
+    EXPECT_EQ(0, stats.cache_hits.load());
+
+    allocator.deallocate(ptr_b, 1024, stream_b);
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_a));
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_b));
+
+    MEMORY_LOG_INFO("CUDA caching allocator per-stream pool test passed");
+}
+
+/**
+ * @brief record_stream defers reuse of a cross-stream allocation until the
+ *        recorded stream's pending work completes
+ */
+MEMORYTEST(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
+{
+    cuda_caching_allocator allocator(0);
+
+    cudaStream_t alloc_stream = nullptr;
+    cudaStream_t use_stream   = nullptr;
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&alloc_stream));
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&use_stream));
+
+    void* ptr = allocator.allocate(1024, alloc_stream);
+    ASSERT_NE(nullptr, ptr);
+
+    allocator.record_stream(ptr, use_stream);
+    allocator.deallocate(ptr, 1024, alloc_stream);
+
+    // The block is withheld pending the use_stream event; a same-stream request
+    // must not see it (and there is nothing else cached), so a new segment appears
+    void* ptr2 = allocator.allocate(1024, alloc_stream);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
+    allocator.deallocate(ptr2, 1024, alloc_stream);
+
+    // After the recorded stream finishes, the deferred block is reclaimable
+    ASSERT_EQ(cudaSuccess, cudaStreamSynchronize(use_stream));
+    void* ptr3 = allocator.allocate(1024, alloc_stream);
+    ASSERT_NE(nullptr, ptr3);
+    EXPECT_EQ(ptr, ptr3);
+
+    allocator.deallocate(ptr3, 1024, alloc_stream);
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(use_stream));
+
+    MEMORY_LOG_INFO("CUDA caching allocator record_stream deferral test passed");
+}
+
+/**
+ * @brief empty_cache releases cached segments so they can be re-cudaMalloc'd
+ */
+MEMORYTEST(CudaCachingAllocator, empty_cache_releases_cached_segments)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* ptr = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr);
+    allocator.deallocate(ptr, 1024);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());
+    EXPECT_GT(stats.bytes_cached.load(), 0);
+    EXPECT_GT(stats.bytes_reserved.load(), 0);
+
+    allocator.empty_cache();
+
+    stats = allocator.stats();
+    EXPECT_EQ(0, stats.bytes_cached.load());
+    EXPECT_EQ(0, stats.bytes_reserved.load());
+    EXPECT_EQ(1, stats.driver_frees.load());
+
+    // The released segment is gone, so the next allocation hits the driver again
+    void* ptr2 = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
+    allocator.deallocate(ptr2, 1024);
+
+    MEMORY_LOG_INFO("CUDA caching allocator empty_cache release test passed");
+}
+
+/**
+ * @brief A cache cap trims cached segments on deallocate, keeping in-use
+ *        allocations fully functional
+ */
+MEMORYTEST(CudaCachingAllocator, cache_cap_trims_on_deallocate)
+{
+    cuda_caching_allocator allocator(0, 2 * 1024 * 1024);  // one small segment
+
+    void* ptr = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr);
+    allocator.deallocate(ptr, 1024);
+
+    // Cap is below the 2 MiB segment, so the cached segment is trimmed immediately
+    auto stats = allocator.stats();
+    EXPECT_EQ(0, stats.bytes_cached.load());
+    EXPECT_EQ(0, stats.bytes_reserved.load());
+    EXPECT_EQ(1, stats.driver_frees.load());
+    EXPECT_EQ(1, stats.cache_evictions.load());
+
+    MEMORY_LOG_INFO("CUDA caching allocator cache cap trim test passed");
+}
+
+/**
+ * @brief Requests larger than 10 MiB are rounded up to 2 MiB multiples and
+ *        allocated as right-sized segments
+ */
+MEMORYTEST(CudaCachingAllocator, rounds_huge_allocations_to_2_mib_multiples)
+{
+    cuda_caching_allocator allocator(0);
+
+    size_t const request = 11 * 1024 * 1024 + 1;  // just over 11 MiB -> 12 MiB segment
+    void*        ptr     = allocator.allocate(request);
+    ASSERT_NE(nullptr, ptr);
+
+    auto stats = allocator.stats();
+    EXPECT_EQ(1, stats.driver_allocations.load());
+    EXPECT_EQ(12 * 1024 * 1024, stats.bytes_reserved.load());
+    // 12 MiB - 11 MiB - 512 B remainder is below the 1 MiB split threshold,
+    // so the whole segment backs the allocation
+    EXPECT_EQ(12 * 1024 * 1024, stats.bytes_allocated.load());
+
+    allocator.deallocate(ptr, request);
+    EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
+
+    MEMORY_LOG_INFO("CUDA caching allocator huge allocation rounding test passed");
+}
+
+/**
+ * @brief Free-memory callbacks run between the first cache miss and the
+ *        cudaMalloc fallback; a callback that frees memory makes the cache
+ *        retriable (upstream trigger_free_memory_callbacks)
+ */
+MEMORYTEST(CudaCachingAllocator, free_memory_callbacks_run_before_driver_fallback)
+{
+    cuda_caching_allocator allocator(0);
+
+    void* big = allocator.allocate(4 * 1024 * 1024);  // 4 MiB block, 16 MiB remainder cached
+    ASSERT_NE(nullptr, big);
+    EXPECT_EQ(1, allocator.stats().driver_allocations.load());
+
+    bool invoked = false;
+    allocator.add_free_memory_callback(
+        [&]()
+        {
+            invoked = true;
+            // Runs under the allocator lock (recursive): free the block so the
+            // retry can serve the request from the cache.
+            allocator.deallocate(big, 4 * 1024 * 1024);
+            return true;
+        });
+
+    // 17 MiB request: the cached 16 MiB remainder is too small, so the callback
+    // must run; freeing `big` merges the segment back to 20 MiB and the retry hits.
+    void* ptr = allocator.allocate(17 * 1024 * 1024);
+    ASSERT_NE(nullptr, ptr);
+    EXPECT_TRUE(invoked);
+    EXPECT_EQ(ptr, big);
+    EXPECT_EQ(1, allocator.stats().driver_allocations.load());  // no cudaMalloc happened
+
+    allocator.deallocate(ptr, 17 * 1024 * 1024);
+
+    MEMORY_LOG_INFO("CUDA caching allocator free-memory callback test passed");
+}
+
+/**
+ * @brief Equal-size free segments recycle oldest-first (upstream
+ *        registration_counter FIFO tie-break)
+ */
+MEMORYTEST(CudaCachingAllocator, recycles_equal_size_segments_fifo)
+{
+    cuda_caching_allocator allocator(0);
+
+    // 17 MiB rounds to an 18 MiB segment whose 1 MiB remainder is below the
+    // split threshold, so each request consumes a whole new segment.
+    void* ptr_a = allocator.allocate(17 * 1024 * 1024);
+    void* ptr_b = allocator.allocate(17 * 1024 * 1024);
+    ASSERT_NE(nullptr, ptr_a);
+    ASSERT_NE(nullptr, ptr_b);
+    ASSERT_NE(ptr_a, ptr_b);
+    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
+
+    allocator.deallocate(ptr_a, 17 * 1024 * 1024);  // freed first, oldest segment
+    allocator.deallocate(ptr_b, 17 * 1024 * 1024);
+
+    void* ptr_c = allocator.allocate(17 * 1024 * 1024);
+    ASSERT_NE(nullptr, ptr_c);
+    EXPECT_EQ(ptr_a, ptr_c);  // oldest segment recycles first
+    void* ptr_d = allocator.allocate(17 * 1024 * 1024);
+    ASSERT_NE(nullptr, ptr_d);
+    EXPECT_EQ(ptr_b, ptr_d);
+    EXPECT_EQ(2, allocator.stats().driver_allocations.load());  // no new segments
+
+    allocator.deallocate(ptr_c, 17 * 1024 * 1024);
+    allocator.deallocate(ptr_d, 17 * 1024 * 1024);
+
+    MEMORY_LOG_INFO("CUDA caching allocator FIFO recycling test passed");
+}
+
+/**
+ * @brief Every cache release pass (empty_cache / OOM flush) is counted in
+ *        num_sync_all_streams (upstream DeviceStats parity)
+ */
+MEMORYTEST(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
+{
+    cuda_caching_allocator allocator(0);
+
+    EXPECT_EQ(0, allocator.stats().num_sync_all_streams.load());
+    allocator.empty_cache();
+    allocator.empty_cache();
+    EXPECT_EQ(2, allocator.stats().num_sync_all_streams.load());
+
+    MEMORY_LOG_INFO("CUDA caching allocator sync-all-streams counter test passed");
 }
 
 #endif  // MEMORY_HAS_CUDA
