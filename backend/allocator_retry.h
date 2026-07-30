@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -64,12 +65,24 @@ private:
     std::mutex mu_;
 
     std::condition_variable memory_returned_ MEMORY_GUARDED_BY(mu_);
+
+    // True while at least one thread is waiting on memory_returned_.
+    // Lets NotifyDealloc() skip the mutex + broadcast when nobody can
+    // be waiting, which is the overwhelmingly common case.  A stale
+    // read is benign: a missed notify only means a waiter retries at
+    // its deadline instead of immediately, and a spurious notify with
+    // no waiters is a no-op.
+    std::atomic<bool> has_waiters_{false};
 };
 
 // Implementation details below
 inline void allocator_retry::NotifyDealloc()
 {
-    std::unique_lock<std::mutex> const l(mu_);
-    memory_returned_.notify_all();
+    if (has_waiters_.load(std::memory_order_relaxed))
+    {
+        std::unique_lock<std::mutex> const l(mu_);
+        has_waiters_.store(false, std::memory_order_relaxed);
+        memory_returned_.notify_all();
+    }
 }
 }  // namespace memory

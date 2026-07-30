@@ -167,7 +167,9 @@ void* allocator_retry::allocate_raw(
                 // Wait for memory to become available
                 std::unique_lock<std::mutex> lock(mu_);
 
+                has_waiters_.store(true, std::memory_order_relaxed);
                 memory_returned_.wait_until(lock, deadline);
+                has_waiters_.store(false, std::memory_order_relaxed);
             }
             else
             {

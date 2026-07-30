@@ -1052,6 +1052,142 @@ private:
     };
 
     /**
+     * @brief Block-allocated recycling pool for bin red-black tree nodes.
+     *
+     * Nearly every allocation and deallocation inserts or erases a node in a
+     * bin's ordered set; with a plain std::allocator each of those operations
+     * round-trips through the system allocator. bin_node_pool carves nodes out
+     * of large backing blocks and recycles erased nodes through an intrusive
+     * free list, so bin insert/erase never touches the system allocator on the
+     * hot path.
+     *
+     * **Thread Safety**: Not thread-safe - every call is made with mutex_ held
+     * **Node Size**: One pool instance serves a single node type; the size is
+     * pinned on first use and checked in debug builds
+     * **Memory**: Blocks are geometrically sized (64 nodes up to 4096) and
+     * released wholesale when the owning allocator_bfc is destroyed
+     */
+    class bin_node_pool
+    {
+    public:
+        bin_node_pool() = default;
+
+        /**
+         * @brief Returns raw storage for one node, growing by a block if needed.
+         *
+         * @param node_size Size of the node type in bytes (must be constant
+         *                  across all calls on one pool instance)
+         * @return Uninitialized storage for a single node
+         *
+         * **Performance**: O(1) - free-list pop, or O(block) amortized growth
+         */
+        void* allocate_node(size_t node_size)
+        {
+            MEMORY_CHECK_DEBUG(
+                node_size >= sizeof(void*), "Node size too small for free list linkage");
+            if (node_size_ == 0)
+            {
+                node_size_ = node_size;
+            }
+            MEMORY_CHECK_DEBUG(node_size == node_size_, "Inconsistent node size in pool");
+            if (free_list_ == nullptr)
+            {
+                add_block();
+            }
+            void* p    = free_list_;
+            free_list_ = *static_cast<void**>(p);
+            return p;
+        }
+
+        /**
+         * @brief Returns node storage to the free list without freeing memory.
+         *
+         * @param p Node storage previously returned by allocate_node()
+         *
+         * **Performance**: O(1) - free-list push
+         */
+        void deallocate_node(void* p) noexcept
+        {
+            *static_cast<void**>(p) = free_list_;
+            free_list_              = p;
+        }
+
+    private:
+        /**
+         * @brief Allocates a new backing block and threads it onto the free list.
+         */
+        void add_block()
+        {
+            blocks_.push_back(std::make_unique<char[]>(block_nodes_ * node_size_));
+            char* block = blocks_.back().get();
+            for (size_t i = 0; i < block_nodes_; ++i)
+            {
+                deallocate_node(block + i * node_size_);
+            }
+            block_nodes_ = std::min(block_nodes_ * 2, kMaxBlockNodes);
+        }
+
+        static constexpr size_t kMaxBlockNodes = 4096;
+
+        size_t                               node_size_{0};
+        size_t                               block_nodes_{64};
+        void*                                free_list_{nullptr};
+        std::vector<std::unique_ptr<char[]>> blocks_;
+    };
+
+    /**
+     * @brief STL-compatible stateful allocator routing node storage through bin_node_pool.
+     *
+     * std::set rebinds this to its internal node type; every rebind shares the
+     * same underlying pool, so all bins of one allocator_bfc recycle nodes
+     * through a single free list. Tree containers allocate one node at a time.
+     */
+    template <typename T>
+    class pooled_node_allocator
+    {
+    public:
+        using value_type = T;
+
+        explicit pooled_node_allocator(bin_node_pool* pool) noexcept : pool_(pool) {}
+
+        template <typename U>
+        pooled_node_allocator(const pooled_node_allocator<U>& other) noexcept
+            : pool_(other.pool_)
+        {
+        }
+
+        T* allocate(MEMORY_UNUSED size_t n)
+        {
+            MEMORY_CHECK_DEBUG(n == 1, "Tree containers allocate one node at a time");
+            return static_cast<T*>(pool_->allocate_node(sizeof(T)));
+        }
+
+        void deallocate(T* p, MEMORY_UNUSED size_t n) noexcept
+        {
+            MEMORY_CHECK_DEBUG(n == 1, "Tree containers free one node at a time");
+            pool_->deallocate_node(p);
+        }
+
+        template <typename U>
+        bool operator==(const pooled_node_allocator<U>& other) const noexcept
+        {
+            return pool_ == other.pool_;
+        }
+
+        template <typename U>
+        bool operator!=(const pooled_node_allocator<U>& other) const noexcept
+        {
+            return pool_ != other.pool_;
+        }
+
+    private:
+        template <typename>
+        friend class pooled_node_allocator;
+
+        bin_node_pool* pool_;
+    };
+
+    /**
      * @brief Container for free chunks of similar sizes.
      *
      * Bin organizes free chunks into size-based categories for efficient
@@ -1155,9 +1291,12 @@ private:
          * @brief Ordered set type for storing free chunks.
          *
          * Uses efficient balanced tree structure for O(log n) operations
-         * while maintaining sorted order for best-fit allocation.
+         * while maintaining sorted order for best-fit allocation. Nodes are
+         * drawn from the owning allocator's bin_node_pool so insertion and
+         * erasure do not hit the system allocator.
          */
-        using FreeChunkSet = std::set<ChunkHandle, ChunkComparator>;
+        using FreeChunkSet =
+            std::set<ChunkHandle, ChunkComparator, pooled_node_allocator<ChunkHandle>>;
 
         /**
          * @brief Sorted collection of free chunks in this bin.
@@ -1181,7 +1320,10 @@ private:
          * **Performance**: O(1) construction
          */
         Bin(allocator_bfc* allocator, size_t bs) noexcept
-            : bin_size(bs), free_chunks(ChunkComparator(allocator))
+            : bin_size(bs),
+              free_chunks(
+                  ChunkComparator(allocator),
+                  pooled_node_allocator<ChunkHandle>(&allocator->bin_node_pool_))
         {
         }
 
@@ -1542,6 +1684,8 @@ private:
             // Insert maintaining sorted order by end_ptr for efficient lookup
             auto entry = std::upper_bound(regions_.begin(), regions_.end(), ptr, &Comparator);
             regions_.insert(entry, AllocationRegion(ptr, memory_size));
+            // Insertion may shift elements; drop the cached lookup hint.
+            last_region_ = nullptr;
         }
 
         /**
@@ -1635,6 +1779,8 @@ private:
             MEMORY_LOG_INFO("Adding new region {} ({})", ptr, format_bytes(memory_size));
 
             regions_.insert(entry, AllocationRegion(ptr, memory_size));
+            // Insertion may shift elements; drop the cached lookup hint.
+            last_region_ = nullptr;
             return nullptr;
         }
 
@@ -1652,6 +1798,8 @@ private:
         std::vector<AllocationRegion>::iterator RemoveAllocationRegion(
             std::vector<AllocationRegion>::iterator it)
         {
+            // Erasure shifts elements; drop the cached lookup hint.
+            last_region_ = nullptr;
             return regions_.erase(it);
         }
 
@@ -1759,11 +1907,34 @@ private:
          */
         const AllocationRegion* RegionFor(const void* p) const
         {
+            // Check the cached hint first: allocation patterns have strong
+            // locality, so consecutive lookups usually hit the same region.
+            // The hint is dropped on any mutation of regions_.
+            if (last_region_ != nullptr && p >= last_region_->ptr() && p < last_region_->end_ptr())
+            {
+                return last_region_;
+            }
+
+            // Fast path: most allocator instances manage a single contiguous
+            // region in steady state, so skip the binary search. Matches the
+            // upper_bound result exactly for the one-element case.
+            if (regions_.size() == 1)
+            {
+                if MEMORY_LIKELY (p < regions_.front().end_ptr())
+                {
+                    return &regions_.front();
+                }
+
+                MEMORY_LOG_ERROR("Could not find region for pointer {}", p);
+                return nullptr;
+            }
+
             auto entry = std::upper_bound(regions_.begin(), regions_.end(), p, &Comparator);
 
             if (entry != regions_.end())
             {
-                return &(*entry);
+                last_region_ = &(*entry);
+                return last_region_;
             }
 
             MEMORY_LOG_ERROR("Could not find region for pointer {}", p);
@@ -1777,6 +1948,17 @@ private:
          * Sorted by end_ptr to work correctly with std::upper_bound.
          */
         std::vector<AllocationRegion> regions_;
+
+        /**
+         * @brief Cached result of the last successful RegionFor() lookup.
+         *
+         * Allocation and deallocation patterns have strong address locality,
+         * so memoizing the last hit turns the common O(log n) binary search
+         * into an O(1) range check. Dropped whenever regions_ is mutated.
+         * Only accessed with the allocator's mutex held (RegionFor is const,
+         * hence mutable).
+         */
+        mutable const AllocationRegion* last_region_{nullptr};
     };
 
     /**
@@ -2199,6 +2381,16 @@ private:
      * construction. Bins are constructed in-place in this space.
      */
     alignas(Bin) char bins_space_[sizeof(Bin) * kNumBins];
+
+    /**
+     * @brief Node storage pool shared by all bins of this allocator.
+     *
+     * Bins route their red-black tree node storage through this pool so the
+     * per-operation bin insert/erase does not round-trip through the system
+     * allocator. Accessed only with mutex_ held; destroyed after the bins
+     * (which return their nodes here) because the destructor body runs first.
+     */
+    bin_node_pool bin_node_pool_;
 
     /**
      * @brief Immutable configuration options set during construction.
