@@ -1151,8 +1151,7 @@ private:
         explicit pooled_node_allocator(bin_node_pool* pool) noexcept : pool_(pool) {}
 
         template <typename U>
-        pooled_node_allocator(const pooled_node_allocator<U>& other) noexcept
-            : pool_(other.pool_)
+        pooled_node_allocator(const pooled_node_allocator<U>& other) noexcept : pool_(other.pool_)
         {
         }
 
@@ -1917,10 +1916,12 @@ private:
 
             // Fast path: most allocator instances manage a single contiguous
             // region in steady state, so skip the binary search. Matches the
-            // upper_bound result exactly for the one-element case.
+            // general path exactly for the one-element case: full containment
+            // in [ptr, end_ptr) is required - a pointer before the region
+            // start must not be mapped onto the region.
             if (regions_.size() == 1)
             {
-                if MEMORY_LIKELY (p < regions_.front().end_ptr())
+                if MEMORY_LIKELY (p >= regions_.front().ptr() && p < regions_.front().end_ptr())
                 {
                     return &regions_.front();
                 }
@@ -1931,7 +1932,9 @@ private:
 
             auto entry = std::upper_bound(regions_.begin(), regions_.end(), p, &Comparator);
 
-            if (entry != regions_.end())
+            // upper_bound only guarantees entry->end_ptr() > p; a pointer in a
+            // hole before the region start must not be mapped onto it.
+            if (entry != regions_.end() && p >= entry->ptr())
             {
                 last_region_ = &(*entry);
                 return last_region_;
