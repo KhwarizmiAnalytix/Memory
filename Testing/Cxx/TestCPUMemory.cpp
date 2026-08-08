@@ -222,6 +222,8 @@ MEMORYTEST(MemoryPortTest, BackendSpecificAllocateTbb)
 }
 
 // mimalloc statistics availability must mirror the compile-time switches.
+// When MEMORY_ENABLE_MIMALLOC_STATS=ON (--mimalloc_stats), also exercise
+// process_info / stats_print and display the counters for inspection.
 MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
 {
     MEMORY_LOG_INFO("Testing memory port mimalloc statistics availability...");
@@ -229,19 +231,46 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
     EXPECT_TRUE(cpu::memory_allocator::has_stats());
 
-    // Allocate/free through the stats-tracked path, then read process counters.
-    void* ptr = cpu::memory_allocator::allocate(4096, 64);
-    EXPECT_NE(ptr, nullptr);
-    cpu::memory_allocator::free(ptr);
+    // Allocate through the mimalloc-backed path so counters are non-empty.
+    constexpr std::size_t kBlockCount = 8;
+    constexpr std::size_t kBlockSize  = 4096;
+    void*                 blocks[kBlockCount]{};
+    for (std::size_t i = 0; i < kBlockCount; ++i)
+    {
+        blocks[i] = cpu::memory_allocator::allocate(kBlockSize, 64);
+        EXPECT_NE(blocks[i], nullptr);
+    }
 
     cpu::memory_allocator::process_memory_info info;
     EXPECT_TRUE(cpu::memory_allocator::process_info(info));
     EXPECT_GT(info.peak_rss, 0U);
 
-    // stats_print must not crash (output goes to stderr).
+    MEMORY_LOG_INFO("mimalloc statistics supported: has_stats()=true");
+    MEMORY_LOG_INFO(
+        "mimalloc process_info: elapsed_msecs={} user_msecs={} system_msecs={} "
+        "current_rss={} peak_rss={} current_commit={} peak_commit={} page_faults={}",
+        info.elapsed_msecs,
+        info.user_msecs,
+        info.system_msecs,
+        info.current_rss,
+        info.peak_rss,
+        info.current_commit,
+        info.peak_commit,
+        info.page_faults);
+
+    // Full mimalloc dump (allocation / reserved / committed / ...) via logger.
+    MEMORY_LOG_INFO("mimalloc stats_print() dump follows:");
     cpu::memory_allocator::stats_print();
+
+    for (std::size_t i = 0; i < kBlockCount; ++i)
+    {
+        cpu::memory_allocator::free(blocks[i]);
+    }
 #else
     EXPECT_FALSE(cpu::memory_allocator::has_stats());
+    MEMORY_LOG_INFO(
+        "mimalloc statistics not compiled in (need MEMORY_HAS_MIMALLOC && "
+        "MEMORY_HAS_MIMALLOC_STATS / --mimalloc_stats)");
 
     cpu::memory_allocator::process_memory_info info;
     info.peak_rss = 42;  // must be zeroed on the unavailable path

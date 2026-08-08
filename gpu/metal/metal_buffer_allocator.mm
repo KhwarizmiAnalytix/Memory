@@ -23,67 +23,28 @@
 #import <Metal/Metal.h>
 
 #include <cstring>
-#include <mutex>
-#include <new>
-#include <unordered_map>
+
+#include "gpu/metal/metal_caching_allocator.h"
 
 namespace memory::metal
 {
 namespace
 {
-// Process-wide default device — every Mac has at least an integrated GPU, so this
-// is realistically always non-nil once Metal.framework is linked.
-id<MTLDevice> device()
+id<MTLDevice> system_device()
 {
     static id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
     return dev;
-}
-
-// buffer.contents (host pointer) -> owning id<MTLBuffer>. Pointer-keyed bookkeeping,
-// chosen rather than adding a backing-handle field to data_ptr.h — keeps data_ptr's
-// shape, and the CUDA/HIP paths through it, completely untouched.
-std::mutex& buffer_map_mutex()
-{
-    static std::mutex m;
-    return m;
-}
-std::unordered_map<void*, id<MTLBuffer>>& buffer_map()
-{
-    static std::unordered_map<void*, id<MTLBuffer>> m;
-    return m;
 }
 }  // namespace
 
 void* allocate(std::size_t bytes)
 {
-    id<MTLDevice> dev = device();
-    if (dev == nil)
-    {
-        throw std::bad_alloc();
-    }
-
-    id<MTLBuffer> buffer = [dev newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-    if (buffer == nil)
-    {
-        throw std::bad_alloc();
-    }
-
-    void* ptr = [buffer contents];
-
-    std::lock_guard<std::mutex> lock(buffer_map_mutex());
-    buffer_map()[ptr] = buffer;
-    return ptr;
+    return gpu::metal_caching_allocator_for_device(0).allocate(bytes);
 }
 
 void deallocate(void* host_ptr)
 {
-    if (host_ptr == nullptr)
-    {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(buffer_map_mutex());
-    buffer_map().erase(host_ptr);  // erasing the id<MTLBuffer> releases it under ARC
+    gpu::metal_caching_allocator_for_device(0).deallocate(host_ptr, 0);
 }
 
 void copy(const void* src, void* dst, std::size_t bytes)
@@ -97,18 +58,31 @@ void copy(const void* src, void* dst, std::size_t bytes)
 
 void* mtl_buffer_handle(void* host_ptr)
 {
-    std::lock_guard<std::mutex> lock(buffer_map_mutex());
-    auto                        it = buffer_map().find(host_ptr);
-    if (it == buffer_map().end())
+    void*  handle = nullptr;
+    size_t offset = 0;
+    if (!gpu::metal_caching_allocator_for_device(0).resolve_live_allocation(
+            host_ptr, &handle, &offset))
     {
         return nullptr;
     }
-    return (__bridge void*)it->second;
+    return handle;
+}
+
+std::size_t mtl_buffer_offset(void* host_ptr)
+{
+    void*  handle = nullptr;
+    size_t offset = 0;
+    if (!gpu::metal_caching_allocator_for_device(0).resolve_live_allocation(
+            host_ptr, &handle, &offset))
+    {
+        return 0;
+    }
+    return offset;
 }
 
 bool device_available()
 {
-    return device() != nil;
+    return system_device() != nil;
 }
 
 }  // namespace memory::metal

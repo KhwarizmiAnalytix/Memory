@@ -123,12 +123,13 @@ struct MEMORY_VISIBILITY process_memory_info
 MEMORY_API bool has_stats() noexcept;
 
 /**
- * @brief Print mimalloc allocator statistics to stderr.
+ * @brief Log mimalloc allocator statistics via MEMORY_LOG_INFO.
  *
  * Merges the calling thread's counters into the process totals first
- * (mi_stats_merge), then dumps via mi_stats_print. No-op when statistics are
- * not compiled in. Equivalent env-var route: MIMALLOC_SHOW_STATS=1 prints at
- * process exit.
+ * (mi_stats_merge), then dumps line-by-line through mi_stats_print_out into
+ * the Memory logger. No-op when statistics are not compiled in. Equivalent
+ * env-var route: MIMALLOC_SHOW_STATS=1 prints at process exit (to stderr,
+ * outside this API).
  */
 MEMORY_API void stats_print() noexcept;
 

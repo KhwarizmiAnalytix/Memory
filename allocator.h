@@ -37,6 +37,7 @@
 #include "gpu/cuda_caching_allocator.h"  // for caching_allocator_for_device
 #elif MEMORY_HAS_METAL
 #include "gpu/metal/metal_buffer_allocator.h"
+#include "gpu/metal/metal_caching_allocator.h"
 #endif
 
 namespace memory
@@ -53,7 +54,8 @@ namespace memory
  *   selected at compile time).
  * - CUDA/HIP: the per-device cuda_caching_allocator (PyTorch-style segment
  *   caching with stream-aware reuse), shared process-wide.
- * - Metal: the Metal buffer allocator (unified shared storage).
+ * - Metal: the per-device metal_caching_allocator (same segment-cache model
+ *   on shared-storage MTLBuffers), shared process-wide.
  *
  * Key Features:
  * - Unified interface for CPU and GPU memory allocation
@@ -124,7 +126,8 @@ public:
                 gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size));
         }
 #elif MEMORY_HAS_METAL
-        // Metal allocation (Apple Silicon unified memory; float only — see below)
+        // Metal allocation via the per-device caching allocator (Shared MTLBuffers;
+        // float only — see below)
         else if (type == device_enum::METAL)
         {
             if constexpr (std::is_same_v<T, double>)
@@ -135,7 +138,8 @@ public:
             }
             else
             {
-                ptr = static_cast<pointer>(memory::metal::allocate(n * scalar_size));
+                ptr = static_cast<pointer>(
+                    gpu::metal_caching_allocator_for_device(device_index).allocate(n * scalar_size));
             }
         }
 #endif
@@ -184,7 +188,7 @@ public:
 #elif MEMORY_HAS_METAL
         else if (type == device_enum::METAL)
         {
-            memory::metal::deallocate(ptr);
+            gpu::metal_caching_allocator_for_device(device_index).deallocate(ptr, 0);
         }
 #endif
         else
@@ -366,7 +370,7 @@ constexpr bool is_gpu_device(device_enum device_type)
  */
 constexpr bool has_gpu_support()
 {
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_METAL
     return true;
 #else
     return false;

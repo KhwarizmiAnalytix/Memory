@@ -6,26 +6,30 @@ what's specific to this library.
 
 ## What lives here (and why)
 
-After the allocator consolidation, the library intentionally keeps only two
+After the allocator consolidation, the library intentionally keeps these
 allocation paths:
 
 - `allocator<T>` (`allocator.h`) — the path `common/data_ptr.h` uses. CPU
   allocations call `helper/memory_allocator.h` (`cpu::memory_allocator`,
   a thin wrapper over mimalloc / TBB / platform aligned malloc) directly;
-  there is no virtual allocator interface anymore. CUDA allocations go
-  through `gpu/cuda_caching_allocator.h` via
-  `gpu::caching_allocator_for_device(device_index)`.
-- `gpu/cuda_caching_allocator.{h,cpp}` — PyTorch-style per-device CUDA
-  segment cache with stream-aware reuse.
+  there is no virtual allocator interface anymore.
+- CUDA allocations go through `gpu/cuda_caching_allocator.h` via
+  `gpu::caching_allocator_for_device(device_index)` — PyTorch-style
+  per-device segment cache with stream-aware reuse.
+- Metal allocations go through `gpu/metal/metal_caching_allocator.h` via
+  `gpu::metal_caching_allocator_for_device(device_index)` — same segment-
+  cache model on shared-storage `MTLBuffer`s (sync dispatch; `record_stream`
+  is a no-op for v1). Helpers in `metal_buffer_allocator.{h,mm}` expose
+  `mtl_buffer_handle` / `mtl_buffer_offset` for kernel binding.
 
 The removed machinery (BFC/pool/retry/tracking backends, `process_state`,
 the `Allocator` interface, `gpu_memory_*` helpers, `visualization/`) was
 deleted deliberately — don't reintroduce it without a measured need.
 
-## GPU feature-guard macro: `MEMORY_HAS_CUDA` / `MEMORY_HAS_HIP`
+## GPU feature-guard macro: `MEMORY_HAS_CUDA` / `MEMORY_HAS_HIP` / `MEMORY_HAS_METAL`
 
-All CUDA/HIP-conditional code in `gpu/` must be guarded with
-`MEMORY_HAS_CUDA` / `MEMORY_HAS_HIP`, defined by CMake from the selected
+All GPU-conditional code in `gpu/` must be guarded with `MEMORY_HAS_CUDA` /
+`MEMORY_HAS_HIP` / `MEMORY_HAS_METAL`, defined by CMake from the selected
 `--gpu_backend=`. **Not** `PROJECT_HAS_CUDA`/`PROJECT_HAS_HIP` — those
 symbols don't exist anywhere in this repo, so code guarded by them compiles
 out silently and the GPU path never actually runs. This exact bug hit 13

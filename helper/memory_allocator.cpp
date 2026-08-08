@@ -211,11 +211,46 @@ bool has_stats() noexcept
 #endif
 }
 
+#if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
+namespace
+{
+// Route each mimalloc stats line into MEMORY_LOG_INFO (line-buffered by
+// mi_stats_print_out). Strip trailing CR/LF so the logger's newline is not
+// doubled. Pass msg as a fmt arg so '{' in mimalloc text cannot break formatting.
+void mi_cdecl log_mimalloc_stats_line(const char* msg, void* /*arg*/)
+{
+    if (msg == nullptr || msg[0] == '\0')
+    {
+        return;
+    }
+
+    char   line[512];
+    size_t n = 0;
+    while (msg[n] != '\0' && n + 1 < sizeof(line))
+    {
+        line[n] = msg[n];
+        ++n;
+    }
+    line[n] = '\0';
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
+    {
+        line[--n] = '\0';
+    }
+    if (n == 0)
+    {
+        return;
+    }
+
+    MEMORY_LOG_INFO("mimalloc: {}", line);
+}
+}  // namespace
+#endif
+
 void stats_print() noexcept
 {
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
-    mi_stats_merge();         // fold this thread's counters into the process totals
-    mi_stats_print(nullptr);  // dumps to stderr
+    mi_stats_merge();  // fold this thread's counters into the process totals
+    mi_stats_print_out(&log_mimalloc_stats_line, nullptr);
 #endif
 }
 

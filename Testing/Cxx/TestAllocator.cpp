@@ -243,7 +243,7 @@ MEMORYTEST(Allocator, IsGpuDevice)
 
 MEMORYTEST(Allocator, HasGpuSupport)
 {
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_METAL
     EXPECT_TRUE(has_gpu_support());
 #else
     EXPECT_FALSE(has_gpu_support());

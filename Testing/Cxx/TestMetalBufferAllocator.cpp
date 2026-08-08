@@ -106,6 +106,7 @@ MEMORYTEST(MetalBufferAllocator, OptimalAlignmentAndIsGpuDevice)
 {
     EXPECT_EQ(memory::optimal_alignment(memory::device_enum::METAL), 256U);
     EXPECT_TRUE(memory::is_gpu_device(memory::device_enum::METAL));
+    EXPECT_TRUE(memory::has_gpu_support());
     END_TEST();
 }
 
