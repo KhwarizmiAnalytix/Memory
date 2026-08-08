@@ -55,15 +55,13 @@ unified_cache_stats& unified_cache_stats::operator=(const unified_cache_stats& o
         bytes_cached.store(
             other.bytes_cached.load(std::memory_order_relaxed), std::memory_order_relaxed);
         driver_allocations.store(
-            other.driver_allocations.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+            other.driver_allocations.load(std::memory_order_relaxed), std::memory_order_relaxed);
         driver_frees.store(
             other.driver_frees.load(std::memory_order_relaxed), std::memory_order_relaxed);
         cache_evictions.store(
             other.cache_evictions.load(std::memory_order_relaxed), std::memory_order_relaxed);
         peak_bytes_cached.store(
-            other.peak_bytes_cached.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+            other.peak_bytes_cached.load(std::memory_order_relaxed), std::memory_order_relaxed);
         cache_blocks.store(
             other.cache_blocks.load(std::memory_order_relaxed), std::memory_order_relaxed);
         successful_allocations.store(
@@ -76,15 +74,12 @@ unified_cache_stats& unified_cache_stats::operator=(const unified_cache_stats& o
         bytes_reserved.store(
             other.bytes_reserved.load(std::memory_order_relaxed), std::memory_order_relaxed);
         inactive_split_bytes.store(
-            other.inactive_split_bytes.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+            other.inactive_split_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
         num_alloc_retries.store(
-            other.num_alloc_retries.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+            other.num_alloc_retries.load(std::memory_order_relaxed), std::memory_order_relaxed);
         num_ooms.store(other.num_ooms.load(std::memory_order_relaxed), std::memory_order_relaxed);
         num_sync_all_streams.store(
-            other.num_sync_all_streams.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+            other.num_sync_all_streams.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
     return *this;
 }

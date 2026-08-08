@@ -17,9 +17,8 @@
  * Website: https://www.quarisma.co.uk
  */
 
-#include "profiler/unified_memory_stats.h"
-
 #include "MemoryTest.h"
+#include "profiler/unified_memory_stats.h"
 
 using namespace memory;
 

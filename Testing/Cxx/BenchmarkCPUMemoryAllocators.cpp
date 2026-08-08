@@ -59,11 +59,8 @@ constexpr std::size_t kBenchAlignment = 64;
 
 struct malloc_backend
 {
-    static void* allocate(std::size_t size, std::size_t /*alignment*/)
-    {
-        return std::malloc(size);
-    }
-    static void deallocate(void* ptr, std::size_t /*size*/) { std::free(ptr); }
+    static void* allocate(std::size_t size, std::size_t /*alignment*/) { return std::malloc(size); }
+    static void  deallocate(void* ptr, std::size_t /*size*/) { std::free(ptr); }
 };
 
 struct aligned_malloc_backend
@@ -122,10 +119,7 @@ struct xsigma_cpu_backend
     {
         return cpu::memory_allocator::allocate(size, alignment);
     }
-    static void deallocate(void* ptr, std::size_t /*size*/)
-    {
-        cpu::memory_allocator::free(ptr);
-    }
+    static void deallocate(void* ptr, std::size_t /*size*/) { cpu::memory_allocator::free(ptr); }
 };
 
 // The STL-style facade, to measure the (inlined) wrapper overhead over the raw
@@ -428,8 +422,8 @@ BENCHMARK_TEMPLATE(benchmark_batch_allocation, malloc_backend)
     ->Name("BM_Malloc_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(benchmark_batch_allocation, aligned_malloc_backend)
-    ->Name("BM_StandardAligned_BatchAllocation") MEMORY_BENCH_BATCH_ARGS
-        ->Unit(benchmark::kMicrosecond);
+    ->Name("BM_StandardAligned_BatchAllocation")
+        MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
 BENCHMARK_TEMPLATE(benchmark_batch_allocation, mimalloc_backend)
@@ -486,8 +480,8 @@ BENCHMARK_TEMPLATE(benchmark_mixed_sizes, xsigma_stl_backend)
 #define MEMORY_BENCH_ALIGN_ARGS ->Arg(16)->Arg(32)->Arg(64)->Arg(128)->Arg(256)->Arg(512)
 
 BENCHMARK_TEMPLATE(benchmark_aligned_allocation, aligned_malloc_backend)
-    ->Name("BM_StandardAligned_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS
-        ->Unit(benchmark::kMicrosecond);
+    ->Name("BM_StandardAligned_AlignedAllocation")
+        MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
 BENCHMARK_TEMPLATE(benchmark_aligned_allocation, mimalloc_backend)
@@ -512,8 +506,8 @@ BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, malloc_backend)
     ->Name("BM_Malloc_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, aligned_malloc_backend)
-    ->Name("BM_StandardAligned_Fragmentation") MEMORY_BENCH_FRAG_ARGS
-        ->Unit(benchmark::kMicrosecond);
+    ->Name("BM_StandardAligned_Fragmentation")
+        MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
 BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, mimalloc_backend)

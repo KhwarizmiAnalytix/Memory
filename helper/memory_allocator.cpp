@@ -214,8 +214,8 @@ bool has_stats() noexcept
 void stats_print() noexcept
 {
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
-    mi_stats_merge();        // fold this thread's counters into the process totals
-    mi_stats_print(nullptr); // dumps to stderr
+    mi_stats_merge();         // fold this thread's counters into the process totals
+    mi_stats_print(nullptr);  // dumps to stderr
 #endif
 }
 

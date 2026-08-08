@@ -139,9 +139,9 @@ if(MEMORY_ENABLE_BENCHMARK)
   else()
     set(_memory_libtorch_default OFF)
   endif()
-  option(MEMORY_ENABLE_LIBTORCH
-         "Enable LibTorch (PyTorch C++) CPU allocation comparison benchmark"
-         ${_memory_libtorch_default})
+  option(MEMORY_ENABLE_LIBTORCH "Enable LibTorch (PyTorch C++) CPU allocation comparison benchmark"
+         ${_memory_libtorch_default}
+  )
   unset(_memory_libtorch_default)
 
   set(_memory_torch_found OFF)
@@ -187,7 +187,8 @@ if(MEMORY_ENABLE_BENCHMARK)
       unset(_mkl_ver_libs)
     else()
       message(STATUS "LibTorch not found — BenchmarkPyTorchComparison skipped "
-                     "(add install dir to CMAKE_PREFIX_PATH to enable)")
+                     "(add install dir to CMAKE_PREFIX_PATH to enable)"
+      )
     endif()
   endif()
 
@@ -227,16 +228,14 @@ if(MEMORY_ENABLE_BENCHMARK)
       target_compile_options(
         ${target_name}
         PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-deprecated-declarations
+                -Wno-unused-parameter> $<$<CXX_COMPILER_ID:GNU>:-Wno-deprecated-declarations
                 -Wno-unused-parameter>
-                $<$<CXX_COMPILER_ID:GNU>:-Wno-deprecated-declarations -Wno-unused-parameter>
       )
       if(WIN32)
         file(GLOB _torch_dlls "${TORCH_INSTALL_PREFIX}/lib/*.dll")
         add_custom_command(
-          TARGET ${target_name}
-          POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_torch_dlls}
-                  $<TARGET_FILE_DIR:${target_name}>
+          TARGET ${target_name} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                                                   ${_torch_dlls} $<TARGET_FILE_DIR:${target_name}>
         )
       endif()
       message(STATUS "${target_name}: LibTorch comparison benchmark ENABLED")

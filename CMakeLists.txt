@@ -20,8 +20,9 @@ cmake_minimum_required(VERSION 3.16)
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
 include(lto)
 quarisma_lto_compute_default(_lto_default PROFILE PERFORMANCE)
-set(MEMORY_LTO_MODE "${_lto_default}"
-    CACHE STRING "LTO mode for Memory: off | thin | full | ipo | auto")
+set(MEMORY_LTO_MODE "${_lto_default}" CACHE STRING
+                                            "LTO mode for Memory: off | thin | full | ipo | auto"
+)
 set_property(CACHE MEMORY_LTO_MODE PROPERTY STRINGS off thin full ipo auto)
 
 # Coverage instrumentation — activates -fprofile-instr-generate / --coverage compiler flags for
@@ -109,12 +110,13 @@ mark_as_advanced(MEMORY_CACHE_BACKEND)
 
 # GPU backend selector — drives CUDA/HIP toolchain detection and compile definitions.
 # Can be set from the command line: -DMEMORY_GPU_BACKEND=cuda|hip|none
-set(MEMORY_GPU_BACKEND "none"
-    CACHE STRING "GPU backend for Memory: none, cuda, hip, metal"
-)
+set(MEMORY_GPU_BACKEND "none" CACHE STRING "GPU backend for Memory: none, cuda, hip, metal")
 set_property(CACHE MEMORY_GPU_BACKEND PROPERTY STRINGS none cuda hip metal)
 if(NOT MEMORY_GPU_BACKEND MATCHES "^(none|cuda|hip|metal)$")
-  message(FATAL_ERROR "MEMORY_GPU_BACKEND must be one of: none, cuda, hip, metal (got '${MEMORY_GPU_BACKEND}')")
+  message(
+    FATAL_ERROR
+      "MEMORY_GPU_BACKEND must be one of: none, cuda, hip, metal (got '${MEMORY_GPU_BACKEND}')"
+  )
 endif()
 if(MEMORY_GPU_BACKEND STREQUAL "metal" AND NOT APPLE)
   message(FATAL_ERROR "MEMORY_GPU_BACKEND=metal is only supported on Apple platforms.")
@@ -173,8 +175,7 @@ endif()
 # Valgrind and mimalloc do not play nicely together: mimalloc can reserve very large
 # virtual address ranges which triggers Valgrind internal errors/crashes.
 if(MEMORY_ENABLE_VALGRIND)
-  set(MEMORY_ENABLE_MIMALLOC OFF CACHE BOOL
-      "Disable mimalloc when running under Valgrind" FORCE)
+  set(MEMORY_ENABLE_MIMALLOC OFF CACHE BOOL "Disable mimalloc when running under Valgrind" FORCE)
 endif()
 
 # Statistics only make sense when mimalloc itself is compiled in.

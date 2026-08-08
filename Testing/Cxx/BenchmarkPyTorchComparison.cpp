@@ -133,8 +133,7 @@ void benchmark_pytorch_c10_batch(benchmark::State& state)
         benchmark::ClobberMemory();
     }
 
-    state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations() * batch_size * nbytes));
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * batch_size * nbytes));
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * batch_size));
 }
 
@@ -166,8 +165,7 @@ void benchmark_xsigma_raw_batch(benchmark::State& state)
         benchmark::ClobberMemory();
     }
 
-    state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations() * batch_size * nbytes));
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * batch_size * nbytes));
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * batch_size));
 }
 
@@ -187,8 +185,7 @@ void benchmark_pytorch_tensor_single(benchmark::State& state)
         benchmark::ClobberMemory();
     }
 
-    state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations() * numel * sizeof(float)));
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * numel * sizeof(float)));
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
 }
 
@@ -203,8 +200,7 @@ void benchmark_xsigma_data_ptr_single(benchmark::State& state)
         benchmark::ClobberMemory();
     }
 
-    state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations() * numel * sizeof(float)));
+    state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * numel * sizeof(float)));
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
 }
 

@@ -886,7 +886,7 @@ int cuda_caching_allocator::device() const
 #if MEMORY_HAS_CUDA
 cuda_caching_allocator& caching_allocator_for_device(int device_index)
 {
-    static std::mutex                                                   registry_mutex;
+    static std::mutex                                                       registry_mutex;
     static std::unordered_map<int, std::unique_ptr<cuda_caching_allocator>> registry;
 
     std::scoped_lock const lock(registry_mutex);

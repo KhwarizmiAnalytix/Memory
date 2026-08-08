@@ -42,7 +42,7 @@ id<MTLDevice> device()
 // buffer.contents (host pointer) -> owning id<MTLBuffer>. Pointer-keyed bookkeeping,
 // chosen rather than adding a backing-handle field to data_ptr.h — keeps data_ptr's
 // shape, and the CUDA/HIP paths through it, completely untouched.
-std::mutex&                                  buffer_map_mutex()
+std::mutex& buffer_map_mutex()
 {
     static std::mutex m;
     return m;

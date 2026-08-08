@@ -129,8 +129,8 @@ MEMORYTEST(MemoryPortTest, PatternInitialization)
     MEMORY_LOG_INFO("Testing memory port pattern-initialized allocation...");
 
     constexpr std::size_t kBytes = 256;
-    void*                 ptr =
-        cpu::memory_allocator::allocate(kBytes, 64, cpu::memory_allocator::init_policy_enum::PATTERN);
+    void*                 ptr    = cpu::memory_allocator::allocate(
+        kBytes, 64, cpu::memory_allocator::init_policy_enum::PATTERN);
     ASSERT_NE(nullptr, ptr);
 
 #ifndef NDEBUG
@@ -168,7 +168,7 @@ MEMORYTEST(MemoryPortTest, IsValidAlignment)
     EXPECT_TRUE(cpu::memory_allocator::is_valid_alignment(64));
     EXPECT_TRUE(cpu::memory_allocator::is_valid_alignment(4096));
     EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(0));
-    EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(3));  // not a power of 2
+    EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(3));                  // not a power of 2
     EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(sizeof(void*) / 2));  // too small
 
     MEMORY_LOG_INFO("Memory port is_valid_alignment tests completed successfully");
@@ -180,7 +180,8 @@ MEMORYTEST(MemoryPortTest, DefaultAlignment)
     MEMORY_LOG_INFO("Testing memory port default_alignment...");
 
     EXPECT_GT(cpu::memory_allocator::default_alignment(), 0U);
-    EXPECT_TRUE(cpu::memory_allocator::is_valid_alignment(cpu::memory_allocator::default_alignment()));
+    EXPECT_TRUE(
+        cpu::memory_allocator::is_valid_alignment(cpu::memory_allocator::default_alignment()));
 
     MEMORY_LOG_INFO("Memory port default_alignment tests completed successfully");
 }
