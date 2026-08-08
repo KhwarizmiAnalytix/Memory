@@ -32,6 +32,8 @@
 namespace memory::metal
 {
 // Allocates a shared-storage MTLBuffer and returns its `.contents` pointer.
+// Metal guarantees buffer contents are at least 256-byte aligned, so the
+// returned pointer always satisfies MEMORY_ALIGNMENT.
 // Throws std::bad_alloc on failure (no Metal device, or allocation failure).
 MEMORY_API void* allocate(std::size_t bytes);
 

@@ -46,6 +46,12 @@ option(MEMORY_ENABLE_LOGGING "Link Memory with the Logging library when availabl
 option(MEMORY_ENABLE_MIMALLOC "Enable Microsoft mimalloc high-performance memory allocator" ON)
 mark_as_advanced(MEMORY_ENABLE_MIMALLOC)
 
+# mimalloc statistics — OFF by default: mimalloc release builds compile stats out (MI_STAT=0).
+# ON compiles the vendored mimalloc with MI_STAT=1 so MIMALLOC_SHOW_STATS / mi_stats_print() and
+# the cpu::memory_allocator stats helpers report real counters.
+option(MEMORY_ENABLE_MIMALLOC_STATS "Compile mimalloc statistics support (MI_STAT=1)" OFF)
+mark_as_advanced(MEMORY_ENABLE_MIMALLOC_STATS)
+
 # memkind — Linux-only extended-memory allocator (pmem, HBM, etc.). Forced OFF on non-Linux
 # platforms via the platform-constraint block below.
 option(MEMORY_ENABLE_MEMKIND "Enable memkind extended-memory allocator (Linux only)" OFF)
@@ -170,6 +176,12 @@ if(MEMORY_ENABLE_VALGRIND)
   set(MEMORY_ENABLE_MIMALLOC OFF CACHE BOOL
       "Disable mimalloc when running under Valgrind" FORCE)
 endif()
+
+# Statistics only make sense when mimalloc itself is compiled in.
+if(NOT MEMORY_ENABLE_MIMALLOC AND MEMORY_ENABLE_MIMALLOC_STATS)
+  message(WARNING "MEMORY_ENABLE_MIMALLOC_STATS requires MEMORY_ENABLE_MIMALLOC — disabling")
+  set(MEMORY_ENABLE_MIMALLOC_STATS OFF CACHE BOOL "Requires MEMORY_ENABLE_MIMALLOC" FORCE)
+endif()
 if(MEMORY_ENABLE_SPELL)
   include(spell)
 endif()
@@ -252,6 +264,12 @@ if(MEMORY_ENABLE_MIMALLOC)
 
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tpdir}/mimalloc/include")
 
+  # mimalloc release builds compile statistics out (MI_STAT=0); re-enable them on the
+  # vendored target only — no ThirdParty source edits.
+  if(MEMORY_ENABLE_MIMALLOC_STATS AND TARGET mimalloc-static)
+    target_compile_definitions(mimalloc-static PRIVATE MI_STAT=1)
+  endif()
+
   # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
   if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
     set(_mi_win_syslibs psapi shell32 user32 advapi32 bcrypt)
@@ -299,8 +317,8 @@ endif()
 # from Section 3 finders; mapped after those includes.
 include(compile_definitions)
 # Per-allocator call-site tracking (opt-in; adds overhead).
-compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_ALLOCATION_STATS)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC)
+compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC_STATS)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MEMKIND)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_NUMA)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_TBB)
@@ -503,6 +521,7 @@ endif()
 message("")
 message("******** Memory module (CMake flags) ********")
 message("  Mimalloc         : ${MEMORY_ENABLE_MIMALLOC}")
+message("  Mimalloc stats   : ${MEMORY_ENABLE_MIMALLOC_STATS}")
 message("  Logging enable   : ${MEMORY_ENABLE_LOGGING}")
 message("  Logging (HAS)    : ${MEMORY_HAS_LOGGING_BUILD}")
 message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")

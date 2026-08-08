@@ -127,9 +127,76 @@ if(MEMORY_ENABLE_BENCHMARK)
     add_library(Memory::benchmark_main ALIAS benchmark_main)
   endif()
 
+  # LibTorch (PyTorch C++ frontend) CPU-allocation comparison benchmark.
+  # Opt-in via MEMORY_ENABLE_LIBTORCH; the default follows
+  # VECTORIZATION_ENABLE_LIBTORCH so setup.py's 'torch' token drives both.
+  # Requires a LibTorch install in CMAKE_PREFIX_PATH (a pip-installed torch
+  # package works). The torch-dependent source is dropped from the glob when
+  # LibTorch is unavailable instead of building an empty translation unit
+  # guarded by #if MEMORY_HAS_LIBTORCH.
+  if(DEFINED VECTORIZATION_ENABLE_LIBTORCH)
+    set(_memory_libtorch_default ${VECTORIZATION_ENABLE_LIBTORCH})
+  else()
+    set(_memory_libtorch_default OFF)
+  endif()
+  option(MEMORY_ENABLE_LIBTORCH
+         "Enable LibTorch (PyTorch C++) CPU allocation comparison benchmark"
+         ${_memory_libtorch_default})
+  unset(_memory_libtorch_default)
+
+  set(_memory_torch_found OFF)
+  if(MEMORY_ENABLE_LIBTORCH)
+    set(_saved_module_path "${CMAKE_MODULE_PATH}")
+    set(CMAKE_MODULE_PATH "")
+    # Force MKL single-dynamic-library mode so Torch's MKL discovery emits only
+    # -lmkl_rt instead of the full component set (ScaLAPACK/BLACS/CDFT), which
+    # would pull in MPI symbols that may not be installed.
+    set(MKL_LINK "sdl")
+    find_package(Torch QUIET)
+    unset(MKL_LINK)
+    set(CMAKE_MODULE_PATH "${_saved_module_path}")
+    unset(_saved_module_path)
+    if(Torch_FOUND)
+      set(_memory_torch_found ON)
+      message(STATUS "LibTorch found: ${TORCH_INSTALL_PREFIX} (${Torch_VERSION})")
+      # pip-installed MKL ships versioned .so.N files without the unversioned
+      # .so development symlinks the linker needs for -lmkl_NAME resolution.
+      if(TARGET caffe2::mkl)
+        get_target_property(_mkl_link_dirs caffe2::mkl INTERFACE_LINK_DIRECTORIES)
+      else()
+        set(_mkl_link_dirs "")
+      endif()
+      foreach(_mkl_dir IN LISTS _mkl_link_dirs)
+        file(GLOB _mkl_ver_libs "${_mkl_dir}/libmkl_*.so.[0-9]*")
+        foreach(_vlib IN LISTS _mkl_ver_libs)
+          string(REGEX REPLACE "\\.so\\.[0-9].*$" ".so" _unversioned "${_vlib}")
+          if(NOT EXISTS "${_unversioned}")
+            get_filename_component(_vlib_base "${_vlib}" NAME)
+            get_filename_component(_unver_base "${_unversioned}" NAME)
+            execute_process(
+              COMMAND ${CMAKE_COMMAND} -E create_symlink "${_vlib_base}" "${_unversioned}"
+              RESULT_VARIABLE _sym_rc
+            )
+            if(_sym_rc EQUAL 0)
+              message(STATUS "MKL: created linker symlink ${_unver_base} -> ${_vlib_base}")
+            endif()
+          endif()
+        endforeach()
+      endforeach()
+      unset(_mkl_link_dirs)
+      unset(_mkl_ver_libs)
+    else()
+      message(STATUS "LibTorch not found — BenchmarkPyTorchComparison skipped "
+                     "(add install dir to CMAKE_PREFIX_PATH to enable)")
+    endif()
+  endif()
+
   file(GLOB_RECURSE bench_sources LIST_DIRECTORIES false
        "${CMAKE_CURRENT_SOURCE_DIR}/Benchmark*.cpp"
   )
+  if(NOT _memory_torch_found)
+    list(FILTER bench_sources EXCLUDE REGEX "BenchmarkPyTorchComparison")
+  endif()
 
   foreach(_bench_source IN ITEMS ${bench_sources})
     get_filename_component(bench_name "${_bench_source}" NAME_WE)
@@ -153,6 +220,26 @@ if(MEMORY_ENABLE_BENCHMARK)
     # Same Logging visibility as MemoryCxxTests (via Memory::Memory + MEMORY_DEPENDENCY_LIBS).
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${target_name})
+    endif()
+    if(bench_name STREQUAL "BenchmarkPyTorchComparison")
+      target_link_libraries(${target_name} PRIVATE torch)
+      target_compile_definitions(${target_name} PRIVATE MEMORY_HAS_LIBTORCH=1)
+      target_compile_options(
+        ${target_name}
+        PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-deprecated-declarations
+                -Wno-unused-parameter>
+                $<$<CXX_COMPILER_ID:GNU>:-Wno-deprecated-declarations -Wno-unused-parameter>
+      )
+      if(WIN32)
+        file(GLOB _torch_dlls "${TORCH_INSTALL_PREFIX}/lib/*.dll")
+        add_custom_command(
+          TARGET ${target_name}
+          POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_torch_dlls}
+                  $<TARGET_FILE_DIR:${target_name}>
+        )
+      endif()
+      message(STATUS "${target_name}: LibTorch comparison benchmark ENABLED")
     endif()
   endforeach()
 endif()

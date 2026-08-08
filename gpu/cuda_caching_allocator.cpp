@@ -96,11 +96,11 @@ private:
 // cuda_caching_allocator is a CUDA-specific caching layer (PyTorch-style segmented
 // caching with per-stream pools, block split/merge, and event-deferred cross-stream
 // reclamation); it has no HIP/Metal implementation.
-// Callers reach this type only through gpu_allocator_factory::create_caching_allocator, which
-// is itself guarded to MEMORY_HAS_CUDA (see gpu_allocator_factory.cpp) — so the #else stub below
-// is unreachable in non-CUDA builds; it exists purely so this translation unit still compiles
-// (Metal/HIP builds get only the direct-allocate path through memory::allocator<T>, matching
-// the pre-existing gap where this subsystem was never built/tested against HIP either).
+// Callers reach it directly, through caching_allocator_for_device() (the process-wide
+// per-device registry backing allocator<T>'s CUDA path), or via the
+// cuda_caching_allocator_template<T> wrapper. The #else stub below exists purely so
+// this translation unit still compiles in non-CUDA builds; constructing the allocator
+// there throws at runtime.
 #if MEMORY_HAS_CUDA
 namespace
 {

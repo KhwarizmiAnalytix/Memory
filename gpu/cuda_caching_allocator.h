@@ -98,6 +98,11 @@ public:
 
     /**
      * @brief Allocate GPU memory with caching
+     *
+     * All returned pointers are at least 256-byte aligned: blocks live at
+     * 512-byte-rounded offsets within cudaMalloc segments, and the driver
+     * guarantees segment bases are 256-byte aligned.
+     *
      * @param size Number of bytes to allocate
      * @param stream CUDA stream for stream-aware caching (optional)
      * @return Pointer to allocated memory

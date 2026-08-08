@@ -201,4 +201,40 @@ void free_mi(MEMORY_UNUSED void* ptr, MEMORY_UNUSED std::size_t nbytes) noexcept
     mi_free(ptr);
 #endif
 }
+
+bool has_stats() noexcept
+{
+#if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
+    return true;
+#else
+    return false;
+#endif
+}
+
+void stats_print() noexcept
+{
+#if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
+    mi_stats_merge();        // fold this thread's counters into the process totals
+    mi_stats_print(nullptr); // dumps to stderr
+#endif
+}
+
+bool process_info(process_memory_info& info) noexcept
+{
+#if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
+    mi_process_info(
+        &info.elapsed_msecs,
+        &info.user_msecs,
+        &info.system_msecs,
+        &info.current_rss,
+        &info.peak_rss,
+        &info.current_commit,
+        &info.peak_commit,
+        &info.page_faults);
+    return true;
+#else
+    info = process_memory_info{};
+    return false;
+#endif
+}
 }  // namespace memory::cpu::memory_allocator

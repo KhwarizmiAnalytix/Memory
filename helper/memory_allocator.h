@@ -98,6 +98,46 @@ MEMORY_FORCE_INLINE void* allocate_zero(
     return allocate(nbytes, alignment, init_policy_enum::ZERO);
 }
 
+// ---------------------------------------------------------------------------
+// mimalloc statistics — available only when the library is configured with
+// MEMORY_ENABLE_MIMALLOC_STATS=ON (compiles the vendored mimalloc with
+// MI_STAT=1; mimalloc release builds otherwise compile all counters out).
+// Because mimalloc is linked with MI_OVERRIDE=OFF, the statistics cover only
+// allocations that went through this namespace — not the process's malloc.
+// ---------------------------------------------------------------------------
+
+/** OS-level process memory counters as reported by mimalloc. */
+struct MEMORY_VISIBILITY process_memory_info
+{
+    std::size_t elapsed_msecs{0};
+    std::size_t user_msecs{0};
+    std::size_t system_msecs{0};
+    std::size_t current_rss{0};
+    std::size_t peak_rss{0};
+    std::size_t current_commit{0};
+    std::size_t peak_commit{0};
+    std::size_t page_faults{0};
+};
+
+/** True when mimalloc statistics are compiled in (MEMORY_ENABLE_MIMALLOC_STATS=ON). */
+MEMORY_API bool has_stats() noexcept;
+
+/**
+ * @brief Print mimalloc allocator statistics to stderr.
+ *
+ * Merges the calling thread's counters into the process totals first
+ * (mi_stats_merge), then dumps via mi_stats_print. No-op when statistics are
+ * not compiled in. Equivalent env-var route: MIMALLOC_SHOW_STATS=1 prints at
+ * process exit.
+ */
+MEMORY_API void stats_print() noexcept;
+
+/**
+ * @brief Fill @p info with process memory counters (RSS, commit, page faults).
+ * @return false — with @p info zeroed — when statistics are not compiled in.
+ */
+MEMORY_API bool process_info(process_memory_info& info) noexcept;
+
 }  // namespace memory_allocator
 }  // namespace cpu
 }  // namespace memory

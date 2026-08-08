@@ -39,10 +39,9 @@ id<MTLDevice> device()
     return dev;
 }
 
-// buffer.contents (host pointer) -> owning id<MTLBuffer>. Mirrors the pointer-keyed
-// bookkeeping already used by memory::gpu::gpu_resource_tracker (gpu_resource_tracker.h)
-// rather than adding a backing-handle field to data_ptr.h — keeps data_ptr's shape,
-// and the CUDA/HIP paths through it, completely untouched.
+// buffer.contents (host pointer) -> owning id<MTLBuffer>. Pointer-keyed bookkeeping,
+// chosen rather than adding a backing-handle field to data_ptr.h — keeps data_ptr's
+// shape, and the CUDA/HIP paths through it, completely untouched.
 std::mutex&                                  buffer_map_mutex()
 {
     static std::mutex m;

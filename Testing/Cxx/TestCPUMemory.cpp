@@ -219,3 +219,36 @@ MEMORYTEST(MemoryPortTest, BackendSpecificAllocateTbb)
 
     MEMORY_LOG_INFO("Memory port allocate_tbb/free_tbb tests completed successfully");
 }
+
+// mimalloc statistics availability must mirror the compile-time switches.
+MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
+{
+    MEMORY_LOG_INFO("Testing memory port mimalloc statistics availability...");
+
+#if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
+    EXPECT_TRUE(cpu::memory_allocator::has_stats());
+
+    // Allocate/free through the stats-tracked path, then read process counters.
+    void* ptr = cpu::memory_allocator::allocate(4096, 64);
+    EXPECT_NE(ptr, nullptr);
+    cpu::memory_allocator::free(ptr);
+
+    cpu::memory_allocator::process_memory_info info;
+    EXPECT_TRUE(cpu::memory_allocator::process_info(info));
+    EXPECT_GT(info.peak_rss, 0U);
+
+    // stats_print must not crash (output goes to stderr).
+    cpu::memory_allocator::stats_print();
+#else
+    EXPECT_FALSE(cpu::memory_allocator::has_stats());
+
+    cpu::memory_allocator::process_memory_info info;
+    info.peak_rss = 42;  // must be zeroed on the unavailable path
+    EXPECT_FALSE(cpu::memory_allocator::process_info(info));
+    EXPECT_EQ(info.peak_rss, 0U);
+
+    cpu::memory_allocator::stats_print();  // no-op
+#endif
+
+    MEMORY_LOG_INFO("Memory port mimalloc statistics availability tests completed successfully");
+}

@@ -26,7 +26,9 @@
 | `MEMORY_ENABLE_BENCHMARK` | ON | Google Benchmark |
 | `MEMORY_ENABLE_LOGGING` | ON | Link Logging; `MEMORY_HAS_LOGGING` |
 | `MEMORY_ENABLE_MIMALLOC` | ON | mimalloc |
+| `MEMORY_ENABLE_MIMALLOC_STATS` | OFF | Compile mimalloc statistics (`MI_STAT=1` on the vendored `mimalloc-static`; release builds otherwise compile counters out). Enables `cpu::memory_allocator::{has_stats, stats_print, process_info}` and runtime reporting via `MIMALLOC_SHOW_STATS=1` (dump at process exit) / `MIMALLOC_VERBOSE=1`. setup.py: `--mimalloc_stats` (a `--` flag, not a dotted token — `_` is a token delimiter). Requires `MEMORY_ENABLE_MIMALLOC` |
 | `MEMORY_ENABLE_MEMKIND` | OFF | memkind (Linux); forced OFF on non-Linux in CMake |
+| `MEMORY_ENABLE_LIBTORCH` | From `VECTORIZATION_ENABLE_LIBTORCH` (setup.py `torch` token), else OFF | LibTorch CPU-allocation comparison benchmark (`BenchmarkPyTorchComparison`); requires LibTorch in `CMAKE_PREFIX_PATH` |
 | `MEMORY_ENABLE_ICECC` / `MEMORY_ENABLE_CACHE` / `MEMORY_ENABLE_CLANGTIDY` / `MEMORY_ENABLE_FIX` / `MEMORY_ENABLE_IWYU` / `MEMORY_ENABLE_SANITIZER` / `MEMORY_ENABLE_SPELL` / `MEMORY_ENABLE_VALGRIND` | see `CMakeLists.txt` | Tooling |
 
 ### Set by module finders / platform
@@ -73,4 +75,4 @@ Starlark: [`bazel/memory.bzl`](../../bazel/memory.bzl). Rules: [`bazel/BUILD.baz
 
 ### CMake-only
 
-`MEMORY_CXX_STANDARD` → fixed `c++20` in `memory.bzl`. LTO, coverage, sanitizers, clang-tidy, linker/cache, spell, Valgrind, Icecream — **CMake only**.
+`MEMORY_CXX_STANDARD` → fixed `c++20` in `memory.bzl`. LTO, coverage, sanitizers, clang-tidy, linker/cache, spell, Valgrind, Icecream, `MEMORY_ENABLE_LIBTORCH` — **CMake only**.
