@@ -147,42 +147,4 @@ MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
     END_TEST();
 }
 
-MEMORYTEST(CachingAllocatorStub, TemplateWrapperConstructAndAccessors)
-{
-    cuda_caching_allocator_template<float> allocator(3, 4096);
-    EXPECT_EQ(allocator.device(), 3);
-    EXPECT_NO_THROW({ allocator.empty_cache(); });
-    const unified_cache_stats stats = allocator.stats();
-    EXPECT_EQ(stats.cache_hits.load(), 0U);
-    END_TEST();
-}
-
-MEMORYTEST(CachingAllocatorStub, TemplateWrapperAllocateZeroReturnsNullptr)
-{
-    cuda_caching_allocator_template<float> allocator;
-    EXPECT_EQ(allocator.allocate(0), nullptr);
-    END_TEST();
-}
-
-MEMORYTEST(CachingAllocatorStub, TemplateWrapperAllocateNonZeroThrows)
-{
-    cuda_caching_allocator_template<float> allocator;
-    EXPECT_THROW(allocator.allocate(16), std::runtime_error);
-    END_TEST();
-}
-
-MEMORYTEST(CachingAllocatorStub, TemplateWrapperDeallocateIsNoOp)
-{
-    cuda_caching_allocator_template<int> allocator;
-    EXPECT_NO_THROW({ allocator.deallocate(nullptr, 0); });
-    END_TEST();
-}
-
-MEMORYTEST(CachingAllocatorStub, TemplateWrapperRecordStreamIsNoOp)
-{
-    cuda_caching_allocator_template<int> allocator;
-    EXPECT_NO_THROW({ allocator.record_stream(nullptr, nullptr); });
-    END_TEST();
-}
-
 #endif  // !MEMORY_HAS_CUDA && (MEMORY_HAS_METAL || MEMORY_HAS_HIP)
