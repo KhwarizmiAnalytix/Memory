@@ -26,6 +26,7 @@
 #include "common/numa.h"
 
 #include <cstddef>
+#include <stdexcept>
 
 #include "MemoryTest.h"
 #include "helper/memory_allocator.h"
@@ -74,6 +75,27 @@ MEMORYTEST(Numa, GetNUMANodeForAllocatedPointer)
     }
 
     cpu::memory_allocator::free(ptr);
+    END_TEST();
+}
+
+// Without MEMORY_HAS_NUMA, GetNUMANode() returns -1 before ever validating
+// ptr (the libnuma path's null check is compiled out entirely), so nullptr
+// must not throw there. With MEMORY_HAS_NUMA on and NUMA actually available
+// at runtime, the real libnuma path does validate ptr and must throw.
+MEMORYTEST(Numa, GetNUMANodeNullptr)
+{
+#if MEMORY_HAS_NUMA
+    if (IsNUMAEnabled())
+    {
+        EXPECT_THROW(GetNUMANode(nullptr), std::runtime_error);
+    }
+    else
+    {
+        EXPECT_EQ(GetNUMANode(nullptr), -1);
+    }
+#else
+    EXPECT_EQ(GetNUMANode(nullptr), -1);
+#endif
     END_TEST();
 }
 
