@@ -195,6 +195,23 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+#if MEMORY_HAS_CUDA
+/**
+ * @brief Returns the process-wide caching allocator for a CUDA device.
+ *
+ * Lazily creates one cuda_caching_allocator per device index and returns the
+ * shared instance. The registry lives inside the Memory library so that all
+ * translation units (and all libraries linking Memory) share the same
+ * per-device allocators.
+ *
+ * @param device_index CUDA device index (must be valid for the host)
+ * @return Reference to the shared caching allocator for the device
+ *
+ * **Thread Safety**: Thread-safe; creation is serialized internally
+ */
+MEMORY_API cuda_caching_allocator& caching_allocator_for_device(int device_index);
+#endif
+
 /**
  * @brief Template wrapper for type-safe CUDA caching allocator
  *

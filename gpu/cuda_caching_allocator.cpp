@@ -578,6 +578,9 @@ private:
 
     void process_events_locked()
     {
+        // Events are device-local: polling must run on the owning device.
+        DeviceGuard const guard(device_);
+
         // Per-stream queues are drained independently so one stream's long-running
         // work does not head-of-line block reclamation from other streams.
         for (auto map_it = cuda_events_.begin(); map_it != cuda_events_.end();)
@@ -879,5 +882,21 @@ int cuda_caching_allocator::device() const
 {
     return impl_->device();
 }
+
+#if MEMORY_HAS_CUDA
+cuda_caching_allocator& caching_allocator_for_device(int device_index)
+{
+    static std::mutex                                                   registry_mutex;
+    static std::unordered_map<int, std::unique_ptr<cuda_caching_allocator>> registry;
+
+    std::scoped_lock const lock(registry_mutex);
+    auto&                  entry = registry[device_index];
+    if (entry == nullptr)
+    {
+        entry = std::make_unique<cuda_caching_allocator>(device_index);
+    }
+    return *entry;
+}
+#endif
 }  // namespace gpu
 }  // namespace memory

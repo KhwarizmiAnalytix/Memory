@@ -1,13 +1,13 @@
 # Memory (`Library/Memory`)
 
-**Memory** layer: CPU allocators, **GPU** memory (CUDA / HIP), **mimalloc**, optional **TBB** scalable allocator, **NUMA**, **memkind**, allocation statistics, and integration with **Logging** when enabled.
+**Memory** layer: the `data_ptr` allocation path (`allocator<T>` — CPU via the raw **mimalloc** / **TBB** / platform aligned-malloc backend, CUDA via the per-device **cuda_caching_allocator**, Metal via the Metal buffer allocator), optional **NUMA**, **memkind**, and integration with **Logging** when enabled.
 
 ## Layout
 
-- `CMakeLists.txt` — `MEMORY_ENABLE_*`, `MEMORY_GPU_ALLOC`, `MEMORY_CXX_STANDARD`.
+- `CMakeLists.txt` — `MEMORY_ENABLE_*`, `MEMORY_CXX_STANDARD`.
 - `BUILD.bazel` — `//Library/Memory:Memory`; GPU sources selected via Bazel defines.
 - `Cmake/` — `cuda.cmake`, `hip`, `tbb_memory.cmake`, `numa.cmake`, etc.
-- `cpu/`, `gpu/`, `backend/`, `common/` — implementation trees.
+- `common/`, `helper/`, `gpu/` (CUDA caching allocator, Metal buffer allocator), `profiler/` (unified memory stats) — implementation trees.
 - `Testing/Cxx/` — tests and benchmark binaries when enabled.
 
 ---
@@ -43,7 +43,6 @@
 | CMake variable | Default | Values |
 |----------------|---------|--------|
 | `MEMORY_CXX_STANDARD` | 20 | `11`–`23` |
-| `MEMORY_GPU_ALLOC` | `POOL_ASYNC` | `SYNC`, `ASYNC`, `POOL_ASYNC` |
 | `MEMORY_SANITIZER_TYPE` | address | if sanitizer ON |
 | `MEMORY_LINKER_CHOICE` | default | `default`, `lld`, `mold`, `gold`, `lld-link` |
 | `MEMORY_CACHE_BACKEND` | none | `none`, `ccache`, `sccache`, `buildcache` |
@@ -66,13 +65,11 @@ Starlark: [`bazel/memory.bzl`](../../bazel/memory.bzl). Rules: [`bazel/BUILD.baz
 | `memory_enable_mimalloc` | default **`true`** in root `.bazelrc`; **`false`** → `//bazel:disable_mimalloc` (no `@mimalloc` dep) | `MEMORY_HAS_MIMALLOC` |
 | `memory_enable_numa` | `//bazel:enable_numa` | `MEMORY_HAS_NUMA=1` |
 | `memory_enable_memkind` | `//bazel:enable_memkind` | `MEMORY_HAS_MEMKIND=1` |
-| `memory_gpu_alloc` | `//bazel:gpu_alloc_sync` / `gpu_alloc_async` / `gpu_alloc_pool_async` | Values: `sync`, `async`, `pool_async` |
-| `memory_enable_allocation_stats` | `//bazel:enable_allocation_stats` | `MEMORY_HAS_ALLOCATION_STATS=1` |
 | `memory_enable_benchmark` | (defaults in `.bazelrc`; no `select` in `memory.bzl`) | Parity with CMake; benchmark targets always listed in `Testing/Cxx/BUILD.bazel` unless you add gating |
 
 ### Convenience configs
 
-`build:cuda`, `build:hip`, `build:mimalloc`, `build:numa`, `build:memkind`, `build:tbb` (`parallel_backend=tbb` + `memory_enable_tbb`), `build:gpu_alloc_*` — see root `.bazelrc`.
+`build:cuda`, `build:hip`, `build:mimalloc`, `build:numa`, `build:memkind`, `build:tbb` (`parallel_backend=tbb` + `memory_enable_tbb`) — see root `.bazelrc`.
 
 ### CMake-only
 

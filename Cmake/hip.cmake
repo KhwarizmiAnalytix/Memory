@@ -95,24 +95,6 @@ elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "none")
   # Don't set any architectures, let parent project handle it
 endif()
 
-# HIP Allocation Strategy Configuration (uses the same MEMORY_GPU_ALLOC cache variable as CUDA,
-# defined in the main CMakeLists.txt)
-message(STATUS "HIP allocation strategy: ${MEMORY_GPU_ALLOC}")
-
-# Set preprocessor definitions based on allocation strategy. NOTE: these macro names
-# (MEMORY_HIP_ALLOC_*) must match what helper/memory_allocator.cpp and gpu/allocator_gpu.h check —
-# see Docs/CUDA_HIP_REMEDIATION_PLAN.md (D1) for the history of this mismatch.
-if(MEMORY_GPU_ALLOC STREQUAL "SYNC")
-  add_compile_definitions(MEMORY_HIP_ALLOC_SYNC)
-  message(STATUS "Using synchronous HIP allocation (hipMalloc/hipFree)")
-elseif(MEMORY_GPU_ALLOC STREQUAL "ASYNC")
-  add_compile_definitions(MEMORY_HIP_ALLOC_ASYNC)
-  message(STATUS "Using asynchronous HIP allocation (hipMallocAsync/hipFreeAsync)")
-elseif(MEMORY_GPU_ALLOC STREQUAL "POOL_ASYNC")
-  add_compile_definitions(MEMORY_HIP_ALLOC_POOL_ASYNC)
-  message(STATUS "Using pool-based asynchronous HIP allocation (hipMallocFromPoolAsync)")
-endif()
-
 # Set up HIP libraries using modern imported targets
 set(PROJECT_HIP_LIBRARIES hip::host hip::device)
 

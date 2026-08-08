@@ -101,20 +101,6 @@ set(MEMORY_CACHE_BACKEND "none"
 set_property(CACHE MEMORY_CACHE_BACKEND PROPERTY STRINGS none ccache sccache buildcache)
 mark_as_advanced(MEMORY_CACHE_BACKEND)
 
-# GPU allocation strategy — controls cudaMallocAsync / cudaMemPool behaviour. SYNC       —
-# synchronous cudaMalloc (safest, slowest) ASYNC      — asynchronous cudaMallocAsync POOL_ASYNC —
-# asynchronous pool-backed cudaMallocAsync (default, fastest)
-set(MEMORY_GPU_ALLOC "POOL_ASYNC" CACHE STRING
-                                        "GPU allocation strategy. Options: SYNC, ASYNC, POOL_ASYNC"
-)
-set_property(CACHE MEMORY_GPU_ALLOC PROPERTY STRINGS SYNC ASYNC POOL_ASYNC)
-if(NOT MEMORY_GPU_ALLOC MATCHES "^(SYNC|ASYNC|POOL_ASYNC)$")
-  message(
-    FATAL_ERROR
-      "Invalid MEMORY_GPU_ALLOC '${MEMORY_GPU_ALLOC}'. Valid options: SYNC, ASYNC, POOL_ASYNC"
-  )
-endif()
-
 # GPU backend selector — drives CUDA/HIP toolchain detection and compile definitions.
 # Can be set from the command line: -DMEMORY_GPU_BACKEND=cuda|hip|none
 set(MEMORY_GPU_BACKEND "none"
@@ -382,8 +368,6 @@ if(MEMORY_GPU_BACKEND STREQUAL "none")
   )
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
-  list(REMOVE_ITEM memory_sources "${CMAKE_CURRENT_SOURCE_DIR}/cpu/allocator_device.cpp")
-  list(REMOVE_ITEM memory_headers "${CMAKE_CURRENT_SOURCE_DIR}/cpu/allocator_device.h")
 endif()
 
 # .mm sources only compile (and only link Metal/Foundation) when the Metal backend is active;
@@ -400,17 +384,6 @@ if(MEMORY_ENABLE_SANITIZER)
   quarisma_configure_sanitizer(MEMORY)
 endif()
 
-# Clang 20.x has been observed to crash in Debug builds on a few large TU's when
-# debug info is enabled (LLVM pass: Live DEBUG_VALUE analysis). Valgrind builds
-# don't require per-file debug symbols, so disable -g selectively to keep the
-# build stable while preserving Debug elsewhere.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
-   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20)
-  set_source_files_properties(
-    "${CMAKE_CURRENT_SOURCE_DIR}/visualization/web_dashboard.cpp"
-    PROPERTIES COMPILE_OPTIONS "-g0"
-  )
-endif()
 quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
 quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
 quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
@@ -536,7 +509,6 @@ message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")
 message("  Numa             : ${MEMORY_ENABLE_NUMA}")
 message("  Tbb              : ${MEMORY_ENABLE_TBB}")
 message("  GPU backend      : ${MEMORY_GPU_BACKEND}")
-message("  Gpu alloc        : ${MEMORY_GPU_ALLOC}")
 message("  Cache            : ${MEMORY_ENABLE_CACHE}")
 message("  Cache backend    : ${MEMORY_CACHE_BACKEND}")
 message("  Icecc            : ${MEMORY_ENABLE_ICECC}")

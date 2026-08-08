@@ -26,15 +26,15 @@
 #include <stdexcept>  // for invalid_argument
 #include <type_traits>  // for is_same_v
 
-#include "common/device.h"         // for device_enum
-#include "common/memory_macros.h"  // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
-#include "cpu/allocator.h"         // for Allocator
-#include "cpu/allocator_device.h"
-#include "helper/process_state.h"  // for process_state
+#include "common/device.h"           // for device_enum
+#include "common/memory_macros.h"    // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
+#include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
 // GPU support includes
 #if MEMORY_HAS_CUDA
 #include <cuda_runtime.h>
+
+#include "gpu/cuda_caching_allocator.h"  // for caching_allocator_for_device
 #elif MEMORY_HAS_METAL
 #include "gpu/metal/metal_buffer_allocator.h"
 #endif
@@ -45,14 +45,19 @@ namespace memory
  * @brief Unified memory allocator supporting both CPU and GPU memory management
  *
  * This allocator provides a unified interface for memory allocation across different
- * device types including CPU, CUDA, and HIP devices. It automatically selects
- * the appropriate allocation strategy based on the device type and integrates with
- * Memory's memory pool system for optimal performance in quantitative finance applications.
+ * device types including CPU, CUDA, and HIP devices.
+ *
+ * Allocation strategy per device:
+ * - CPU: direct calls into the raw allocation backend
+ *   (cpu::memory_allocator — mimalloc, TBB, or platform aligned malloc,
+ *   selected at compile time).
+ * - CUDA/HIP: the per-device cuda_caching_allocator (PyTorch-style segment
+ *   caching with stream-aware reuse), shared process-wide.
+ * - Metal: the Metal buffer allocator (unified shared storage).
  *
  * Key Features:
  * - Unified interface for CPU and GPU memory allocation
- * - Automatic device-specific optimization
- * - Memory pooling for reduced allocation overhead
+ * - Cached GPU allocation with stream-aware reuse
  * - Asynchronous memory transfers with CUDA streams
  * - Exception-safe RAII memory management
  * - Support for multiple GPU devices
@@ -104,32 +109,19 @@ public:
 
         pointer ptr = nullptr;
 
-        // CPU allocation
+        // CPU allocation — direct call into the raw allocation backend
+        // (mimalloc / TBB / platform aligned malloc, selected at compile time)
         if (type == device_enum::CPU)
         {
             ptr = static_cast<pointer>(
-                memory::process_state::singleton()->GetCPUAllocator(0)->allocate_raw(
-                    alignment, n * scalar_size));
+                memory::cpu::memory_allocator::allocate(n * scalar_size, alignment));
         }
-        // GPU allocation using direct CUDA calls
+        // GPU allocation via the per-device caching allocator
 #if MEMORY_HAS_CUDA
         else if (type == device_enum::CUDA || type == device_enum::HIP)
         {
-            // Set the device
-            cudaError_t result = cudaSetDevice(device_index);
-            if (result != cudaSuccess)
-            {
-                throw std::runtime_error(
-                    "Failed to set CUDA device: " + std::string(cudaGetErrorString(result)));
-            }
-
-            // Allocate GPU memory
-            const size_type bytes = n * scalar_size;
-            result                = cudaMalloc(&ptr, bytes);
-            if (result != cudaSuccess)
-            {
-                throw std::bad_alloc();
-            }
+            ptr = static_cast<pointer>(
+                gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size));
         }
 #elif MEMORY_HAS_METAL
         // Metal allocation (Apple Silicon unified memory; float only — see below)
@@ -181,32 +173,13 @@ public:
         // CPU deallocation
         if (type == device_enum::CPU)
         {
-#if MEMORY_HAS_NUMA
-            int const numa_node = GetCurrentNUMANode();
-#else
-            int const numa_node = 0;
-#endif
-            memory::process_state::singleton()->GetCPUAllocator(numa_node)->deallocate_raw(ptr);
+            memory::cpu::memory_allocator::free(ptr);
         }
-        // GPU deallocation using direct CUDA calls
+        // GPU deallocation via the per-device caching allocator (cached for reuse)
 #if MEMORY_HAS_CUDA
         else if (type == device_enum::CUDA || type == device_enum::HIP)
         {
-            // Set the device
-            cudaError_t result = cudaSetDevice(device_index);
-            if (result != cudaSuccess)
-            {
-                // Log error but don't throw from free
-                // MEMORY_LOG_ERROR("Failed to set CUDA device during deallocation");
-            }
-
-            // Free GPU memory
-            result = cudaFree(ptr);
-            if (result != cudaSuccess)
-            {
-                // Log error but don't throw from free
-                // MEMORY_LOG_ERROR("CUDA free failed");
-            }
+            gpu::caching_allocator_for_device(device_index).deallocate(ptr, 0);
         }
 #elif MEMORY_HAS_METAL
         else if (type == device_enum::METAL)
@@ -354,82 +327,6 @@ public:
                (((size - aligned_start) / simd_stride) * simd_stride);
     }
 
-    // GPU-specific convenience methods
-#if MEMORY_HAS_CUDA
-
-    /**
-     * @brief Allocate pinned CPU memory for efficient GPU transfers
-     * @param n Number of elements to allocate
-     * @return Pointer to pinned CPU memory
-     */
-    MEMORY_FORCE_INLINE static pointer allocate_pinned(size_type n)
-    {
-        if (n == 0)
-        {
-            return nullptr;
-        }
-
-        void* ptr = nullptr;  // allocator_device::allocate(n * scalar_size);
-        return static_cast<pointer>(ptr);
-    }
-
-    /**
-     * @brief Free pinned CPU memory
-     * @param ptr Reference to pointer to pinned memory (will be set to nullptr)
-     */
-    MEMORY_FORCE_INLINE static void free_pinned(pointer& ptr)
-    {
-        if (ptr == nullptr)
-        {
-            return;
-        }
-
-        //allocator_device::free(ptr);
-        //ptr = nullptr;
-    }
-
-    /**
-     * @brief Configure GPU memory pool for optimal performance
-     * @param device_type device_option type to configure
-     * @param device_index device_option index to configure
-     * @param min_block_size Minimum block size in bytes
-     * @param max_pool_size Maximum pool size in bytes
-     *
-     * @note This method is deprecated after gpu_allocator removal.
-     *       Use gpu_memory_pool directly for advanced memory management.
-     */
-    static void configure_gpu_pool(
-        device_enum device_type    = device_enum::CUDA,
-        int         device_index   = 0,
-        size_type   min_block_size = 1024,
-        size_type   max_pool_size  = 1024ULL * 1024ULL)
-    {
-        // No-op: Direct CUDA allocation doesn't use pools
-        (void)device_type;
-        (void)device_index;
-        (void)min_block_size;
-        (void)max_pool_size;
-    }
-
-    /**
-     * @brief Get allocated memory statistics for GPU device
-     * @param device_type device_option type to query
-     * @param device_index device_option index to query
-     * @return Number of bytes currently allocated
-     *
-     * @note This method is deprecated after gpu_allocator removal.
-     *       Returns 0 as direct CUDA allocation doesn't track statistics.
-     */
-    static size_type get_gpu_allocated_bytes(
-        device_enum device_type = device_enum::CUDA, int device_index = 0)
-    {
-        // No tracking available with direct CUDA allocation
-        (void)device_type;
-        (void)device_index;
-        return 0;
-    }
-
-#endif  // GPU support
 };
 
 /**

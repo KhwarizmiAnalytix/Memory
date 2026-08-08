@@ -21,16 +21,12 @@ filegroup(
         [
             "*.cpp",
             "common/*.cpp",
-            "backend/*.cpp",
-            "cpu/*.cpp",
             "gpu/*.cpp",
             "helper/*.cpp",
             "profiler/*.cpp",
-            "visualization/*.cpp",
         ],
         exclude = [
             "gpu/*.cpp",
-            "cpu/allocator_device.cpp",
         ],
         allow_empty = True,
     ),
@@ -41,15 +37,15 @@ cc_library(
     srcs = [
         ":memory_srcs",
     ] + select({
-        "//bazel:enable_cuda": glob(["gpu/*.cpp", "cpu/allocator_device.cpp"], allow_empty = True),
-        "//bazel:enable_hip": glob(["gpu/*.cpp", "cpu/allocator_device.cpp"], allow_empty = True),
+        "//bazel:enable_cuda": glob(["gpu/*.cpp"], allow_empty = True),
+        "//bazel:enable_hip": glob(["gpu/*.cpp"], allow_empty = True),
         "//conditions:default": [],
     }),
     hdrs = [
         ":memory_hdrs",
     ] + select({
-        "//bazel:enable_cuda": glob(["gpu/*.h", "cpu/allocator_device.h"], allow_empty = True),
-        "//bazel:enable_hip": glob(["gpu/*.h", "cpu/allocator_device.h"], allow_empty = True),
+        "//bazel:enable_cuda": glob(["gpu/*.h"], allow_empty = True),
+        "//bazel:enable_hip": glob(["gpu/*.h"], allow_empty = True),
         "//conditions:default": [],
     }),
     copts = memory_copts(),

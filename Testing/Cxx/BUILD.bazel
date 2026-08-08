@@ -55,20 +55,6 @@ cc_test(
 )
 
 cc_binary(
-    name = "BenchmarkAllocatorComparison",
-    srcs = ["BenchmarkAllocatorComparison.cpp"],
-    copts = memory_copts(),
-    defines = memory_defines(),
-    linkopts = memory_linkopts(),
-    deps = [
-        "//Library/Memory:Memory",
-        "//Library/Core:Core",
-        "@com_google_benchmark//:benchmark",
-        "@com_google_benchmark//:benchmark_main",
-    ],
-)
-
-cc_binary(
     name = "BenchmarkCPUMemoryAllocators",
     srcs = ["BenchmarkCPUMemoryAllocators.cpp"],
     copts = memory_copts(),
