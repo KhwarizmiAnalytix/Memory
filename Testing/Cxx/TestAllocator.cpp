@@ -158,15 +158,15 @@ MEMORYTEST(Allocator, CopyWithNullptrOrZeroCountIsNoOp)
     END_TEST();
 }
 
-#if !MEMORY_HAS_CUDA
+#if !MEMORY_HAS_CUDA && !MEMORY_HAS_HIP
 MEMORYTEST(Allocator, CopyUnsupportedCombinationThrows)
 {
     using alloc_t = allocator<float>;
     float src     = 1.0F;
     float dst     = 0.0F;
-    // HIP is a valid device_enum value but, like CUDA, is not compiled in on
-    // this build, and (unlike CUDA/HIP together) is never handled by the
-    // Metal branch either -- it must fall through to the final throw.
+    // HIP is a valid device_enum value but is not compiled in on this build
+    // (Metal/none), and is never handled by the Metal copy branch — it must
+    // fall through to the final throw.
     EXPECT_THROW(
         alloc_t::copy(&src, 1, &dst, device_enum::HIP, device_enum::HIP),
         std::invalid_argument);
@@ -243,10 +243,29 @@ MEMORYTEST(Allocator, IsGpuDevice)
 
 MEMORYTEST(Allocator, HasGpuSupport)
 {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_METAL
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
     EXPECT_TRUE(has_gpu_support());
 #else
     EXPECT_FALSE(has_gpu_support());
 #endif
+    END_TEST();
+}
+
+MEMORYTEST(Allocator, IsActiveGpuDevice)
+{
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+    EXPECT_TRUE(is_active_gpu_device(device_enum::CUDA));
+    EXPECT_TRUE(is_active_gpu_device(device_enum::HIP));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
+#elif MEMORY_HAS_METAL
+    EXPECT_FALSE(is_active_gpu_device(device_enum::CUDA));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::HIP));
+    EXPECT_TRUE(is_active_gpu_device(device_enum::METAL));
+#else
+    EXPECT_FALSE(is_active_gpu_device(device_enum::CUDA));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::HIP));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
+#endif
+    EXPECT_FALSE(is_active_gpu_device(device_enum::CPU));
     END_TEST();
 }

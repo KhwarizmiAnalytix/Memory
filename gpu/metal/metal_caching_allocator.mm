@@ -37,6 +37,7 @@
 
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
+#include "gpu/caching_allocator_config.h"
 #include "util/memory_exception.h"
 
 namespace memory
@@ -46,35 +47,10 @@ namespace gpu
 namespace
 {
 
-// Size constants mirroring cuda_caching_allocator / PyTorch CUDACachingAllocator.
-constexpr size_t kMinBlockSize  = 512;
-constexpr size_t kSmallSize     = 1048576;
-constexpr size_t kSmallBuffer   = 2097152;
-constexpr size_t kMinLargeAlloc = 10485760;
-constexpr size_t kLargeBuffer   = 20971520;
-constexpr size_t kRoundLarge    = 2097152;
-
-size_t round_request_size(size_t size)
-{
-    if (size < kMinBlockSize)
-    {
-        return kMinBlockSize;
-    }
-    return kMinBlockSize * ((size + kMinBlockSize - 1) / kMinBlockSize);
-}
-
-size_t segment_size_for(size_t size)
-{
-    if (size <= kSmallSize)
-    {
-        return kSmallBuffer;
-    }
-    if (size < kMinLargeAlloc)
-    {
-        return kLargeBuffer;
-    }
-    return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
-}
+using caching_config::kMinBlockSize;
+using caching_config::kSmallSize;
+using caching_config::round_request_size;
+using caching_config::segment_size_for;
 
 id<MTLDevice> system_metal_device()
 {

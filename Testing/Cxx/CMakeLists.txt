@@ -222,7 +222,19 @@ if(MEMORY_ENABLE_BENCHMARK)
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${target_name})
     endif()
-    if(bench_name STREQUAL "BenchmarkPyTorchComparison")
+
+    # Register with CTest (same pattern as Core/Parallel/Vectorization) so
+    # `setup.py ...test...` runs and reports these benchmarks instead of only
+    # building them. --benchmark_min_time=0.01s keeps ctest runs fast; run the
+    # binary directly (no filter/min-time) for real performance numbers.
+    add_test(NAME ${target_name} COMMAND ${target_name} --benchmark_min_time=0.01s
+             WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+    )
+    set_tests_properties(
+      ${target_name} PROPERTIES TIMEOUT 600 LABELS "Benchmark;Performance;Memory"
+    )
+
+    if(bench_name MATCHES "^BenchmarkPyTorchComparison")
       target_link_libraries(${target_name} PRIVATE torch)
       target_compile_definitions(${target_name} PRIVATE MEMORY_HAS_LIBTORCH=1)
       target_compile_options(

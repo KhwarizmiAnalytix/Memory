@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "allocator.h"
+#include "gpu/caching_allocator.h"
 #include "gpu/metal/metal_buffer_allocator.h"
-#include "gpu/metal/metal_caching_allocator.h"
 
 using namespace memory;
 using namespace memory::gpu;
@@ -203,7 +203,7 @@ MEMORYTEST(MetalCachingAllocator, record_stream_is_noop)
 MEMORYTEST(MetalCachingAllocator, mid_segment_handle_and_offset)
 {
     // Use the process-wide registry so metal::mtl_buffer_* resolve the same instance.
-    auto& allocator = metal_caching_allocator_for_device(0);
+    auto& allocator = caching_allocator_for_device(0);
 
     void* ptr1 = allocator.allocate(1024);
     void* ptr2 = allocator.allocate(1024);
@@ -238,7 +238,7 @@ MEMORYTEST(MetalCachingAllocator, allocator_t_routes_through_cache)
     ASSERT_NE(nullptr, ptr);
     ASSERT_NE(nullptr, metal::mtl_buffer_handle(ptr));
 
-    auto stats = metal_caching_allocator_for_device(0).stats();
+    auto stats = caching_allocator_for_device(0).stats();
     EXPECT_GT(stats.successful_allocations.load(), 0U);
 
     alloc_t::free(ptr, device_enum::METAL);

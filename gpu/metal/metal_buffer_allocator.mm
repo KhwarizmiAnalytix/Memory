@@ -22,8 +22,6 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
-#include <cstring>
-
 #include "gpu/metal/metal_caching_allocator.h"
 
 namespace memory::metal
@@ -36,25 +34,6 @@ id<MTLDevice> system_device()
     return dev;
 }
 }  // namespace
-
-void* allocate(std::size_t bytes)
-{
-    return gpu::metal_caching_allocator_for_device(0).allocate(bytes);
-}
-
-void deallocate(void* host_ptr)
-{
-    gpu::metal_caching_allocator_for_device(0).deallocate(host_ptr, 0);
-}
-
-void copy(const void* src, void* dst, std::size_t bytes)
-{
-    if (src == nullptr || dst == nullptr || bytes == 0)
-    {
-        return;
-    }
-    std::memcpy(dst, src, bytes);
-}
 
 void* mtl_buffer_handle(void* host_ptr)
 {

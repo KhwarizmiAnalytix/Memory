@@ -16,14 +16,14 @@
 #include <utility>
 #include <vector>
 
+#include "common/memory_containers.h"
 #include "common/memory_macros.h"
+#include "gpu/caching_allocator_config.h"
 #include "util/memory_exception.h"
 
-#if MEMORY_HAS_CUDA
-#include <cuda_runtime.h>
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/gpu_runtime.h"
 #endif
-
-#include "common/memory_containers.h"
 
 namespace memory
 {
@@ -32,7 +32,7 @@ namespace gpu
 namespace
 {
 
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 inline void throw_on_cuda_error(cudaError_t result, const char* what)
 {
     if (result != cudaSuccess)
@@ -47,7 +47,7 @@ inline void throw_on_cuda_error(int result, const char* what)
 {
     if (result != 0)
     {
-        std::string message = std::string(what) + ": CUDA not available";
+        std::string message = std::string(what) + ": CUDA/HIP not available";
         // Log error (simplified for build compatibility)
         throw std::runtime_error(message);
     }
@@ -59,7 +59,7 @@ class DeviceGuard
 public:
     explicit DeviceGuard(int device)
     {
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         int current = 0;
         throw_on_cuda_error(cudaGetDevice(&current), "cudaGetDevice");
         prev_ = current;
@@ -78,7 +78,7 @@ public:
 
     ~DeviceGuard()
     {
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         if (changed_)
         {
             cudaSetDevice(prev_);
@@ -93,51 +93,23 @@ private:
 
 }  // namespace
 
-// cuda_caching_allocator is a CUDA-specific caching layer (PyTorch-style segmented
+// cuda_caching_allocator is the CUDA/HIP caching layer (PyTorch-style segmented
 // caching with per-stream pools, block split/merge, and event-deferred cross-stream
-// reclamation); it has no HIP/Metal implementation.
-// Callers reach it directly, through caching_allocator_for_device() (the process-wide
-// per-device registry backing allocator<T>'s CUDA path), or via the
+// reclamation). Metal uses metal_caching_allocator instead.
+// Callers reach it through caching_allocator_for_device() (the process-wide
+// per-device registry backing allocator<T>'s CUDA/HIP path), or via the
 // cuda_caching_allocator_template<T> wrapper. The #else stub below exists purely so
-// this translation unit still compiles in non-CUDA builds; constructing the allocator
+// this translation unit still compiles in Metal builds; constructing the allocator
 // there throws at runtime.
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 namespace
 {
 
-// Size constants mirroring PyTorch's CUDACachingAllocator (c10/core/AllocatorConfig.h):
-// requests are rounded to 512-byte multiples, small requests (<= 1 MiB) are packed
-// into 2 MiB segments, 1-10 MiB requests into 20 MiB segments, and larger requests
-// are rounded up to 2 MiB multiples - one cudaMalloc per segment, many blocks per
-// segment.
-constexpr size_t kMinBlockSize  = 512;       // all requests rounded to a multiple of this
-constexpr size_t kSmallSize     = 1048576;   // largest "small" request (1 MiB)
-constexpr size_t kSmallBuffer   = 2097152;   // small requests are packed in 2 MiB segments
-constexpr size_t kMinLargeAlloc = 10485760;  // requests between 1 and 10 MiB use kLargeBuffer
-constexpr size_t kLargeBuffer   = 20971520;  // 1-10 MiB requests are packed in 20 MiB segments
-constexpr size_t kRoundLarge    = 2097152;   // larger requests rounded to 2 MiB multiples
-
-size_t round_request_size(size_t size)
-{
-    if (size < kMinBlockSize)
-    {
-        return kMinBlockSize;
-    }
-    return kMinBlockSize * ((size + kMinBlockSize - 1) / kMinBlockSize);
-}
-
-size_t segment_size_for(size_t size)
-{
-    if (size <= kSmallSize)
-    {
-        return kSmallBuffer;
-    }
-    if (size < kMinLargeAlloc)
-    {
-        return kLargeBuffer;
-    }
-    return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
-}
+using caching_config::kMinBlockSize;
+using caching_config::kSmallSize;
+using caching_config::kSmallBuffer;
+using caching_config::round_request_size;
+using caching_config::segment_size_for;
 
 struct block_pool;
 
@@ -798,7 +770,7 @@ struct cuda_caching_allocator::Impl
 
     void* allocate(size_t, cuda_caching_allocator::stream_type)
     {
-        throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda");
+        throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip");
     }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
@@ -814,7 +786,7 @@ private:
     int    device_;
     size_t max_cached_bytes_;
 };
-#endif  // MEMORY_HAS_CUDA
+#endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
 cuda_caching_allocator::cuda_caching_allocator(int device, size_t max_cached_bytes)
     : impl_(std::make_unique<Impl>(device, max_cached_bytes))
@@ -883,7 +855,7 @@ int cuda_caching_allocator::device() const
     return impl_->device();
 }
 
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 cuda_caching_allocator& caching_allocator_for_device(int device_index)
 {
     static std::mutex                                                       registry_mutex;

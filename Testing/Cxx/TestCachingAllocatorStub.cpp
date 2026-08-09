@@ -18,25 +18,23 @@
  */
 
 // gpu/cuda_caching_allocator.cpp compiles a trivial stub Impl (its `#else`
-// branch) on any build with a GPU backend active but MEMORY_HAS_CUDA off --
-// i.e. Metal or HIP. cuda_caching_allocator's public constructor isn't
-// gated on MEMORY_HAS_CUDA, so that stub is directly reachable here even
-// though there's no CUDA device on this machine. This file is deliberately
-// *not* named TestCuda*/TestGpu*/TestHip*/TestMetal* so the Testing/Cxx
-// CMakeLists.txt / BUILD.bazel glob filters (which drop those patterns on
-// non-matching backends) don't exclude it.
+// branch) on Metal builds: MEMORY_HAS_CUDA and MEMORY_HAS_HIP are both off,
+// but gpu/*.cpp is still linked. HIP builds use the real Impl via
+// gpu/gpu_runtime.h. This file is deliberately *not* named
+// TestCuda*/TestGpu*/TestHip*/TestMetal* so the Testing/Cxx CMakeLists.txt /
+// BUILD.bazel glob filters don't exclude it.
 //
 // MEMORY_GPU_BACKEND=none (the default) excludes gpu/*.cpp from the Memory
 // library target entirely (see Library/Memory/CMakeLists.txt), so
 // cuda_caching_allocator isn't even linked into libMemory there -- this
 // file must not build in that configuration either.
 //
-// The real CUDA-backed Impl is covered separately by
-// TestCudaCachingAllocator.cpp (built only when MEMORY_GPU_BACKEND=cuda).
+// The real CUDA/HIP-backed Impl is covered by TestCudaCachingAllocator.cpp
+// (CUDA) and by allocator/device tests under HIP.
 
 #include "common/memory_macros.h"
 
-#if !MEMORY_HAS_CUDA && (MEMORY_HAS_METAL || MEMORY_HAS_HIP)
+#if MEMORY_HAS_METAL
 
 #include <stdexcept>
 
@@ -147,4 +145,4 @@ MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
     END_TEST();
 }
 
-#endif  // !MEMORY_HAS_CUDA && (MEMORY_HAS_METAL || MEMORY_HAS_HIP)
+#endif  // MEMORY_HAS_METAL

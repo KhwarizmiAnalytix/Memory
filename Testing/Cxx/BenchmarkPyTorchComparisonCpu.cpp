@@ -19,6 +19,9 @@
 
 // CPU allocation-speed comparison: XSigma vs PyTorch (LibTorch).
 //
+// CPU half of the XSigma/PyTorch allocation comparison; see
+// BenchmarkPyTorchComparisonGpu.cpp for the GPU (Metal/MPS) counterpart.
+//
 // Two levels are compared, each against its closest XSigma counterpart:
 //
 //   Level 1 — raw allocator core:

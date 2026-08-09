@@ -29,10 +29,9 @@
 #include "common/memory_macros.h"
 #include "profiler/unified_memory_stats.h"
 
-#if MEMORY_HAS_CUDA
-#include <cuda_runtime_api.h>
-
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "common/memory_export.h"
+#include "gpu/gpu_runtime.h"
 #endif
 
 namespace memory
@@ -40,21 +39,23 @@ namespace memory
 namespace gpu
 {
 /**
- * @brief CUDA caching allocator with PyTorch CUDACachingAllocator semantics
+ * @brief CUDA/HIP caching allocator with PyTorch CUDACachingAllocator semantics
  *
  * Behaviorally ports the core of PyTorch's CUDACachingAllocator
- * (c10/cuda/CUDACachingAllocator.cpp):
+ * (c10/cuda/CUDACachingAllocator.cpp). Under MEMORY_HAS_HIP the same logic
+ * runs on hipMalloc/hipEvent* via gpu/gpu_runtime.h (CUDA API spellings).
+ *
  * - Requests rounded to 512-byte multiples; small (<= 1 MiB) requests are
  *   packed into 2 MiB segments, 1-10 MiB requests into 20 MiB segments, and
- *   larger requests rounded up to 2 MiB multiples - one cudaMalloc per segment
+ *   larger requests rounded up to 2 MiB multiples - one driver malloc per segment
  * - Oversized cached blocks are split on reuse and the remainder returned to
  *   the pool; freed blocks coalesce with free neighbors
  * - Free pools are scoped per allocation stream; blocks are never reused on a
  *   different stream than the one they were allocated on
  * - Cross-stream uses are tracked via record_stream() (PyTorch recordStream
- *   semantics) or the deallocate stream hint; reuse is deferred with CUDA
+ *   semantics) or the deallocate stream hint; reuse is deferred with CUDA/HIP
  *   events until the recorded streams catch up
- * - On cudaMalloc failure the entire cache is flushed (pending events
+ * - On driver malloc failure the entire cache is flushed (pending events
  *   synchronized, whole cached segments released) and the allocation retried
  *   once before throwing std::bad_alloc
  *
@@ -63,20 +64,12 @@ namespace gpu
  *   (whole-segment) cached blocks on deallocate; the default is unlimited,
  *   matching PyTorch
  *
- * Features:
- * - Stream-aware memory caching with CUDA events
- * - Configurable cache size limits
- * - Comprehensive performance statistics
- * - Thread-safe operations
- * - Exception-safe RAII design
- * - Integration with Memory device management
- *
- * @note This allocator is designed for CUDA devices only
+ * @note Metal uses metal_caching_allocator (same size classes, sync dispatch).
  */
 class MEMORY_VISIBILITY cuda_caching_allocator
 {
 public:
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
     using stream_type = cudaStream_t;
 #else
     using stream_type = void*;
@@ -200,16 +193,16 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 /**
- * @brief Returns the process-wide caching allocator for a CUDA device.
+ * @brief Returns the process-wide caching allocator for a CUDA/HIP device.
  *
  * Lazily creates one cuda_caching_allocator per device index and returns the
  * shared instance. The registry lives inside the Memory library so that all
  * translation units (and all libraries linking Memory) share the same
  * per-device allocators.
  *
- * @param device_index CUDA device index (must be valid for the host)
+ * @param device_index CUDA/HIP device index (must be valid for the host)
  * @return Reference to the shared caching allocator for the device
  *
  * **Thread Safety**: Thread-safe; creation is serialized internally

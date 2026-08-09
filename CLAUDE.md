@@ -13,14 +13,19 @@ allocation paths:
   allocations call `helper/memory_allocator.h` (`cpu::memory_allocator`,
   a thin wrapper over mimalloc / TBB / platform aligned malloc) directly;
   there is no virtual allocator interface anymore.
-- CUDA allocations go through `gpu/cuda_caching_allocator.h` via
-  `gpu::caching_allocator_for_device(device_index)` — PyTorch-style
-  per-device segment cache with stream-aware reuse.
-- Metal allocations go through `gpu/metal/metal_caching_allocator.h` via
-  `gpu::metal_caching_allocator_for_device(device_index)` — same segment-
-  cache model on shared-storage `MTLBuffer`s (sync dispatch; `record_stream`
-  is a no-op for v1). Helpers in `metal_buffer_allocator.{h,mm}` expose
-  `mtl_buffer_handle` / `mtl_buffer_offset` for kernel binding.
+- GPU allocations (CUDA, HIP, or Metal — compile-time exclusive) go through
+  `gpu/caching_allocator.h` → `gpu::caching_allocator_for_device(device_index)`:
+  - CUDA/HIP: `cuda_caching_allocator` — PyTorch-style segment cache with
+    stream-aware reuse. HIP uses the same Impl via `gpu/gpu_runtime.h`
+    (CUDA API spellings → hip*).
+  - Metal: `metal_caching_allocator` — same segment-cache model on shared
+    `MTLBuffer`s (`record_stream` is a no-op for sync dispatch). Kernel bind
+    helpers live in `metal_buffer_allocator.{h,mm}` (`mtl_buffer_handle` /
+    `mtl_buffer_offset` only).
+- Shared size-class policy: `gpu/caching_allocator_config.h`.
+
+`allocator<T>` dispatches GPU allocate/free through `is_active_gpu_device()`
+so CUDA/HIP/Metal share one call site (Metal still rejects `double`).
 
 The removed machinery (BFC/pool/retry/tracking backends, `process_state`,
 the `Allocator` interface, `gpu_memory_*` helpers, `visualization/`) was
