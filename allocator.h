@@ -138,6 +138,7 @@ public:
             ptr = static_cast<pointer>(
                 memory::cpu::memory_allocator::allocate(n * scalar_size, alignment));
         }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
         {
 #if MEMORY_HAS_METAL
@@ -151,8 +152,13 @@ public:
             ptr = static_cast<pointer>(
                 gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size));
         }
+#endif
         else
         {
+            // With no GPU backend compiled in, is_active_gpu_device() is constexpr-false, so
+            // this is the only reachable branch for a non-CPU device type. The #if above (not
+            // just guarding this branch's body) keeps the two throwing branches from becoming
+            // identical clones when GPU is off, which is otherwise a bugprone-branch-clone hit.
             throw std::invalid_argument("Unsupported device type for allocation");
         }
 
@@ -182,10 +188,12 @@ public:
         {
             memory::cpu::memory_allocator::free(ptr);
         }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
         {
             gpu::caching_allocator_for_device(device_index).deallocate(ptr, 0);
         }
+#endif
         else
         {
             throw std::invalid_argument("Unsupported device type for deallocation");

@@ -32,6 +32,60 @@ filegroup(
     ),
 )
 
+# cc_library's srcs don't accept .mm (Objective-C++) without rules_apple's objc_library,
+# which this project doesn't otherwise depend on. Work around it the standard way: copy each
+# .mm to a .cc-suffixed generated file (genrule, not glob) and force Objective-C++ mode back
+# on via -x objective-c++ in copts -- but scoped to a small dedicated cc_library (below)
+# rather than applied to the whole memory_lib target, so plain .cpp sources never compile
+# under Objective-C++ mode (a real behavior divergence from CMake's per-file
+# set_source_files_properties, not just a cosmetic one: any future .cpp using `id`, `BOOL`,
+# `Class`, or `SEL` as an ordinary C++ identifier would silently fail only under Bazel).
+genrule(
+    name = "metal_buffer_allocator_objcxx",
+    srcs = ["gpu/metal/metal_buffer_allocator.mm"],
+    outs = ["gpu/metal/metal_buffer_allocator_mm.cc"],
+    cmd = "cp $< $@",
+)
+
+genrule(
+    name = "metal_caching_allocator_objcxx",
+    srcs = ["gpu/metal/metal_caching_allocator.mm"],
+    outs = ["gpu/metal/metal_caching_allocator_mm.cc"],
+    cmd = "cp $< $@",
+)
+
+# Isolates the -x objective-c++ -fobjc-arc copts (mirrors CMake's set_source_files_properties(
+# ${memory_objcxx_sources} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"), which applies ARC only to
+# the .mm files) to just these two translation units. Depends on memory_hdrs directly rather
+# than :memory_lib to avoid a dependency cycle.
+cc_library(
+    name = "memory_metal_objcxx",
+    srcs = select({
+        "//bazel:enable_metal": [
+            ":metal_buffer_allocator_objcxx",
+            ":metal_caching_allocator_objcxx",
+        ],
+        "//conditions:default": [],
+    }),
+    hdrs = [":memory_hdrs"] + select({
+        "//bazel:enable_metal": glob(["gpu/*.h", "gpu/metal/*.h"], allow_empty = True),
+        "//conditions:default": [],
+    }),
+    copts = memory_copts() + select({
+        "//bazel:enable_metal": ["-x", "objective-c++", "-fobjc-arc"],
+        "//conditions:default": [],
+    }),
+    defines = memory_defines() + select({
+        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
+        "//conditions:default": ["MEMORY_STATIC_DEFINE"],
+    }),
+    includes = ["."],
+    deps = [
+        "//Library/Logging:logging_lib",
+    ],
+    visibility = ["//Library/Memory:__pkg__"],
+)
+
 cc_library(
     name = "memory_lib",
     srcs = [
@@ -39,6 +93,10 @@ cc_library(
     ] + select({
         "//bazel:enable_cuda": glob(["gpu/*.cpp"], allow_empty = True),
         "//bazel:enable_hip": glob(["gpu/*.cpp"], allow_empty = True),
+        # gpu/*.cpp (cuda_caching_allocator.cpp) is included for Metal too, matching CMake
+        # (Memory/CMakeLists.txt only strips it for GPU backend "none") -- the file's own
+        # #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP guard makes it compile to an empty TU here.
+        "//bazel:enable_metal": glob(["gpu/*.cpp"], allow_empty = True),
         "//conditions:default": [],
     }),
     hdrs = [
@@ -46,6 +104,7 @@ cc_library(
     ] + select({
         "//bazel:enable_cuda": glob(["gpu/*.h"], allow_empty = True),
         "//bazel:enable_hip": glob(["gpu/*.h"], allow_empty = True),
+        "//bazel:enable_metal": glob(["gpu/*.h", "gpu/metal/*.h"], allow_empty = True),
         "//conditions:default": [],
     }),
     copts = memory_copts(),
@@ -58,6 +117,16 @@ cc_library(
         "@platforms//os:windows": [],
         "@platforms//os:macos": [],
         "//conditions:default": ["-lpthread", "-ldl", "-lrt"],
+    }) + select({
+        # Mirrors Library/Memory/Cmake/metal.cmake's find_library(Metal)/find_library(Foundation).
+        "//bazel:enable_metal": ["-framework", "Metal", "-framework", "Foundation"],
+        "//conditions:default": [],
+    }) + select({
+        # Mirrors Library/Memory/Cmake/numa.cmake's find_package(Numa) -> Numa::numa
+        # (a plain system library, -lnuma on Linux; Unix/Linux-only, matching numa.cmake's
+        # own `if(NOT UNIX) ... disable` guard).
+        "//bazel:enable_numa": ["-lnuma"],
+        "//conditions:default": [],
     }),
     linkstatic = select({
         "//bazel:shared_libs": False,
@@ -73,7 +142,18 @@ cc_library(
         "//bazel:enable_cuda": ["@local_config_cuda//:cuda"],
         "//conditions:default": [],
     }) + select({
+        "//bazel:enable_hip": ["@local_config_hip//:hip"],
+        "//conditions:default": [],
+    }) + select({
         "//bazel:enable_mkl": ["@mkl//:mkl"],
+        "//conditions:default": [],
+    }) + select({
+        "//bazel:enable_metal": [":memory_metal_objcxx"],
+        "//conditions:default": [],
+    }) + select({
+        # Mirrors Memory/CMakeLists.txt:356-357 (if(MEMORY_ENABLE_TBB AND TARGET
+        # Tbb::tbbmalloc) list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)).
+        "//bazel:memory_enable_tbb": ["@tbb//:tbbmalloc"],
         "//conditions:default": [],
     }),
     alwayslink = False,
