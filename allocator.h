@@ -257,10 +257,11 @@ public:
                 throw std::invalid_argument("Unsupported GPU device combination for memory copy");
             }
 
-            cudaError_t result = (stream != nullptr)
-                                     ? cudaMemcpyAsync(
-                                           to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
-                                     : cudaMemcpy(to, from, nbytes, copy_kind);
+            cudaError_t result =
+                (stream != nullptr)
+                    ? cudaMemcpyAsync(
+                          to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
+                    : cudaMemcpy(to, from, nbytes, copy_kind);
             if (result != cudaSuccess)
             {
                 throw std::runtime_error(
@@ -292,10 +293,10 @@ public:
             return size;
         }
 
-        size_type const first = (alignment_size -
-                                 ((reinterpret_cast<std::uintptr_t>(array) / scalar_size) &
-                                  alignment_mask)) &
-                                alignment_mask;
+        size_type const first =
+            (alignment_size -
+             ((reinterpret_cast<std::uintptr_t>(array) / scalar_size) & alignment_mask)) &
+            alignment_mask;
         return (first < size) ? first : size;
     }
 
