@@ -25,6 +25,11 @@
 #include "gpu/gpu_runtime.h"
 #endif
 
+#if MEMORY_HAS_PROFILER
+#include "common/instrumentation.h"
+#include "gpu/caching_allocator_profiler_report.h"
+#endif
+
 namespace memory
 {
 namespace gpu
@@ -800,6 +805,30 @@ cuda_caching_allocator::cuda_caching_allocator(cuda_caching_allocator&&) noexcep
 cuda_caching_allocator& cuda_caching_allocator::operator=(cuda_caching_allocator&&) noexcept =
     default;
 
+#if MEMORY_HAS_PROFILER
+namespace
+{
+// HIP shares this translation unit with CUDA (gpu/gpu_runtime.h aliases the
+// driver API), so the reported device type is a compile-time choice, same as
+// profiler_kineto.cpp's deviceTypeFromActivity -- only one GPU backend is
+// ever active in a given build. Values match profiler::device_enum (CPU=0,
+// CUDA=1, HIP=2, PrivateUse1=3).
+#if MEMORY_HAS_HIP
+constexpr int16_t kGpuDeviceType = 2;  // profiler::device_enum::HIP
+#elif MEMORY_HAS_CUDA
+constexpr int16_t kGpuDeviceType = 1;  // profiler::device_enum::CUDA
+#else
+// Neither CUDA nor HIP compiled in (e.g. a Metal-backend build, where this
+// TU still compiles the throwing stub Impl below -- see
+// TestCachingAllocatorStub.cpp). Real GPU allocation on such builds goes
+// through metal_caching_allocator instead; this constant only matters if a
+// cuda_caching_allocator is constructed directly. Report as a generic custom
+// backend rather than falsely claiming CUDA.
+constexpr int16_t kGpuDeviceType = 3;  // profiler::device_enum::PrivateUse1
+#endif
+}  // namespace
+#endif
+
 void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 {
     //cppcheck-suppress syntaxError
@@ -807,11 +836,33 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
     {
         return nullptr;
     }
+#if MEMORY_HAS_PROFILER
+    // Skip the before/after stats() snapshot entirely (each an O(cached
+    // blocks) locked scan) when no session actually wants memory events --
+    // report_memory_usage() is a no-op in that case too, but only after
+    // paying for the snapshot.
+    if (profiler::memory_profiling_active())
+    {
+        const auto before = impl_->stats();
+        void*      ptr     = impl_->allocate(size, stream);
+        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
+        return ptr;
+    }
+#endif
     return impl_->allocate(size, stream);
 }
 
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
 {
+#if MEMORY_HAS_PROFILER
+    if (ptr != nullptr && profiler::memory_profiling_active())
+    {
+        const auto before = impl_->stats();
+        impl_->deallocate(ptr, size, stream);
+        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
+        return;
+    }
+#endif
     impl_->deallocate(ptr, size, stream);
 }
 

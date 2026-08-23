@@ -41,6 +41,10 @@
 #include "MemoryTest.h"
 #include "gpu/cuda_caching_allocator.h"
 
+#if MEMORY_HAS_PROFILER
+#include "gpu/caching_allocator_profiler_report.h"
+#endif
+
 using namespace memory;
 using namespace memory::gpu;
 
@@ -144,5 +148,36 @@ MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
     EXPECT_EQ(stats.cache_misses.load(), 0U);
     END_TEST();
 }
+
+#if MEMORY_HAS_PROFILER
+
+// report_caching_allocator_delta (gpu/caching_allocator_profiler_report.h) is
+// the helper cuda_caching_allocator::allocate/deallocate and
+// metal_caching_allocator::allocate/deallocate both call to report a real
+// byte delta to profiler::report_memory_usage. No Kineto/ITT session is
+// active in this test binary (Memory does not link the bespoke/kineto
+// headers Profiler's own tests use), so report_memory_usage() no-ops
+// internally -- this only verifies the helper itself is safe to call for
+// both a live pointer and the deallocate(nullptr) case its call sites rely
+// on, not the resulting profiler event.
+MEMORYTEST(CachingAllocatorStub, ReportCachingAllocatorDeltaDoesNotCrash)
+{
+    unified_cache_stats before;
+    unified_cache_stats after;
+    before.bytes_allocated = 100;
+    after.bytes_allocated  = 356;
+    after.bytes_reserved   = 2048;
+
+    int dummy_block = 0;
+    // device_type=3 (profiler::device_enum::PrivateUse1) matches what
+    // metal_caching_allocator.mm's real call sites report.
+    EXPECT_NO_THROW(
+        { report_caching_allocator_delta(&dummy_block, before, after, /*device_index=*/0, /*device_type=*/3); });
+    EXPECT_NO_THROW(
+        { report_caching_allocator_delta(nullptr, before, after, /*device_index=*/0, /*device_type=*/3); });
+    END_TEST();
+}
+
+#endif  // MEMORY_HAS_PROFILER
 
 #endif  // MEMORY_HAS_METAL

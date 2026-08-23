@@ -30,6 +30,10 @@
 //#include "logger/logger.h"
 #include "gpu/cuda_caching_allocator.h"
 
+#if MEMORY_HAS_PROFILER
+#include "gpu/caching_allocator_profiler_report.h"
+#endif
+
 using namespace memory;
 using namespace memory::gpu;
 
@@ -664,5 +668,36 @@ MEMORYTEST(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
 
     MEMORY_LOG_INFO("CUDA caching allocator sync-all-streams counter test passed");
 }
+
+#if MEMORY_HAS_PROFILER
+
+/**
+ * @brief report_caching_allocator_delta (gpu/caching_allocator_profiler_report.h)
+ * is the helper cuda_caching_allocator::allocate/deallocate calls to report a
+ * real byte delta to profiler::report_memory_usage -- same helper
+ * TestCachingAllocatorStub.cpp exercises on the Metal-build stub Impl path.
+ * No Kineto/ITT session is active in this test binary, so
+ * report_memory_usage() no-ops internally; this only verifies the helper is
+ * safe to call for both a live pointer and the deallocate(nullptr) case its
+ * call sites rely on, with the real CUDA device_type (1).
+ */
+MEMORYTEST(CudaCachingAllocator, report_caching_allocator_delta_does_not_crash)
+{
+    unified_cache_stats before;
+    unified_cache_stats after;
+    before.bytes_allocated = 100;
+    after.bytes_allocated  = 356;
+    after.bytes_reserved   = 2048;
+
+    int dummy_block = 0;
+    EXPECT_NO_THROW(
+        { report_caching_allocator_delta(&dummy_block, before, after, /*device_index=*/0, /*device_type=*/1); });
+    EXPECT_NO_THROW(
+        { report_caching_allocator_delta(nullptr, before, after, /*device_index=*/0, /*device_type=*/1); });
+
+    MEMORY_LOG_INFO("CUDA caching allocator profiler-report helper test passed");
+}
+
+#endif  // MEMORY_HAS_PROFILER
 
 #endif  // MEMORY_HAS_CUDA

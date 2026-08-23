@@ -42,6 +42,13 @@ option(MEMORY_ENABLE_GTEST "Enable GoogleTest for Memory" ON)
 # Logging include dirs so "logger/logger.h" and other Logging headers resolve in Memory TUs.
 option(MEMORY_ENABLE_LOGGING "Link Memory with the Logging library when available" ON)
 
+# When ON and target Profiler::Profiler exists: link Profiler and set MEMORY_HAS_PROFILER=1, so
+# the caching allocators can report allocation/deallocation events via
+# profiler::report_memory_usage() (Docs/profiler/profiler.md, Instrumentation). That
+# call is a true no-op unless a profiling session with profile_memory=true is active, so this is
+# safe to leave ON.
+option(MEMORY_ENABLE_PROFILER "Link Memory with the Profiler library when available" ON)
+
 # Microsoft mimalloc — high-performance drop-in malloc replacement. ON by default to match the CMake
 # project default.
 option(MEMORY_ENABLE_MIMALLOC "Enable Microsoft mimalloc high-performance memory allocator" ON)
@@ -343,6 +350,14 @@ if(MEMORY_ENABLE_LOGGING AND TARGET Logging::Logging)
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_LOGGING=${MEMORY_HAS_LOGGING_BUILD})
 
+# Optional Profiler sibling module — only wire link when MEMORY_ENABLE_PROFILER and target exists.
+set(MEMORY_HAS_PROFILER_BUILD 0)
+if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
+  set(MEMORY_HAS_PROFILER_BUILD 1)
+  list(APPEND MEMORY_DEPENDENCY_LIBS Profiler::Profiler)
+endif()
+list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_PROFILER=${MEMORY_HAS_PROFILER_BUILD})
+
 # --- Runtime library wiring ---
 if(TARGET Fmt::fmt)
   list(APPEND MEMORY_DEPENDENCY_LIBS Fmt::fmt)
@@ -454,7 +469,10 @@ target_include_directories(
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(PROFILER_BACKEND STREQUAL "NATIVE")
+# native/ (traceme/xplane/host_tracer/profiler_session) is always compiled into Profiler now,
+# independent of PROFILER_BACKEND (Kineto/ITT) -- gate this on Profiler being available at all,
+# the same condition MEMORY_HAS_PROFILER_BUILD already captures above.
+if(MEMORY_HAS_PROFILER_BUILD)
   target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Profiler>)
 endif()
 
@@ -528,6 +546,8 @@ message("  Mimalloc         : ${MEMORY_ENABLE_MIMALLOC}")
 message("  Mimalloc stats   : ${MEMORY_ENABLE_MIMALLOC_STATS}")
 message("  Logging enable   : ${MEMORY_ENABLE_LOGGING}")
 message("  Logging (HAS)    : ${MEMORY_HAS_LOGGING_BUILD}")
+message("  Profiler enable  : ${MEMORY_ENABLE_PROFILER}")
+message("  Profiler (HAS)   : ${MEMORY_HAS_PROFILER_BUILD}")
 message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")
 message("  Numa             : ${MEMORY_ENABLE_NUMA}")
 message("  Tbb              : ${MEMORY_ENABLE_TBB}")

@@ -40,6 +40,11 @@
 #include "gpu/caching_allocator_config.h"
 #include "util/memory_exception.h"
 
+#if MEMORY_HAS_PROFILER
+#include "common/instrumentation.h"
+#include "gpu/caching_allocator_profiler_report.h"
+#endif
+
 namespace memory
 {
 namespace gpu
@@ -78,20 +83,19 @@ struct cache_block
         {
             return 0;
         }
-        return static_cast<size_t>(
-            static_cast<char*>(ptr) - static_cast<char*>([buffer contents]));
+        return static_cast<size_t>(static_cast<char*>(ptr) - static_cast<char*>([buffer contents]));
     }
 
-    void*        ptr;
-    size_t       size;
-    size_t       requested_size{0};
-    void*        stream;
-    block_pool*  pool;
+    void*         ptr;
+    size_t        size;
+    size_t        requested_size{0};
+    void*         stream;
+    block_pool*   pool;
     id<MTLBuffer> buffer;
-    bool         allocated{false};
-    cache_block* prev{nullptr};
-    cache_block* next{nullptr};
-    int64_t      registration_counter{-1};
+    bool          allocated{false};
+    cache_block*  prev{nullptr};
+    cache_block*  next{nullptr};
+    int64_t       registration_counter{-1};
 };
 
 struct cache_block_comparator
@@ -147,9 +151,9 @@ struct metal_caching_allocator::Impl
 
         std::scoped_lock const lock(mutex_);
 
-        size_t const rounded    = round_request_size(size);
-        block_pool&  pool       = rounded <= kSmallSize ? small_blocks_ : large_blocks_;
-        size_t const alloc_size = segment_size_for(rounded);
+        size_t const rounded     = round_request_size(size);
+        block_pool&  pool        = rounded <= kSmallSize ? small_blocks_ : large_blocks_;
+        size_t const alloc_size  = segment_size_for(rounded);
         void* const  pool_stream = nullptr;
 
         cache_block* block = get_free_block_locked(pool, pool_stream, rounded);
@@ -317,7 +321,8 @@ private:
         return block;
     }
 
-    cache_block* alloc_segment_locked(block_pool& pool, void* stream, size_t alloc_size, bool is_retry)
+    cache_block* alloc_segment_locked(
+        block_pool& pool, void* stream, size_t alloc_size, bool is_retry)
     {
         if (is_retry)
         {
@@ -334,8 +339,8 @@ private:
         // a successfully created MTLBuffer.
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool, nil);
 
-        id<MTLBuffer> buffer =
-            [dev newBufferWithLength:alloc_size options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buffer = [dev newBufferWithLength:alloc_size
+                                                options:MTLResourceStorageModeShared];
         if (buffer == nil)
         {
             return nullptr;
@@ -365,7 +370,7 @@ private:
         if (should_split(block, rounded))
         {
             cache_block* remaining = block;
-            block = new cache_block(
+            block                  = new cache_block(
                 remaining->ptr, rounded, remaining->stream, remaining->pool, remaining->buffer);
             block->registration_counter = remaining->registration_counter;
             block->prev                 = remaining->prev;
@@ -536,10 +541,10 @@ private:
     size_t bytes_cached_{0};
     size_t peak_bytes_cached_{0};
 
-    mutable std::recursive_mutex mutex_;
-    block_pool                   small_blocks_{true};
-    block_pool                   large_blocks_{false};
-    memory_map<void*, cache_block*> allocated_blocks_;
+    mutable std::recursive_mutex                               mutex_;
+    block_pool                                                 small_blocks_{true};
+    block_pool                                                 large_blocks_{false};
+    memory_map<void*, cache_block*>                            allocated_blocks_;
     std::vector<metal_caching_allocator::free_memory_callback> free_memory_callbacks_;
     std::atomic<int64_t>                                       registration_counter_global_{0};
     unified_cache_stats                                        stats_;
@@ -557,17 +562,50 @@ metal_caching_allocator::metal_caching_allocator(metal_caching_allocator&&) noex
 metal_caching_allocator& metal_caching_allocator::operator=(metal_caching_allocator&&) noexcept =
     default;
 
+#if MEMORY_HAS_PROFILER
+namespace
+{
+// device_type=3 is profiler::device_enum::PrivateUse1 -- Metal has no
+// dedicated entry in that enum (a PyTorch-derived type with no Metal concept
+// of its own), so it is reported as a generic custom backend, matching how
+// profiler_kineto.cpp treats non-CUDA/HIP GPU backends elsewhere in Profiler.
+constexpr int16_t kGpuDeviceType = 3;
+}  // namespace
+#endif
+
 void* metal_caching_allocator::allocate(size_t size, stream_type stream)
 {
     if MEMORY_UNLIKELY (size == 0)
     {
         return nullptr;
     }
+#if MEMORY_HAS_PROFILER
+    // Skip the before/after stats() snapshot entirely (each an O(cached
+    // blocks) locked scan) when no session actually wants memory events --
+    // report_memory_usage() is a no-op in that case too, but only after
+    // paying for the snapshot.
+    if (profiler::memory_profiling_active())
+    {
+        const auto before = impl_->stats();
+        void*      ptr     = impl_->allocate(size, stream);
+        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
+        return ptr;
+    }
+#endif
     return impl_->allocate(size, stream);
 }
 
 void metal_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
 {
+#if MEMORY_HAS_PROFILER
+    if (ptr != nullptr && profiler::memory_profiling_active())
+    {
+        const auto before = impl_->stats();
+        impl_->deallocate(ptr, size, stream);
+        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
+        return;
+    }
+#endif
     impl_->deallocate(ptr, size, stream);
 }
 
