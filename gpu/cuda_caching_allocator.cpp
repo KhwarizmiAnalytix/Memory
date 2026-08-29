@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -24,9 +25,11 @@
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/gpu_runtime.h"
 #endif
+#if MEMORY_HAS_CUDA
+#include <cuda.h>
+#endif
 
 #if MEMORY_HAS_PROFILER
-#include "common/instrumentation.h"
 #include "gpu/caching_allocator_profiler_report.h"
 #endif
 
@@ -111,21 +114,205 @@ namespace
 {
 
 using caching_config::kMinBlockSize;
-using caching_config::kSmallSize;
 using caching_config::kSmallBuffer;
+using caching_config::kSmallSize;
 using caching_config::round_request_size;
 using caching_config::segment_size_for;
 
+// Driver-backed segment (cudaMalloc/hipMalloc, or cuMemMap/hipMem* expandable).
+struct raw_segment
+{
+    void*  ptr{nullptr};
+    size_t size{0};
+    bool   vm{false};
+#if MEMORY_HAS_CUDA
+    CUmemGenericAllocationHandle cu_handle{};
+#endif
+#if MEMORY_HAS_HIP && defined(HIP_VERSION) && HIP_VERSION >= 50600000
+    hipMemGenericAllocationHandle_t hip_handle{};
+#endif
+};
+
+#if MEMORY_HAS_CUDA
+inline bool try_cu_vm_alloc(int device, size_t size, raw_segment& out)
+{
+    static std::once_flag init_once;
+    std::call_once(init_once, []() { (void)cuInit(0); });
+
+    CUmemAllocationProp prop{};
+    prop.type          = CU_MEM_ALLOCATION_TYPE_PINNED;
+    prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    prop.location.id   = device;
+
+    size_t granularity = 0;
+    if (cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM) !=
+            CUDA_SUCCESS ||
+        granularity == 0)
+    {
+        return false;
+    }
+    size_t const padded = ((size + granularity - 1) / granularity) * granularity;
+    CUdeviceptr  addr   = 0;
+    if (cuMemAddressReserve(&addr, padded, granularity, 0, 0) != CUDA_SUCCESS)
+    {
+        return false;
+    }
+    CUmemGenericAllocationHandle handle{};
+    if (cuMemCreate(&handle, padded, &prop, 0) != CUDA_SUCCESS)
+    {
+        (void)cuMemAddressFree(addr, padded);
+        return false;
+    }
+    if (cuMemMap(addr, padded, 0, handle, 0) != CUDA_SUCCESS)
+    {
+        (void)cuMemRelease(handle);
+        (void)cuMemAddressFree(addr, padded);
+        return false;
+    }
+    CUmemAccessDesc access{};
+    access.location = prop.location;
+    access.flags    = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+    if (cuMemSetAccess(addr, padded, &access, 1) != CUDA_SUCCESS)
+    {
+        (void)cuMemUnmap(addr, padded);
+        (void)cuMemRelease(handle);
+        (void)cuMemAddressFree(addr, padded);
+        return false;
+    }
+    out.ptr       = reinterpret_cast<void*>(addr);
+    out.size      = padded;
+    out.vm        = true;
+    out.cu_handle = handle;
+    return true;
+}
+
+inline void cu_vm_free(raw_segment const& seg)
+{
+    auto const addr = reinterpret_cast<CUdeviceptr>(seg.ptr);
+    (void)cuMemUnmap(addr, seg.size);
+    (void)cuMemRelease(seg.cu_handle);
+    (void)cuMemAddressFree(addr, seg.size);
+}
+#endif
+
+#if MEMORY_HAS_HIP && defined(HIP_VERSION) && HIP_VERSION >= 50600000
+inline bool try_hip_vm_alloc(int device, size_t size, raw_segment& out)
+{
+    hipMemAllocationProp prop{};
+    prop.type          = hipMemAllocationTypePinned;
+    prop.location.type = hipMemLocationTypeDevice;
+    prop.location.id   = device;
+
+    size_t granularity = 0;
+    if (hipMemGetAllocationGranularity(&granularity, &prop, hipMemAllocationGranularityMinimum) !=
+            hipSuccess ||
+        granularity == 0)
+    {
+        return false;
+    }
+    size_t const padded = ((size + granularity - 1) / granularity) * granularity;
+    void*        addr   = nullptr;
+    if (hipMemAddressReserve(&addr, padded, granularity, 0, 0) != hipSuccess)
+    {
+        return false;
+    }
+    hipMemGenericAllocationHandle_t handle{};
+    if (hipMemCreate(&handle, padded, &prop, 0) != hipSuccess)
+    {
+        (void)hipMemAddressFree(addr, padded);
+        return false;
+    }
+    if (hipMemMap(addr, padded, 0, handle, 0) != hipSuccess)
+    {
+        (void)hipMemRelease(handle);
+        (void)hipMemAddressFree(addr, padded);
+        return false;
+    }
+    hipMemAccessDesc access{};
+    access.location = prop.location;
+    access.flags    = hipMemAccessFlagsProtReadWrite;
+    if (hipMemSetAccess(addr, padded, &access, 1) != hipSuccess)
+    {
+        (void)hipMemUnmap(addr, padded);
+        (void)hipMemRelease(handle);
+        (void)hipMemAddressFree(addr, padded);
+        return false;
+    }
+    out.ptr        = addr;
+    out.size       = padded;
+    out.vm         = true;
+    out.hip_handle = handle;
+    return true;
+}
+
+inline void hip_vm_free(raw_segment const& seg)
+{
+    (void)hipMemUnmap(seg.ptr, seg.size);
+    (void)hipMemRelease(seg.hip_handle);
+    (void)hipMemAddressFree(seg.ptr, seg.size);
+}
+#endif
+
+inline raw_segment malloc_segment(int device, size_t size, cudaError_t* err_out)
+{
+    DeviceGuard const guard(device);
+    raw_segment       out;
+    *err_out = cudaSuccess;
+#if MEMORY_HAS_CUDA
+    if (try_cu_vm_alloc(device, size, out))
+    {
+        return out;
+    }
+#endif
+#if MEMORY_HAS_HIP && defined(HIP_VERSION) && HIP_VERSION >= 50600000
+    if (try_hip_vm_alloc(device, size, out))
+    {
+        return out;
+    }
+#endif
+    void*             ptr = nullptr;
+    cudaError_t const err = cudaMalloc(&ptr, size);
+    if (err != cudaSuccess)
+    {
+        (void)cudaGetLastError();
+        *err_out = err;
+        return {};
+    }
+    out.ptr  = ptr;
+    out.size = size;
+    out.vm   = false;
+    return out;
+}
+
+inline void free_segment(int device, raw_segment const& seg)
+{
+    if (seg.ptr == nullptr)
+    {
+        return;
+    }
+    DeviceGuard const guard(device);
+    if (seg.vm)
+    {
+#if MEMORY_HAS_CUDA
+        cu_vm_free(seg);
+#elif MEMORY_HAS_HIP && defined(HIP_VERSION) && HIP_VERSION >= 50600000
+        hip_vm_free(seg);
+#endif
+        return;
+    }
+    (void)cudaFree(seg.ptr);
+}
+
 struct block_pool;
 
-// A cache_block is a subrange of a segment (one cudaMalloc). Blocks are split on
+// A cache_block is a subrange of a segment (one driver allocation). Blocks are split on
 // reuse and coalesced on free via the intrusive prev/next links; metadata is
 // raw-allocated because ownership transfers between the free pools, the active
 // map, and merge operations, mirroring the upstream implementation.
 struct cache_block
 {
     cache_block(void* p, size_t s, cudaStream_t st, block_pool* pl)
-        : ptr(p), size(s), stream(st), pool(pl)
+        : ptr(p), size(s), stream(st), pool(pl), segment_base(p)
     {
     }
 
@@ -141,6 +328,8 @@ struct cache_block
     cache_block*           next{nullptr};
     int                    event_count{0};
     std::set<cudaStream_t> stream_uses;
+    void*                  segment_base{nullptr};
+    bool                   vm_backed{false};
     // Segment creation order; equal-size free blocks recycle FIFO (upstream
     // registration_counter). Search keys keep the -1 default so lower_bound
     // finds the oldest matching block.
@@ -177,6 +366,14 @@ struct block_pool
     const bool                                     is_small;
 };
 
+#if MEMORY_HAS_PROFILER
+#if MEMORY_HAS_HIP
+constexpr int16_t kGpuDeviceType = 2;  // profiler::device_enum::HIP
+#else
+constexpr int16_t kGpuDeviceType = 1;  // profiler::device_enum::CUDA
+#endif
+#endif
+
 }  // namespace
 
 struct cuda_caching_allocator::Impl
@@ -203,7 +400,7 @@ struct cuda_caching_allocator::Impl
     {
         MEMORY_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
 
-        std::scoped_lock const lock(mutex_);
+        std::unique_lock lock(mutex_);
         process_events_locked();
 
         size_t const rounded    = round_request_size(size);
@@ -224,18 +421,28 @@ struct cuda_caching_allocator::Impl
         else
         {
             stats_.cache_misses++;
-            block = alloc_segment_locked(pool, stream, alloc_size, false);
+            // Drop the allocator lock across the driver call (PyTorch ~2.7+):
+            // cudaMalloc/hipMalloc synchronize the device; holding the mutex
+            // would stall every other allocate on this device.
+            if (reserved_would_exceed_locked(alloc_size))
+            {
+                release_cached_blocks_locked();
+            }
+            if (reserved_would_exceed_locked(alloc_size))
+            {
+                fail_oom_locked(size, stream);
+            }
+            block = alloc_segment_unlocked(lock, pool, stream, alloc_size, false);
             if (block == nullptr)
             {
                 // OOM chain: flush the entire cache (synchronize pending events and
                 // release every releasable cached segment) and retry once before
                 // failing, matching the upstream retry behavior.
                 release_cached_blocks_locked();
-                block = alloc_segment_locked(pool, stream, alloc_size, true);
+                block = alloc_segment_unlocked(lock, pool, stream, alloc_size, true);
                 if (block == nullptr)
                 {
-                    stats_.num_ooms++;
-                    throw std::bad_alloc();
+                    fail_oom_locked(size, stream);
                 }
             }
         }
@@ -268,6 +475,11 @@ struct cuda_caching_allocator::Impl
         block->allocated = false;
         stats_.successful_frees++;
         stats_.bytes_allocated -= block->size;
+        record_trace_locked(
+            gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
+#if MEMORY_HAS_PROFILER
+        report_event_locked(ptr, -static_cast<int64_t>(block->size));
+#endif
 
         // The stream hint maps to recordStream semantics: freeing after use on a
         // stream other than the allocation stream counts as a cross-stream use.
@@ -341,6 +553,167 @@ struct cuda_caching_allocator::Impl
         return max_cached_bytes_;
     }
 
+    void set_memory_fraction(double fraction)
+    {
+        if (fraction <= 0.0 || fraction > 1.0)
+        {
+            throw std::invalid_argument("set_memory_fraction: fraction must be in (0, 1]");
+        }
+        size_t const           total = query_device_total_memory();
+        std::scoped_lock const lock(mutex_);
+        memory_fraction_        = fraction;
+        allowed_memory_maximum_ = static_cast<size_t>(fraction * static_cast<double>(total));
+    }
+
+    double memory_fraction() const
+    {
+        std::scoped_lock const lock(mutex_);
+        return memory_fraction_;
+    }
+
+    void reset_peak_stats()
+    {
+        std::scoped_lock const lock(mutex_);
+        peak_bytes_cached_ = bytes_cached_;
+        stats_.peak_bytes_cached.store(bytes_cached_, std::memory_order_relaxed);
+        stats_.peak_bytes_allocated.store(
+            stats_.bytes_allocated.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        stats_.peak_bytes_reserved.store(
+            stats_.bytes_reserved.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    }
+
+    size_t device_total_memory() const { return query_device_total_memory(); }
+
+    size_t query_device_total_memory() const
+    {
+        DeviceGuard const guard(device_);
+        size_t            free_b  = 0;
+        size_t            total_b = 0;
+        throw_on_cuda_error(cudaMemGetInfo(&free_b, &total_b), "cudaMemGetInfo");
+        return total_b;
+    }
+
+    static void bump_peak_locked(std::atomic<size_t>& peak, size_t value)
+    {
+        if (value > peak.load(std::memory_order_relaxed))
+        {
+            peak.store(value, std::memory_order_relaxed);
+        }
+    }
+
+    bool reserved_would_exceed_locked(size_t alloc_size) const
+    {
+        return stats_.bytes_reserved.load(std::memory_order_relaxed) + alloc_size >
+               allowed_memory_maximum_;
+    }
+
+    void record_trace_locked(
+        gpu_memory_trace_action action, void* address, size_t size, cudaStream_t stream)
+    {
+        history_.record(
+            action,
+            address,
+            size,
+            stats_.bytes_allocated.load(std::memory_order_relaxed),
+            stats_.bytes_reserved.load(std::memory_order_relaxed),
+            stream_as_int(stream));
+    }
+
+#if MEMORY_HAS_PROFILER
+    void report_event_locked(void* ptr, int64_t nbytes)
+    {
+        report_caching_allocator_event(
+            ptr,
+            nbytes,
+            stats_.bytes_allocated.load(std::memory_order_relaxed),
+            stats_.bytes_reserved.load(std::memory_order_relaxed),
+            device_,
+            kGpuDeviceType);
+    }
+#endif
+
+    [[noreturn]] void fail_oom_locked(size_t requested, cudaStream_t stream)
+    {
+        stats_.num_ooms++;
+        record_trace_locked(gpu_memory_trace_action::oom, nullptr, requested, stream);
+#if MEMORY_HAS_PROFILER
+        report_caching_allocator_oom(
+            static_cast<int64_t>(requested),
+            stats_.bytes_allocated.load(std::memory_order_relaxed),
+            stats_.bytes_reserved.load(std::memory_order_relaxed),
+            device_,
+            kGpuDeviceType);
+#endif
+        throw std::bad_alloc();
+    }
+
+    void record_memory_history(bool enabled, size_t max_entries)
+    {
+        std::scoped_lock const lock(mutex_);
+        history_.set_enabled(enabled, max_entries);
+    }
+
+    gpu_memory_snapshot snapshot()
+    {
+        std::scoped_lock const lock(mutex_);
+        record_trace_locked(gpu_memory_trace_action::snapshot, nullptr, 0, nullptr);
+
+        std::map<uintptr_t, gpu_memory_segment_info> segments;
+        std::unordered_map<void*, cache_block*>      unique;
+        auto consider = [&](cache_block* block)
+        {
+            if (block != nullptr)
+            {
+                unique[block->ptr] = block;
+            }
+        };
+        for (auto& entry : allocated_blocks_)
+        {
+            consider(entry.second);
+        }
+        for (cache_block* block : small_blocks_.blocks)
+        {
+            consider(block);
+        }
+        for (cache_block* block : large_blocks_.blocks)
+        {
+            consider(block);
+        }
+        for (auto& kv : cuda_events_)
+        {
+            for (auto& queued : kv.second)
+            {
+                consider(queued.second);
+            }
+        }
+        for (auto& entry : unique)
+        {
+            cache_block*  block    = entry.second;
+            void* const   base     = block->segment_base != nullptr ? block->segment_base : block->ptr;
+            size_t        seg_size = 0;
+            auto          it       = driver_segments_.find(base);
+            if (it != driver_segments_.end())
+            {
+                seg_size = it->second.size;
+            }
+            const bool active =
+                block->allocated || block->event_count > 0 || !block->stream_uses.empty();
+            add_snapshot_block(
+                segments,
+                base,
+                seg_size,
+                block->pool != nullptr && block->pool->is_small,
+                block->vm_backed,
+                stream_as_int(block->stream),
+                block->ptr,
+                block->size,
+                block->requested_size,
+                block->allocated,
+                active);
+        }
+        return finish_snapshot(std::move(segments), history_.copy());
+    }
+
     unified_cache_stats stats() const
     {
         std::scoped_lock const lock(mutex_);
@@ -395,35 +768,44 @@ private:
         return block;
     }
 
-    cache_block* alloc_segment_locked(
-        block_pool& pool, cudaStream_t stream, size_t alloc_size, bool is_retry)
+    cache_block* alloc_segment_unlocked(
+        std::unique_lock<std::recursive_mutex>& lock,
+        block_pool&                             pool,
+        cudaStream_t                            stream,
+        size_t                                  alloc_size,
+        bool                                    is_retry)
     {
         if (is_retry)
         {
             stats_.num_alloc_retries++;
         }
         // Metadata is allocated before the driver call so a throwing new cannot
-        // leak a successfully cudaMalloc'd segment.
-        auto              block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool);
-        DeviceGuard const guard(device_);
-        void*             ptr = nullptr;
-        cudaError_t const err = cudaMalloc(&ptr, alloc_size);
-        if (err != cudaSuccess)
+        // leak a successfully mapped segment.
+        auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool);
+        lock.unlock();
+        cudaError_t err = cudaSuccess;
+        raw_segment raw = malloc_segment(device_, alloc_size, &err);
+        lock.lock();
+        if (raw.ptr == nullptr)
         {
-            // Forgive and clear CUDA's internal error state, matching upstream;
-            // only an out-of-memory error falls through to the cache-flush retry.
-            (void)cudaGetLastError();
-            if (err != cudaErrorMemoryAllocation)
+            if (err != cudaSuccess && err != cudaErrorMemoryAllocation)
             {
                 throw_on_cuda_error(err, "cudaMalloc");
             }
             return nullptr;
         }
-        block->ptr = ptr;
+        block->ptr          = raw.ptr;
+        block->size         = raw.size;
+        block->segment_base = raw.ptr;
+        block->vm_backed    = raw.vm;
         block->registration_counter =
             registration_counter_global_.fetch_add(1, std::memory_order_relaxed) + 1;
+        driver_segments_.emplace(raw.ptr, raw);
         stats_.driver_allocations++;
-        stats_.bytes_reserved += alloc_size;
+        stats_.bytes_reserved += raw.size;
+        bump_peak_locked(
+            stats_.peak_bytes_reserved, stats_.bytes_reserved.load(std::memory_order_relaxed));
+        record_trace_locked(gpu_memory_trace_action::segment_alloc, raw.ptr, raw.size, stream);
         return block.release();
     }
 
@@ -446,6 +828,8 @@ private:
             cache_block* remaining = block;
             block = new cache_block(remaining->ptr, rounded, remaining->stream, remaining->pool);
             block->registration_counter = remaining->registration_counter;
+            block->segment_base         = remaining->segment_base;
+            block->vm_backed            = remaining->vm_backed;
             block->prev                 = remaining->prev;
             if (block->prev != nullptr)
             {
@@ -464,6 +848,13 @@ private:
         allocated_blocks_.emplace(block->ptr, block);
         stats_.successful_allocations++;
         stats_.bytes_allocated += block->size;
+        bump_peak_locked(
+            stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
+        record_trace_locked(
+            gpu_memory_trace_action::alloc, block->ptr, block->size, block->stream);
+#if MEMORY_HAS_PROFILER
+        report_event_locked(block->ptr, static_cast<int64_t>(block->size));
+#endif
         return block->ptr;
     }
 
@@ -478,6 +869,8 @@ private:
         block->pool->blocks.insert(block);
         bytes_cached_ += freed_size;
         peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
+        record_trace_locked(
+            gpu_memory_trace_action::free_completed, block->ptr, freed_size, block->stream);
     }
 
     void try_merge_locked(cache_block* dst, cache_block* src)
@@ -622,12 +1015,27 @@ private:
     void release_segment_locked(cache_block* block)
     {
         // Only whole segments (never split) can be returned to the driver.
-        DeviceGuard const guard(device_);
-        throw_on_cuda_error(cudaFree(block->ptr), "cudaFree");
+        void* const base = block->segment_base != nullptr ? block->segment_base : block->ptr;
+        auto        it   = driver_segments_.find(base);
+        raw_segment raw;
+        if (it != driver_segments_.end())
+        {
+            raw = it->second;
+            driver_segments_.erase(it);
+        }
+        else
+        {
+            raw.ptr  = block->ptr;
+            raw.size = block->size;
+            raw.vm   = block->vm_backed;
+        }
         stats_.driver_frees++;
         stats_.cache_evictions++;
         stats_.bytes_reserved -= block->size;
+        record_trace_locked(
+            gpu_memory_trace_action::segment_free, block->ptr, block->size, block->stream);
         delete block;
+        free_segment(device_, raw);
     }
 
     void release_pool_blocks_locked(block_pool& pool)
@@ -737,8 +1145,18 @@ private:
 
         for (void* ptr : segment_ptrs)
         {
-            cudaFree(ptr);
+            auto it = driver_segments_.find(ptr);
+            if (it != driver_segments_.end())
+            {
+                free_segment(device_, it->second);
+                driver_segments_.erase(it);
+            }
+            else
+            {
+                cudaFree(ptr);
+            }
         }
+        driver_segments_.clear();
         for (cache_block* block : all_blocks)
         {
             delete block;
@@ -749,6 +1167,8 @@ private:
 
     int    device_;
     size_t max_cached_bytes_;
+    double memory_fraction_{1.0};
+    size_t allowed_memory_maximum_{std::numeric_limits<size_t>::max()};
     size_t bytes_cached_{0};
     size_t peak_bytes_cached_{0};
 
@@ -763,8 +1183,10 @@ private:
     std::unordered_map<cudaStream_t, std::deque<std::pair<cudaEvent_t, cache_block*>>> cuda_events_;
     std::vector<cudaEvent_t>                                                           event_pool_;
     std::vector<cuda_caching_allocator::free_memory_callback> free_memory_callbacks_;
+    memory_map<void*, raw_segment>                            driver_segments_;
     std::atomic<int64_t>                                      registration_counter_global_{0};
     unified_cache_stats                                       stats_;
+    gpu_memory_history                                        history_;
 };
 #else
 struct cuda_caching_allocator::Impl
@@ -784,12 +1206,19 @@ struct cuda_caching_allocator::Impl
     void                empty_cache() {}
     void                set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }
     size_t              max_cached_bytes() const { return max_cached_bytes_; }
+    void                set_memory_fraction(double fraction) { memory_fraction_ = fraction; }
+    double              memory_fraction() const { return memory_fraction_; }
+    void                reset_peak_stats() {}
+    size_t              device_total_memory() const { return 0; }
     unified_cache_stats stats() const { return unified_cache_stats{}; }
+    void                record_memory_history(bool, size_t) {}
+    gpu_memory_snapshot snapshot() { return gpu_memory_snapshot{}; }
     int                 device() const { return device_; }
 
 private:
     int    device_;
     size_t max_cached_bytes_;
+    double memory_fraction_{1.0};
 };
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
@@ -805,30 +1234,6 @@ cuda_caching_allocator::cuda_caching_allocator(cuda_caching_allocator&&) noexcep
 cuda_caching_allocator& cuda_caching_allocator::operator=(cuda_caching_allocator&&) noexcept =
     default;
 
-#if MEMORY_HAS_PROFILER
-namespace
-{
-// HIP shares this translation unit with CUDA (gpu/gpu_runtime.h aliases the
-// driver API), so the reported device type is a compile-time choice, same as
-// profiler_kineto.cpp's deviceTypeFromActivity -- only one GPU backend is
-// ever active in a given build. Values match profiler::device_enum (CPU=0,
-// CUDA=1, HIP=2, PrivateUse1=3).
-#if MEMORY_HAS_HIP
-constexpr int16_t kGpuDeviceType = 2;  // profiler::device_enum::HIP
-#elif MEMORY_HAS_CUDA
-constexpr int16_t kGpuDeviceType = 1;  // profiler::device_enum::CUDA
-#else
-// Neither CUDA nor HIP compiled in (e.g. a Metal-backend build, where this
-// TU still compiles the throwing stub Impl below -- see
-// TestCachingAllocatorStub.cpp). Real GPU allocation on such builds goes
-// through metal_caching_allocator instead; this constant only matters if a
-// cuda_caching_allocator is constructed directly. Report as a generic custom
-// backend rather than falsely claiming CUDA.
-constexpr int16_t kGpuDeviceType = 3;  // profiler::device_enum::PrivateUse1
-#endif
-}  // namespace
-#endif
-
 void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 {
     //cppcheck-suppress syntaxError
@@ -836,33 +1241,11 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
     {
         return nullptr;
     }
-#if MEMORY_HAS_PROFILER
-    // Skip the before/after stats() snapshot entirely (each an O(cached
-    // blocks) locked scan) when no session actually wants memory events --
-    // report_memory_usage() is a no-op in that case too, but only after
-    // paying for the snapshot.
-    if (profiler::memory_profiling_active())
-    {
-        const auto before = impl_->stats();
-        void*      ptr     = impl_->allocate(size, stream);
-        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
-        return ptr;
-    }
-#endif
     return impl_->allocate(size, stream);
 }
 
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
 {
-#if MEMORY_HAS_PROFILER
-    if (ptr != nullptr && profiler::memory_profiling_active())
-    {
-        const auto before = impl_->stats();
-        impl_->deallocate(ptr, size, stream);
-        report_caching_allocator_delta(ptr, before, impl_->stats(), impl_->device(), kGpuDeviceType);
-        return;
-    }
-#endif
     impl_->deallocate(ptr, size, stream);
 }
 
@@ -896,9 +1279,39 @@ size_t cuda_caching_allocator::max_cached_bytes() const
     return impl_->max_cached_bytes();
 }
 
+void cuda_caching_allocator::set_memory_fraction(double fraction)
+{
+    impl_->set_memory_fraction(fraction);
+}
+
+double cuda_caching_allocator::memory_fraction() const
+{
+    return impl_->memory_fraction();
+}
+
+void cuda_caching_allocator::reset_peak_stats()
+{
+    impl_->reset_peak_stats();
+}
+
+size_t cuda_caching_allocator::device_total_memory() const
+{
+    return impl_->device_total_memory();
+}
+
 unified_cache_stats cuda_caching_allocator::stats() const
 {
     return impl_->stats();
+}
+
+void cuda_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
+{
+    impl_->record_memory_history(enabled, max_entries);
+}
+
+gpu_memory_snapshot cuda_caching_allocator::snapshot()
+{
+    return impl_->snapshot();
 }
 
 int cuda_caching_allocator::device() const

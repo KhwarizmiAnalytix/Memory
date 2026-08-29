@@ -1,5 +1,5 @@
 /*
- * Quarisma Memory library — DLL export/import (same pattern as Parallel).
+ * XSigma Memory library — DLL export/import (same pattern as Parallel).
  */
 #pragma once
 
@@ -39,4 +39,3 @@
 #define MEMORY_IMPORT
 #define MEMORY_HIDDEN
 #endif
-

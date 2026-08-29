@@ -2,7 +2,7 @@
 # Memory Library C++
 # Tests
 # =============================================================================
-quarisma_add_googletest()
+xsigma_add_googletest()
 
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 
@@ -16,7 +16,9 @@ foreach(_test_source IN ITEMS ${test_sources})
     endif()
   endif()
 
-  if(NOT MEMORY_GPU_BACKEND STREQUAL "cuda")
+  # CUDA caching-allocator tests exercise the shared CUDA/HIP TU (gpu_runtime.h
+  # aliases). Run them on HIP builds too; TestHip* remains the HIP-only slot.
+  if(NOT MEMORY_GPU_BACKEND STREQUAL "cuda" AND NOT MEMORY_GPU_BACKEND STREQUAL "hip")
     if(file_name MATCHES "TestCuda")
       continue()
     endif()
@@ -49,16 +51,15 @@ if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
 endif()
 
 target_compile_definitions(
-  MemoryCxxTests PRIVATE MEMORY_HAS_GTEST=1 MEMORY_GOOGLE_TEST QUARISMA_HAS_GTEST=1
-                         QUARISMA_GOOGLE_TEST USE_GTEST _VARIADIC_MAX=10
+  MemoryCxxTests PRIVATE MEMORY_HAS_GTEST=1 MEMORY_GOOGLE_TEST XSIGMA_HAS_GTEST=1
+                         XSIGMA_GOOGLE_TEST USE_GTEST _VARIADIC_MAX=10
 )
 
 target_link_libraries(MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memory::Memory)
 if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS})
 endif()
-# Logging::Logging is in MEMORY_DEPENDENCY_LIBS when MEMORY_HAS_LOGGING=1; Memory::Memory also links
-# it PUBLIC, so Logging headers and MEMORY_HAS_LOGGING propagate to this target.
+# Logging::Logging is a required PUBLIC dep of Memory::Memory.
 
 set_target_properties(
   MemoryCxxTests PROPERTIES FOLDER "Tests" VS_DEBUGGER_WORKING_DIRECTORY
@@ -79,7 +80,7 @@ if(MEMORY_ENABLE_BENCHMARK)
   # --- Google Benchmark setup ---
   if(NOT TARGET benchmark)
     set(_bench_external_found FALSE)
-    if(QUARISMA_ENABLE_EXTERNAL)
+    if(XSIGMA_ENABLE_EXTERNAL)
       find_package(benchmark QUIET)
       if(benchmark_FOUND)
         message(STATUS "Found external Google Benchmark")
@@ -110,7 +111,7 @@ if(MEMORY_ENABLE_BENCHMARK)
       set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Don't use bundled gtest for benchmark" FORCE)
       set(BENCHMARK_DOWNLOAD_DEPENDENCIES OFF CACHE BOOL "Don't download dependencies" FORCE)
       add_subdirectory(
-        "${QUARISMA_THIRDPARTY_DIR}/benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
+        "${XSIGMA_THIRDPARTY_DIR}/benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
         EXCLUDE_FROM_ALL
       )
       _set_third_party_folder_properties(

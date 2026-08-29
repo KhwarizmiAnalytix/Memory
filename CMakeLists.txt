@@ -9,8 +9,8 @@
 # MEMORY_HAS_CUDA=1/0      — CUDA device-memory support compiled in MEMORY_HAS_HIP=1/0       —
 # HIP/ROCm device-memory support compiled in MEMORY_HAS_MIMALLOC=1/0  — mimalloc high-perf allocator
 # active MEMORY_HAS_NUMA=1/0      — NUMA-aware allocation available MEMORY_HAS_MEMKIND=1/0   —
-# memkind extended-memory library available MEMORY_HAS_LOGGING=1/0   — Logging linked and logging
-# headers preferred (see MEMORY_ENABLE_LOGGING)
+# memkind extended-memory library available. Logging is a required sibling
+# module (always links Logging::Logging).
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
 
@@ -19,7 +19,7 @@ cmake_minimum_required(VERSION 3.16)
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
 include(lto)
-quarisma_lto_compute_default(_lto_default PROFILE PERFORMANCE)
+xsigma_lto_compute_default(_lto_default PROFILE PERFORMANCE)
 set(MEMORY_LTO_MODE "${_lto_default}" CACHE STRING
                                             "LTO mode for Memory: off | thin | full | ipo | auto"
 )
@@ -38,15 +38,11 @@ option(MEMORY_ENABLE_EXAMPLES "Build Memory example programs" OFF)
 # Google Test integration for Memory tests.
 option(MEMORY_ENABLE_GTEST "Enable GoogleTest for Memory" ON)
 
-# When ON and target Logging::Logging exists: link Logging, set MEMORY_HAS_LOGGING=1, and prepend
-# Logging include dirs so "logger/logger.h" and other Logging headers resolve in Memory TUs.
-option(MEMORY_ENABLE_LOGGING "Link Memory with the Logging library when available" ON)
-
 # When ON and target Profiler::Profiler exists: link Profiler and set MEMORY_HAS_PROFILER=1, so
-# the caching allocators can report allocation/deallocation events via
-# profiler::report_memory_usage() (Docs/profiler/profiler.md, Instrumentation). That
-# call is a true no-op unless a profiling session with profile_memory=true is active, so this is
-# safe to leave ON.
+# the CPU allocator and GPU caching allocators can report allocation/deallocation/OOM events via
+# profiler::report_memory_usage() / report_out_of_memory() (Docs/profiler/profiler.md,
+# Instrumentation). CPU allocate/free compile those calls out when this is 0; when it is 1 they
+# run only after profiler::memory_profiling_active() (predicted-false). Safe to leave ON.
 option(MEMORY_ENABLE_PROFILER "Link Memory with the Profiler library when available" ON)
 
 # Microsoft mimalloc — high-performance drop-in malloc replacement. ON by default to match the CMake
@@ -93,11 +89,7 @@ set(MEMORY_SANITIZER_TYPE "address"
 set_property(CACHE MEMORY_SANITIZER_TYPE PROPERTY STRINGS address undefined thread memory leak)
 mark_as_advanced(MEMORY_ENABLE_SANITIZER MEMORY_SANITIZER_TYPE)
 
-option(
-  MEMORY_ENABLE_SPELL
-  "Enable spell checking with automatic corrections for Memory (WARNING: modifies source files)"
-  OFF
-)
+option(MEMORY_ENABLE_SPELL "Enable check-only spell checking for Memory" OFF)
 mark_as_advanced(MEMORY_ENABLE_SPELL)
 
 option(MEMORY_ENABLE_VALGRIND "Execute Memory test suite with Valgrind" OFF)
@@ -213,8 +205,8 @@ set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FOR
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
 
-# fmt — used by util/memory_exception.h and others. Library/Logging normally registers Fmt::fmt
-# before Memory; standalone Memory (e.g. QUARISMA_LIBRARY_PROJECT=Memory) must do it here.
+# fmt — used by util/memory_exception.h and others. Logging is configured first
+# and registers Fmt::fmt; this block is a fallback if Logging is absent.
 if(NOT TARGET Fmt::fmt)
   set(FMT_TEST OFF CACHE BOOL "Disable fmt tests" FORCE)
   set(FMT_DOC OFF CACHE BOOL "Disable fmt documentation" FORCE)
@@ -229,7 +221,7 @@ if(NOT TARGET Fmt::fmt)
     "${_tpdir}/fmt"
     ALIASES
     "fmt::fmt-header-only"
-    QUARISMA_TARGETS
+    XSIGMA_TARGETS
     "Fmt::fmt=fmt::fmt-header-only|fmt::fmt|fmt"
     INCLUDE_DIR
     "${_tpdir}/fmt/include"
@@ -262,7 +254,7 @@ if(MEMORY_ENABLE_MIMALLOC)
     FILTER_FLAGS
     "-flto=thin"
     "-flto=full"
-    QUARISMA_TARGETS
+    XSIGMA_TARGETS
     "Mimalloc::mimalloc=mimalloc|mimalloc-static"
     INCLUDE_DIR
     "${_tpdir}/mimalloc/include"
@@ -341,14 +333,14 @@ else()
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
-# Optional Logging sibling module — only wire includes/link when MEMORY_ENABLE_LOGGING and target
-# exists.
-set(MEMORY_HAS_LOGGING_BUILD 0)
-if(MEMORY_ENABLE_LOGGING AND TARGET Logging::Logging)
-  set(MEMORY_HAS_LOGGING_BUILD 1)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
+# Required Logging sibling — Memory always uses Library/Logging (MEMORY_LOG_* → LOGGING_LOG_*).
+if(NOT TARGET Logging::Logging)
+  message(
+    FATAL_ERROR
+      "Memory requires Logging::Logging. Configure Logging in this tree (full build or --project.memory, which now enables Logging)."
+  )
 endif()
-list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_LOGGING=${MEMORY_HAS_LOGGING_BUILD})
+list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
 
 # Optional Profiler sibling module — only wire link when MEMORY_ENABLE_PROFILER and target exists.
 set(MEMORY_HAS_PROFILER_BUILD 0)
@@ -416,19 +408,19 @@ endif()
 
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
-quarisma_target_apply_lto(Memory MEMORY)
+xsigma_target_apply_lto(Memory MEMORY)
 if(MEMORY_ENABLE_SANITIZER)
-  quarisma_configure_sanitizer(MEMORY)
+  xsigma_configure_sanitizer(MEMORY)
 endif()
 
-quarisma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
-quarisma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
-quarisma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
+xsigma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
+xsigma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
+xsigma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(Memory PUBLIC MEMORY_SHARED_DEFINE PRIVATE MEMORY_BUILDING_DLL)
-  if(COMMAND quarisma_set_target_output_directories)
-    quarisma_set_target_output_directories(Memory)
+  if(COMMAND xsigma_set_target_output_directories)
+    xsigma_set_target_output_directories(Memory)
   endif()
 else()
   target_compile_definitions(Memory PUBLIC MEMORY_STATIC_DEFINE)
@@ -436,7 +428,7 @@ endif()
 
 add_library(Memory::Memory ALIAS Memory)
 
-quarisma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
+xsigma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
 
 set_target_properties(
   Memory PROPERTIES CXX_STANDARD ${MEMORY_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
@@ -480,27 +472,14 @@ if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 
-# Prepend Logging roots only when MEMORY_HAS_LOGGING=1 for logger and related headers without
-# pulling Logging into the include path when logging integration is disabled.
-if(MEMORY_HAS_LOGGING_BUILD)
-  target_include_directories(
-    Memory BEFORE
-    PUBLIC "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging>"
-           "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/logger>"
-           "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging>"
-           "$<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Logging/Testing>"
-           "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/Library/Logging/Testing>"
-  )
-endif()
-
 if(MEMORY_ENABLE_CLANGTIDY)
   include(clang_tidy)
-  quarisma_target_clang_tidy(Memory ${MEMORY_ENABLE_FIX})
+  xsigma_target_clang_tidy(Memory ${MEMORY_ENABLE_FIX})
 endif()
 
 if(MEMORY_ENABLE_IWYU)
   include(iwyu)
-  quarisma_apply_iwyu(Memory)
+  xsigma_apply_iwyu(Memory)
 endif()
 
 if(MEMORY_DEPENDENCY_LIBS)
@@ -537,15 +516,14 @@ if(MEMORY_ENABLE_TESTING)
 endif()
 
 if(MEMORY_ENABLE_VALGRIND AND MEMORY_ENABLE_TESTING)
-  quarisma_apply_valgrind_timeouts()
+  xsigma_apply_valgrind_timeouts()
 endif()
 
 message("")
 message("******** Memory module (CMake flags) ********")
 message("  Mimalloc         : ${MEMORY_ENABLE_MIMALLOC}")
 message("  Mimalloc stats   : ${MEMORY_ENABLE_MIMALLOC_STATS}")
-message("  Logging enable   : ${MEMORY_ENABLE_LOGGING}")
-message("  Logging (HAS)    : ${MEMORY_HAS_LOGGING_BUILD}")
+message("  Logging           : required (Logging::Logging)")
 message("  Profiler enable  : ${MEMORY_ENABLE_PROFILER}")
 message("  Profiler (HAS)   : ${MEMORY_HAS_PROFILER_BUILD}")
 message("  Memkind          : ${MEMORY_ENABLE_MEMKIND}")
@@ -555,7 +533,7 @@ message("  GPU backend      : ${MEMORY_GPU_BACKEND}")
 message("  Cache            : ${MEMORY_ENABLE_CACHE}")
 message("  Cache backend    : ${MEMORY_CACHE_BACKEND}")
 message("  Icecc            : ${MEMORY_ENABLE_ICECC}")
-quarisma_print_lto_linker_summary(MEMORY)
+xsigma_print_lto_linker_summary(MEMORY)
 message("  Coverage         : ${MEMORY_ENABLE_COVERAGE}")
 message("  Testing          : ${MEMORY_ENABLE_TESTING}")
 message("  Examples         : ${MEMORY_ENABLE_EXAMPLES}")

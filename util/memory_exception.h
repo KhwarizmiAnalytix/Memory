@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,19 +13,19 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
 
 #include <fmt/format.h>
 
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 
 #include "common/memory_macros.h"
+#include "logger/logger.h"
 
 // ============================================================================
 // memory::details::format_check_msg
@@ -76,27 +76,15 @@ inline std::string format_check_msg(const char* cond_str)
 #endif
 
 #ifndef MEMORY_LOG_WARNING
-#define MEMORY_LOG_WARNING(format_str, ...) \
-    std::fprintf(                           \
-        stderr,                             \
-        "[MEMORY WARNING] %s\n",            \
-        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#define MEMORY_LOG_WARNING(format_str, ...) LOGGING_LOG_WARNING(format_str, ##__VA_ARGS__)
 #endif
 
 #ifndef MEMORY_LOG_INFO
-#define MEMORY_LOG_INFO(format_str, ...) \
-    std::fprintf(                        \
-        stdout,                          \
-        "[MEMORY INFO] %s\n",            \
-        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#define MEMORY_LOG_INFO(format_str, ...) LOGGING_LOG_INFO(format_str, ##__VA_ARGS__)
 #endif
 
 #ifndef MEMORY_LOG_ERROR
-#define MEMORY_LOG_ERROR(format_str, ...) \
-    std::fprintf(                         \
-        stderr,                           \
-        "[MEMORY ERROR] %s\n",            \
-        fmt::format(fmt::runtime(format_str), ##__VA_ARGS__).c_str())
+#define MEMORY_LOG_ERROR(format_str, ...) LOGGING_LOG_ERROR(format_str, ##__VA_ARGS__)
 #endif
 
 #ifdef NDEBUG

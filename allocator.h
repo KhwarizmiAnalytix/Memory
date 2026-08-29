@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
@@ -34,7 +34,9 @@
 // GPU caching allocator (CUDA, HIP, or Metal — compile-time exclusive).
 // Unified registry: gpu::caching_allocator_for_device(i).
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+
 #include "gpu/caching_allocator.h"
+
 #endif
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -124,7 +126,10 @@ public:
      * @brief Allocate memory on the specified device
      */
     MEMORY_FORCE_INLINE static pointer allocate(
-        size_type n, device_enum type = device_enum::CPU, int device_index = 0)
+        size_type   n,
+        device_enum type         = device_enum::CPU,
+        int         device_index = 0,
+        stream_t    stream       = nullptr)
     {
         if (n == 0)
         {
@@ -135,6 +140,7 @@ public:
 
         if (type == device_enum::CPU)
         {
+            (void)stream;
             ptr = static_cast<pointer>(
                 memory::cpu::memory_allocator::allocate(n * scalar_size, alignment));
         }
@@ -150,7 +156,7 @@ public:
             }
 #endif
             ptr = static_cast<pointer>(
-                gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size));
+                gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size, stream));
         }
 #endif
         else
@@ -176,7 +182,8 @@ public:
         pointer&    ptr,
         device_enum type         = device_enum::CPU,
         int         device_index = 0,
-        size_type   count        = 0)
+        size_type   count        = 0,
+        stream_t    stream       = nullptr)
     {
         (void)count;
         if (ptr == nullptr)
@@ -186,12 +193,13 @@ public:
 
         if (type == device_enum::CPU)
         {
+            (void)stream;
             memory::cpu::memory_allocator::free(ptr);
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
         {
-            gpu::caching_allocator_for_device(device_index).deallocate(ptr, 0);
+            gpu::caching_allocator_for_device(device_index).deallocate(ptr, 0, stream);
         }
 #endif
         else
@@ -200,6 +208,104 @@ public:
         }
 
         ptr = nullptr;
+    }
+
+    /**
+     * @brief Release unused cached GPU segments (torch.cuda.empty_cache)
+     */
+    MEMORY_FORCE_INLINE static void empty_cache(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        gpu::empty_cache(device_index);
+#else
+        (void)device_index;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static size_type memory_allocated(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        return gpu::memory_allocated(device_index);
+#else
+        (void)device_index;
+        return 0;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static size_type max_memory_allocated(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        return gpu::max_memory_allocated(device_index);
+#else
+        (void)device_index;
+        return 0;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static size_type memory_reserved(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        return gpu::memory_reserved(device_index);
+#else
+        (void)device_index;
+        return 0;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static size_type max_memory_reserved(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        return gpu::max_memory_reserved(device_index);
+#else
+        (void)device_index;
+        return 0;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static void reset_peak_memory_stats(int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        gpu::reset_peak_memory_stats(device_index);
+#else
+        (void)device_index;
+#endif
+    }
+
+    MEMORY_FORCE_INLINE static void set_memory_fraction(double fraction, int device_index = 0)
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        gpu::set_memory_fraction(fraction, device_index);
+#else
+        (void)fraction;
+        (void)device_index;
+#endif
+    }
+
+    /**
+     * @brief Record that @p ptr is used on @p stream (CUDA/HIP caching allocator).
+     *
+     * No-op for CPU and Metal. Matches PyTorch recordStream: the block is not
+     * reused until @p stream completes.
+    */
+    MEMORY_FORCE_INLINE static void record_stream(
+        pointer ptr,  // cppcheck-suppress constParameterPointer
+        device_enum type,
+        int device_index = 0,
+        stream_t stream = nullptr)  // cppcheck-suppress constParameterPointer
+    {
+        if (ptr == nullptr || stream == nullptr)
+        {
+            return;
+        }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+        if (is_active_gpu_device(type))
+        {
+            gpu::caching_allocator_for_device(device_index).record_stream(ptr, stream);
+        }
+#else
+        (void)type;
+        (void)device_index;
+#endif
     }
 
     /**
@@ -215,8 +321,6 @@ public:
         int           to_index   = 0,
         stream_t      stream     = nullptr)
     {
-        (void)from_index;
-        (void)to_index;
         if (from == nullptr || to == nullptr || n == 0)
         {
             return;
@@ -234,34 +338,72 @@ public:
         if (from_type == device_enum::CUDA || to_type == device_enum::CUDA ||
             from_type == device_enum::HIP || to_type == device_enum::HIP)
         {
-            cudaMemcpyKind copy_kind;
-            if (from_type == device_enum::CPU &&
-                (to_type == device_enum::CUDA || to_type == device_enum::HIP))
+            struct current_device_guard
             {
-                copy_kind = cudaMemcpyHostToDevice;
-            }
-            else if (
-                (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
-                to_type == device_enum::CPU)
+                int prev_{0};
+                explicit current_device_guard(int device)
+                {
+                    cudaGetDevice(&prev_);
+                    if (prev_ != device)
+                    {
+                        cudaSetDevice(device);
+                    }
+                }
+                ~current_device_guard() { cudaSetDevice(prev_); }
+                current_device_guard(current_device_guard const&)            = delete;
+                current_device_guard& operator=(current_device_guard const&) = delete;
+            };
+
+            cudaError_t result = cudaSuccess;
+            if ((from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
+                (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
+                from_index != to_index)
             {
-                copy_kind = cudaMemcpyDeviceToHost;
-            }
-            else if (
-                (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
-                (to_type == device_enum::CUDA || to_type == device_enum::HIP))
-            {
-                copy_kind = cudaMemcpyDeviceToDevice;
+                result = (stream != nullptr)
+                             ? cudaMemcpyPeerAsync(
+                                   to,
+                                   to_index,
+                                   from,
+                                   from_index,
+                                   nbytes,
+                                   static_cast<cudaStream_t>(stream))
+                             : cudaMemcpyPeer(to, to_index, from, from_index, nbytes);
             }
             else
             {
-                throw std::invalid_argument("Unsupported GPU device combination for memory copy");
-            }
+                cudaMemcpyKind copy_kind;
+                if (from_type == device_enum::CPU &&
+                    (to_type == device_enum::CUDA || to_type == device_enum::HIP))
+                {
+                    copy_kind = cudaMemcpyHostToDevice;
+                }
+                else if (
+                    (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
+                    to_type == device_enum::CPU)
+                {
+                    copy_kind = cudaMemcpyDeviceToHost;
+                }
+                else if (
+                    (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
+                    (to_type == device_enum::CUDA || to_type == device_enum::HIP))
+                {
+                    copy_kind = cudaMemcpyDeviceToDevice;
+                }
+                else
+                {
+                    throw std::invalid_argument(
+                        "Unsupported GPU device combination for memory copy");
+                }
 
-            cudaError_t result =
-                (stream != nullptr)
-                    ? cudaMemcpyAsync(
-                          to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
-                    : cudaMemcpy(to, from, nbytes, copy_kind);
+                int const gpu_index = (to_type == device_enum::CUDA || to_type == device_enum::HIP)
+                                          ? to_index
+                                          : from_index;
+                current_device_guard const guard(gpu_index);
+                result = (stream != nullptr)
+                             ? cudaMemcpyAsync(
+                                   to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
+                             : cudaMemcpy(to, from, nbytes, copy_kind);
+            }
             if (result != cudaSuccess)
             {
                 throw std::runtime_error(
@@ -270,6 +412,9 @@ public:
             return;
         }
 #elif MEMORY_HAS_METAL
+        (void)from_index;
+        (void)to_index;
+        (void)stream;
         // Shared-storage MTLBuffers are host-addressable — all METAL sides are memcpy.
         if (from_type == device_enum::METAL || to_type == device_enum::METAL)
         {

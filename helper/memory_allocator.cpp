@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #include "memory_allocator.h"
@@ -25,6 +25,11 @@
 
 #include "common/memory_macros.h"
 #include "util/memory_exception.h"
+
+#if MEMORY_HAS_PROFILER
+#include "common/instrumentation.h"
+#include "profiler/profiled_cpu_memory_reporter.h"
+#endif
 
 #if MEMORY_HAS_TBB
 
@@ -58,6 +63,35 @@
 
 namespace memory::cpu::memory_allocator
 {
+#if MEMORY_HAS_PROFILER
+namespace
+{
+MEMORY_FORCE_INLINE void maybe_record_allocation(void* ptr, std::size_t nbytes)
+{
+    if MEMORY_UNLIKELY (profiler::memory_profiling_active())
+    {
+        cpu_memory_reporter().record_allocation(ptr, nbytes);
+    }
+}
+
+MEMORY_FORCE_INLINE void maybe_record_deallocation(void* ptr)
+{
+    const bool active = profiler::memory_profiling_active();
+    if MEMORY_UNLIKELY (active || cpu_memory_reporter().has_tracked_blocks())
+    {
+        cpu_memory_reporter().record_deallocation(ptr, active);
+    }
+}
+
+MEMORY_FORCE_INLINE void maybe_record_out_of_memory(std::size_t nbytes)
+{
+    if MEMORY_UNLIKELY (profiler::memory_profiling_active())
+    {
+        cpu_memory_reporter().record_out_of_memory(nbytes);
+    }
+}
+}  // namespace
+#endif
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
@@ -94,13 +128,16 @@ void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
         // cppcheck-suppress syntaxError
         if MEMORY_UNLIKELY (posix_memalign(&ptr, alignment, nbytes) != 0)
         {
-            return nullptr;
+            ptr = nullptr;
         }
     }
 #endif
     // cppcheck-suppress syntaxError
     if MEMORY_UNLIKELY (ptr == nullptr)
     {
+#if MEMORY_HAS_PROFILER
+        maybe_record_out_of_memory(nbytes);
+#endif
         return nullptr;
     }
 
@@ -126,6 +163,9 @@ void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
         break;
     }
 
+#if MEMORY_HAS_PROFILER
+    maybe_record_allocation(ptr, nbytes);
+#endif
     return ptr;
 }
 
@@ -133,6 +173,9 @@ void free(void* ptr, MEMORY_UNUSED std::size_t nbytes) noexcept
 {
     if MEMORY_LIKELY (ptr != nullptr)
     {
+#if MEMORY_HAS_PROFILER
+        maybe_record_deallocation(ptr);
+#endif
 #if MEMORY_HAS_MIMALLOC
         mi_free(ptr);
 #elif MEMORY_HAS_TBB

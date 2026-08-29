@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
@@ -26,6 +26,7 @@
 
 #include "common/memory_export.h"
 #include "common/memory_macros.h"
+#include "profiler/gpu_memory_snapshot.h"
 #include "profiler/unified_memory_stats.h"
 
 namespace memory
@@ -106,6 +107,14 @@ public:
 
     MEMORY_API size_t max_cached_bytes() const;
 
+    MEMORY_API void set_memory_fraction(double fraction);
+
+    MEMORY_API double memory_fraction() const;
+
+    MEMORY_API void reset_peak_stats();
+
+    MEMORY_API size_t device_total_memory() const;
+
     using free_memory_callback = std::function<bool()>;
 
     MEMORY_API void add_free_memory_callback(free_memory_callback callback);
@@ -113,6 +122,11 @@ public:
     MEMORY_API void clear_free_memory_callbacks();
 
     MEMORY_API unified_cache_stats stats() const;
+
+    MEMORY_API void record_memory_history(
+        bool enabled, size_t max_entries = kDefaultMemoryHistoryEntries);
+
+    MEMORY_API gpu_memory_snapshot snapshot();
 
     MEMORY_API int device() const;
 
@@ -127,11 +141,12 @@ public:
      * @param offset_out Receives byte offset within the MTLBuffer
      * @return true if ptr is a live allocation of this allocator
      */
-    MEMORY_API bool resolve_live_allocation(void* ptr, void** handle_out, size_t* offset_out) const;
+    MEMORY_API bool resolve_live_allocation(
+        void const* ptr, void** handle_out, size_t* offset_out) const;
 
-    metal_caching_allocator(const metal_caching_allocator&)            = delete;
-    metal_caching_allocator& operator=(const metal_caching_allocator&) = delete;
-    MEMORY_API               metal_caching_allocator(metal_caching_allocator&&) noexcept;
+    metal_caching_allocator(const metal_caching_allocator&)                       = delete;
+    metal_caching_allocator&            operator=(const metal_caching_allocator&) = delete;
+    MEMORY_API                          metal_caching_allocator(metal_caching_allocator&&) noexcept;
     MEMORY_API metal_caching_allocator& operator=(metal_caching_allocator&&) noexcept;
 
 private:

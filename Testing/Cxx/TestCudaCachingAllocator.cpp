@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,21 +13,25 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
 #include "util/memory_exception.h"
 
-#if MEMORY_HAS_CUDA
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
-#include <cuda_runtime.h>
-
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
+#include "gpu/gpu_runtime.h"
+
 //#include "logger/logger.h"
+#include "allocator.h"
+#include "common/data_ptr.h"
 #include "gpu/cuda_caching_allocator.h"
 
 #if MEMORY_HAS_PROFILER
@@ -37,10 +41,44 @@
 using namespace memory;
 using namespace memory::gpu;
 
+namespace
+{
+bool cuda_device_available()
+{
+    int               device_count = 0;
+    const cudaError_t err          = cudaGetDeviceCount(&device_count);
+    return err == cudaSuccess && device_count > 0;
+}
+}  // namespace
+
+class CudaCachingAllocator : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        if (!cuda_device_available())
+        {
+            GTEST_SKIP() << "No CUDA device available";
+        }
+    }
+};
+
+class CudaCachingAllocatorTemplate : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+        if (!cuda_device_available())
+        {
+            GTEST_SKIP() << "No CUDA device available";
+        }
+    }
+};
+
 /**
  * @brief Test basic CUDA caching allocator construction and destruction
  */
-MEMORYTEST(CudaCachingAllocator, constructs_with_valid_parameters)
+MEMORYTEST_F(CudaCachingAllocator, constructs_with_valid_parameters)
 {
     // Test basic construction
     cuda_caching_allocator allocator(0, 64 * 1024ULL);  // 64MB cache
@@ -57,7 +95,7 @@ MEMORYTEST(CudaCachingAllocator, constructs_with_valid_parameters)
 /**
  * @brief Test CUDA caching allocator constructor variations
  */
-MEMORYTEST(CudaCachingAllocator, constructor_variations)
+MEMORYTEST_F(CudaCachingAllocator, constructor_variations)
 {
     // Test default constructor (if available)
     try
@@ -92,7 +130,7 @@ MEMORYTEST(CudaCachingAllocator, constructor_variations)
 /**
  * @brief Test basic allocation and deallocation functionality
  */
-MEMORYTEST(CudaCachingAllocator, allocates_and_deallocates_memory)
+MEMORYTEST_F(CudaCachingAllocator, allocates_and_deallocates_memory)
 {
     cuda_caching_allocator allocator(0, 32 * 1024ULL);  // 32MB cache
 
@@ -124,7 +162,7 @@ MEMORYTEST(CudaCachingAllocator, allocates_and_deallocates_memory)
 /**
  * @brief Test cache management functionality
  */
-MEMORYTEST(CudaCachingAllocator, manages_cache_correctly)
+MEMORYTEST_F(CudaCachingAllocator, manages_cache_correctly)
 {
     cuda_caching_allocator allocator(0, 16 * 1024ULL);  // 16MB cache
 
@@ -150,7 +188,7 @@ MEMORYTEST(CudaCachingAllocator, manages_cache_correctly)
 /**
  * @brief Test cache size limits and configuration
  */
-MEMORYTEST(CudaCachingAllocator, respects_cache_size_limits)
+MEMORYTEST_F(CudaCachingAllocator, respects_cache_size_limits)
 {
     cuda_caching_allocator allocator(0, 8 * 1024ULL);  // 8MB cache
 
@@ -168,7 +206,7 @@ MEMORYTEST(CudaCachingAllocator, respects_cache_size_limits)
 /**
  * @brief Test statistics collection and reporting
  */
-MEMORYTEST(CudaCachingAllocator, provides_accurate_statistics)
+MEMORYTEST_F(CudaCachingAllocator, provides_accurate_statistics)
 {
     cuda_caching_allocator allocator(0, 32 * 1024ULL);  // 32MB cache
 
@@ -195,7 +233,7 @@ MEMORYTEST(CudaCachingAllocator, provides_accurate_statistics)
 /**
  * @brief Test move semantics and resource transfer
  */
-MEMORYTEST(CudaCachingAllocator, supports_move_semantics)
+MEMORYTEST_F(CudaCachingAllocator, supports_move_semantics)
 {
     // Create allocator
     cuda_caching_allocator allocator1(0, 16 * 1024ULL);
@@ -218,7 +256,7 @@ MEMORYTEST(CudaCachingAllocator, supports_move_semantics)
 /**
  * @brief Test error handling for invalid operations
  */
-MEMORYTEST(CudaCachingAllocator, handles_errors_gracefully)
+MEMORYTEST_F(CudaCachingAllocator, handles_errors_gracefully)
 {
     cuda_caching_allocator allocator(0, 16 * 1024ULL);
 
@@ -236,7 +274,7 @@ MEMORYTEST(CudaCachingAllocator, handles_errors_gracefully)
 /**
  * @brief Test template allocator construction and basic operations
  */
-MEMORYTEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
+MEMORYTEST_F(CudaCachingAllocatorTemplate, constructs_with_different_types)
 {
     // Test template allocator for different types
     cuda_caching_allocator_template<float, 256>  float_allocator(0, 32 * 1024ULL);
@@ -254,7 +292,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, constructs_with_different_types)
 /**
  * @brief Test template allocator type-safe allocation
  */
-MEMORYTEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
+MEMORYTEST_F(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
 {
     cuda_caching_allocator_template<float, 256> allocator(0, 16 * 1024ULL);
 
@@ -276,7 +314,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
 /**
  * @brief Test template allocator alignment requirements
  */
-MEMORYTEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
+MEMORYTEST_F(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 {
     cuda_caching_allocator_template<double, 512> allocator(0, 16 * 1024ULL);
 
@@ -296,7 +334,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 /**
  * @brief Test template allocator statistics and cache operations
  */
-MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
+MEMORYTEST_F(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
 {
     cuda_caching_allocator_template<int, 256> allocator(0, 8 * 1024ULL);
 
@@ -330,7 +368,7 @@ MEMORYTEST(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
 /**
  * @brief Requests are rounded to 512-byte multiples before block sizing
  */
-MEMORYTEST(CudaCachingAllocator, rounds_requests_to_512_byte_multiples)
+MEMORYTEST_F(CudaCachingAllocator, rounds_requests_to_512_byte_multiples)
 {
     cuda_caching_allocator allocator(0);
 
@@ -354,7 +392,7 @@ MEMORYTEST(CudaCachingAllocator, rounds_requests_to_512_byte_multiples)
 /**
  * @brief Small requests are packed into shared 2 MiB segments (one cudaMalloc)
  */
-MEMORYTEST(CudaCachingAllocator, packs_small_allocations_into_one_segment)
+MEMORYTEST_F(CudaCachingAllocator, packs_small_allocations_into_one_segment)
 {
     cuda_caching_allocator allocator(0);
 
@@ -377,7 +415,7 @@ MEMORYTEST(CudaCachingAllocator, packs_small_allocations_into_one_segment)
 /**
  * @brief Freed blocks are reused from the cache without new driver calls
  */
-MEMORYTEST(CudaCachingAllocator, reuses_cached_blocks)
+MEMORYTEST_F(CudaCachingAllocator, reuses_cached_blocks)
 {
     cuda_caching_allocator allocator(0);
 
@@ -403,7 +441,7 @@ MEMORYTEST(CudaCachingAllocator, reuses_cached_blocks)
 /**
  * @brief Oversized cached blocks are split and the remainder returned to the pool
  */
-MEMORYTEST(CudaCachingAllocator, splits_oversized_cached_blocks)
+MEMORYTEST_F(CudaCachingAllocator, splits_oversized_cached_blocks)
 {
     cuda_caching_allocator allocator(0);
 
@@ -432,7 +470,7 @@ MEMORYTEST(CudaCachingAllocator, splits_oversized_cached_blocks)
  * @brief Free blocks are scoped to their allocation stream and never reused
  *        on a different stream
  */
-MEMORYTEST(CudaCachingAllocator, never_reuses_blocks_across_streams)
+MEMORYTEST_F(CudaCachingAllocator, never_reuses_blocks_across_streams)
 {
     cuda_caching_allocator allocator(0);
 
@@ -468,7 +506,7 @@ MEMORYTEST(CudaCachingAllocator, never_reuses_blocks_across_streams)
  * @brief record_stream defers reuse of a cross-stream allocation until the
  *        recorded stream's pending work completes
  */
-MEMORYTEST(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
+MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
 {
     cuda_caching_allocator allocator(0);
 
@@ -506,7 +544,7 @@ MEMORYTEST(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
 /**
  * @brief empty_cache releases cached segments so they can be re-cudaMalloc'd
  */
-MEMORYTEST(CudaCachingAllocator, empty_cache_releases_cached_segments)
+MEMORYTEST_F(CudaCachingAllocator, empty_cache_releases_cached_segments)
 {
     cuda_caching_allocator allocator(0);
 
@@ -539,7 +577,7 @@ MEMORYTEST(CudaCachingAllocator, empty_cache_releases_cached_segments)
  * @brief A cache cap trims cached segments on deallocate, keeping in-use
  *        allocations fully functional
  */
-MEMORYTEST(CudaCachingAllocator, cache_cap_trims_on_deallocate)
+MEMORYTEST_F(CudaCachingAllocator, cache_cap_trims_on_deallocate)
 {
     cuda_caching_allocator allocator(0, 2 * 1024 * 1024);  // one small segment
 
@@ -561,7 +599,7 @@ MEMORYTEST(CudaCachingAllocator, cache_cap_trims_on_deallocate)
  * @brief Requests larger than 10 MiB are rounded up to 2 MiB multiples and
  *        allocated as right-sized segments
  */
-MEMORYTEST(CudaCachingAllocator, rounds_huge_allocations_to_2_mib_multiples)
+MEMORYTEST_F(CudaCachingAllocator, rounds_huge_allocations_to_2_mib_multiples)
 {
     cuda_caching_allocator allocator(0);
 
@@ -587,7 +625,7 @@ MEMORYTEST(CudaCachingAllocator, rounds_huge_allocations_to_2_mib_multiples)
  *        cudaMalloc fallback; a callback that frees memory makes the cache
  *        retriable (upstream trigger_free_memory_callbacks)
  */
-MEMORYTEST(CudaCachingAllocator, free_memory_callbacks_run_before_driver_fallback)
+MEMORYTEST_F(CudaCachingAllocator, free_memory_callbacks_run_before_driver_fallback)
 {
     cuda_caching_allocator allocator(0);
 
@@ -623,7 +661,7 @@ MEMORYTEST(CudaCachingAllocator, free_memory_callbacks_run_before_driver_fallbac
  * @brief Equal-size free segments recycle oldest-first (upstream
  *        registration_counter FIFO tie-break)
  */
-MEMORYTEST(CudaCachingAllocator, recycles_equal_size_segments_fifo)
+MEMORYTEST_F(CudaCachingAllocator, recycles_equal_size_segments_fifo)
 {
     cuda_caching_allocator allocator(0);
 
@@ -657,7 +695,7 @@ MEMORYTEST(CudaCachingAllocator, recycles_equal_size_segments_fifo)
  * @brief Every cache release pass (empty_cache / OOM flush) is counted in
  *        num_sync_all_streams (upstream DeviceStats parity)
  */
-MEMORYTEST(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
+MEMORYTEST_F(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
 {
     cuda_caching_allocator allocator(0);
 
@@ -669,19 +707,84 @@ MEMORYTEST(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
     MEMORY_LOG_INFO("CUDA caching allocator sync-all-streams counter test passed");
 }
 
+MEMORYTEST_F(CudaCachingAllocator, data_ptr_move_assign_returns_block_to_cache)
+{
+    using ptr_t          = data_ptr<float>;
+    auto&      cache     = caching_allocator_for_device(0);
+    auto const allocated = cache.stats().bytes_allocated.load();
+
+    {
+        ptr_t first(1024, device_enum::CUDA);
+        ptr_t second(1024, device_enum::CUDA);
+        EXPECT_EQ(0, first.device_index());
+        EXPECT_EQ(device_enum::CUDA, first.device());
+        first = std::move(second);
+    }
+
+    EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
+    MEMORY_LOG_INFO("data_ptr move-assign returns GPU block to cache");
+}
+
+MEMORYTEST_F(CudaCachingAllocator, data_ptr_copy_assign_returns_block_to_cache)
+{
+    using ptr_t          = data_ptr<float>;
+    auto&      cache     = caching_allocator_for_device(0);
+    auto const allocated = cache.stats().bytes_allocated.load();
+
+    {
+        ptr_t first(256, device_enum::CUDA);
+        ptr_t second(256, device_enum::CUDA);
+        first = second;
+    }
+
+    EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
+    MEMORY_LOG_INFO("data_ptr copy-assign returns GPU block to cache");
+}
+
+MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
+{
+    using ptr_t           = data_ptr<float>;
+    cudaStream_t stream_a = nullptr;
+    cudaStream_t stream_b = nullptr;
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_a));
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_b));
+
+    auto&      cache   = caching_allocator_for_device(0);
+    auto const drivers = cache.stats().driver_allocations.load();
+
+    {
+        ptr_t first(256, device_enum::CUDA, 0, stream_a);
+        EXPECT_EQ(stream_a, first.stream());
+    }
+    {
+        ptr_t second(256, device_enum::CUDA, 0, stream_a);
+        EXPECT_EQ(stream_a, second.stream());
+    }
+    EXPECT_EQ(drivers + 1, cache.stats().driver_allocations.load());
+
+    {
+        ptr_t other(256, device_enum::CUDA, 0, stream_b);
+        EXPECT_EQ(stream_b, other.stream());
+    }
+    EXPECT_EQ(drivers + 2, cache.stats().driver_allocations.load());
+
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_a));
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_b));
+    MEMORY_LOG_INFO("data_ptr allocates and frees on the given CUDA stream");
+}
+
 #if MEMORY_HAS_PROFILER
 
 /**
  * @brief report_caching_allocator_delta (gpu/caching_allocator_profiler_report.h)
- * is the helper cuda_caching_allocator::allocate/deallocate calls to report a
- * real byte delta to profiler::report_memory_usage -- same helper
- * TestCachingAllocatorStub.cpp exercises on the Metal-build stub Impl path.
- * No Kineto/ITT session is active in this test binary, so
- * report_memory_usage() no-ops internally; this only verifies the helper is
- * safe to call for both a live pointer and the deallocate(nullptr) case its
- * call sites rely on, with the real CUDA device_type (1).
+ * is a test helper that diffs two unified_cache_stats snapshots into one
+ * report_caching_allocator_event. Production allocate/deallocate report the
+ * known block size from Impl instead. No Kineto/ITT session is active in this
+ * test binary, so report_memory_usage() no-ops internally; this only verifies
+ * the helper is safe to call for both a live pointer and the deallocate(nullptr)
+ * case, with the real CUDA device_type (1).
  */
-MEMORYTEST(CudaCachingAllocator, report_caching_allocator_delta_does_not_crash)
+MEMORYTEST_F(CudaCachingAllocator, report_caching_allocator_delta_does_not_crash)
 {
     unified_cache_stats before;
     unified_cache_stats after;
@@ -690,14 +793,43 @@ MEMORYTEST(CudaCachingAllocator, report_caching_allocator_delta_does_not_crash)
     after.bytes_reserved   = 2048;
 
     int dummy_block = 0;
-    EXPECT_NO_THROW(
-        { report_caching_allocator_delta(&dummy_block, before, after, /*device_index=*/0, /*device_type=*/1); });
-    EXPECT_NO_THROW(
-        { report_caching_allocator_delta(nullptr, before, after, /*device_index=*/0, /*device_type=*/1); });
+    EXPECT_NO_THROW({
+        report_caching_allocator_delta(
+            &dummy_block, before, after, /*device_index=*/0, /*device_type=*/1);
+    });
+    EXPECT_NO_THROW({
+        report_caching_allocator_delta(
+            nullptr, before, after, /*device_index=*/0, /*device_type=*/1);
+    });
 
     MEMORY_LOG_INFO("CUDA caching allocator profiler-report helper test passed");
 }
 
 #endif  // MEMORY_HAS_PROFILER
 
-#endif  // MEMORY_HAS_CUDA
+MEMORYTEST_F(CudaCachingAllocator, process_wide_api_matches_pytorch)
+{
+    using alloc_t = allocator<float>;
+    alloc_t::empty_cache(0);
+
+    size_t const before_alloc = alloc_t::memory_allocated(0);
+    float*       ptr          = alloc_t::allocate(1024, device_enum::CUDA);
+    ASSERT_NE(nullptr, ptr);
+
+    EXPECT_GT(alloc_t::memory_allocated(0), before_alloc);
+    EXPECT_GE(alloc_t::max_memory_allocated(0), alloc_t::memory_allocated(0));
+    EXPECT_GT(alloc_t::memory_reserved(0), 0U);
+    EXPECT_GT(gpu::device_total_memory(0), 0U);
+
+    alloc_t::reset_peak_memory_stats(0);
+    EXPECT_EQ(alloc_t::max_memory_allocated(0), alloc_t::memory_allocated(0));
+
+    EXPECT_THROW(alloc_t::set_memory_fraction(0.0, 0), std::invalid_argument);
+    alloc_t::set_memory_fraction(1.0, 0);
+
+    alloc_t::free(ptr, device_enum::CUDA);
+    alloc_t::empty_cache(0);
+    MEMORY_LOG_INFO("process-wide GPU cache API test passed");
+}
+
+#endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP

@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #include "MemoryTest.h"
@@ -23,9 +23,11 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "allocator.h"
+#include "common/data_ptr.h"
 #include "gpu/caching_allocator.h"
 #include "gpu/metal/metal_buffer_allocator.h"
 
@@ -200,6 +202,17 @@ MEMORYTEST(MetalCachingAllocator, record_stream_is_noop)
     END_TEST();
 }
 
+MEMORYTEST(MetalCachingAllocator, data_ptr_stores_stream)
+{
+    using stream_t       = data_ptr<float>::stream_t;
+    stream_t const dummy = reinterpret_cast<stream_t>(static_cast<std::uintptr_t>(0x21));
+
+    data_ptr<float> ptr(64, device_enum::METAL, 0, dummy);
+    EXPECT_EQ(dummy, ptr.stream());
+    ASSERT_NE(nullptr, ptr.data());
+    END_TEST();
+}
+
 MEMORYTEST(MetalCachingAllocator, mid_segment_handle_and_offset)
 {
     // Use the process-wide registry so metal::mtl_buffer_* resolve the same instance.
@@ -226,6 +239,21 @@ MEMORYTEST(MetalCachingAllocator, mid_segment_handle_and_offset)
 
     allocator.deallocate(ptr1, 1024);
     allocator.deallocate(ptr2, 1024);
+    END_TEST();
+}
+
+MEMORYTEST(MetalCachingAllocator, interior_pointer_resolves_to_same_buffer)
+{
+    auto& allocator = caching_allocator_for_device(0);
+
+    void* base = allocator.allocate(4096);
+    ASSERT_NE(nullptr, base);
+
+    void* interior = static_cast<char*>(base) + 768;
+    EXPECT_EQ(metal::mtl_buffer_handle(base), metal::mtl_buffer_handle(interior));
+    EXPECT_EQ(metal::mtl_buffer_offset(base) + 768U, metal::mtl_buffer_offset(interior));
+
+    allocator.deallocate(base, 4096);
     END_TEST();
 }
 
@@ -276,6 +304,56 @@ MEMORYTEST(MetalCachingAllocator, supports_move_semantics)
     metal_caching_allocator allocator2 = std::move(allocator1);
     EXPECT_EQ(0, allocator2.device());
     allocator2.deallocate(ptr, 1024);
+    END_TEST();
+}
+
+MEMORYTEST(MetalCachingAllocator, data_ptr_assign_returns_block_to_cache)
+{
+    using ptr_t          = data_ptr<float>;
+    auto&      cache     = caching_allocator_for_device(0);
+    auto const allocated = cache.stats().bytes_allocated.load();
+
+    {
+        ptr_t first(1024, device_enum::METAL);
+        ptr_t second(1024, device_enum::METAL);
+        EXPECT_EQ(0, first.device_index());
+        EXPECT_EQ(device_enum::METAL, first.device());
+        first = std::move(second);
+        ptr_t third(1024, device_enum::METAL);
+        first = third;
+    }
+
+    EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
+    END_TEST();
+}
+
+MEMORYTEST(MetalCachingAllocator, process_wide_api_matches_pytorch)
+{
+    using alloc_t = allocator<float>;
+    alloc_t::empty_cache(0);
+
+    size_t const before_alloc = alloc_t::memory_allocated(0);
+    float*       ptr          = alloc_t::allocate(1024, device_enum::METAL);
+    ASSERT_NE(nullptr, ptr);
+
+    EXPECT_GT(alloc_t::memory_allocated(0), before_alloc);
+    EXPECT_GE(alloc_t::max_memory_allocated(0), alloc_t::memory_allocated(0));
+    EXPECT_GT(alloc_t::memory_reserved(0), 0U);
+    EXPECT_GE(alloc_t::max_memory_reserved(0), alloc_t::memory_reserved(0));
+    EXPECT_GT(gpu::device_total_memory(0), 0U);
+    EXPECT_EQ(1.0, gpu::memory_fraction(0));
+
+    alloc_t::reset_peak_memory_stats(0);
+    EXPECT_EQ(alloc_t::max_memory_allocated(0), alloc_t::memory_allocated(0));
+    EXPECT_EQ(alloc_t::max_memory_reserved(0), alloc_t::memory_reserved(0));
+
+    EXPECT_THROW(alloc_t::set_memory_fraction(0.0, 0), std::invalid_argument);
+    EXPECT_THROW(alloc_t::set_memory_fraction(1.5, 0), std::invalid_argument);
+    alloc_t::set_memory_fraction(1.0, 0);
+    EXPECT_EQ(1.0, gpu::memory_fraction(0));
+
+    alloc_t::free(ptr, device_enum::METAL);
+    alloc_t::empty_cache(0);
     END_TEST();
 }
 

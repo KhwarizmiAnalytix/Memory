@@ -2,8 +2,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 #include "allocator.h"
+#include "common/data_view.h"
 #include "common/device.h"
 #include "common/memory_macros.h"
 
@@ -11,77 +13,79 @@
 // structs via tensor's __host__ __device__ accessors.  Annotate them so Clang
 // CUDA does not reject the call as a __host__-only reference.
 #if defined(__CUDACC__) || defined(__HIPCC__)
-#  define DATA_PTR_GPU_CALLABLE __host__ __device__
+#define DATA_PTR_GPU_CALLABLE __host__ __device__
 #else
-#  define DATA_PTR_GPU_CALLABLE
+#define DATA_PTR_GPU_CALLABLE
 #endif
 
 namespace memory
 {
-template <typename value_t, bool clone>
+/**
+ * Unique owning typed buffer. Copy always deep-clones; move transfers
+ * ownership. data_view<T> is a non-owning window over a data_ptr buffer.
+ */
+template <typename value_t>
 struct data_ptr
 {
     using allocator_t = allocator<value_t>;
+    using stream_t    = typename allocator_t::stream_t;
 
     MEMORY_FORCE_INLINE data_ptr() = default;
 
-    MEMORY_FORCE_INLINE data_ptr(size_t size, device_enum type)
-        : data_(allocator_t::allocate(size, type)),
-          size_(size),
+    MEMORY_FORCE_INLINE data_ptr(
+        size_t size, device_enum type, int device_index = 0, stream_t stream = nullptr)
+        : size_(size),
           type_(type),
-          allocated_(true),
-          aligned_(true)  // allocator always satisfies MEMORY_ALIGNMENT
+          device_index_(device_index),
+          stream_(stream),
+          allocated_(false),
+          aligned_(true)
     {
+        if (size == 0)
+        {
+            return;
+        }
+        data_      = allocator_t::allocate(size, type, device_index, stream);
+        allocated_ = true;
     }
 
-    MEMORY_FORCE_INLINE data_ptr(value_t* data, size_t size, device_enum type)
-        : size_(size), type_(type), allocated_(clone)
+    // Adopt by cloning: allocate owned storage and copy @p data into it.
+    MEMORY_FORCE_INLINE data_ptr(
+        value_t const* data,
+        size_t         size,
+        device_enum    type,
+        int            device_index = 0,
+        stream_t       stream       = nullptr)
+        : data_ptr(size, type, device_index, stream)
     {
-        if constexpr (clone)
+        if (data != nullptr && data_ != nullptr && size != 0)
         {
-            data_ = allocator_t::allocate(size, type), aligned_ = true;
-            allocator_t::copy(data, size_, data_, type, type_);
-        }
-        else
-        {
-            data_    = data;
-            aligned_ = is_ptr_aligned(data);
+            allocator_t::copy(data, size, data_, type, type, device_index, device_index, stream);
         }
     }
 
     MEMORY_FORCE_INLINE data_ptr(
-        value_t* data, size_t size, device_enum from_type, device_enum to_type)
-        : size_(size), type_(to_type), allocated_(clone)
+        value_t const* data,
+        size_t         size,
+        device_enum    from_type,
+        device_enum    to_type,
+        int            from_index = 0,
+        int            to_index   = 0,
+        stream_t       stream     = nullptr)
+        : data_ptr(size, to_type, to_index, stream)
     {
-        if constexpr (clone)
+        if (data != nullptr && data_ != nullptr && size != 0)
         {
-            data_    = allocator_t::allocate(size, to_type);
-            aligned_ = true;
-            allocator_t::copy(data, size_, data_, from_type, to_type);
-        }
-        else
-        {
-            data_    = data;
-            aligned_ = is_ptr_aligned(data);
+            allocator_t::copy(data, size, data_, from_type, to_type, from_index, to_index, stream);
         }
     }
 
-    // Copy — behaviour controlled by clone template parameter
-    MEMORY_FORCE_INLINE data_ptr(data_ptr const& rhs)
-        : size_(rhs.size_), type_(rhs.type_), allocated_(clone)
+    MEMORY_FORCE_INLINE explicit data_ptr(data_view<value_t> const& view)
+        : data_ptr(view.data(), view.size(), view.device(), view.device_index(), view.stream())
     {
-        if constexpr (clone)
-        {
-            data_    = allocator_t::allocate(size_, type_);
-            aligned_ = true;
-            allocator_t::copy(rhs.data_, size_, data_, rhs.type_, type_);
-        }
-        else
-        {
-            data_    = rhs.data_;
-            aligned_ = rhs.aligned_;
-        }
     }
+
+    MEMORY_FORCE_INLINE data_ptr(data_ptr const& rhs) : data_ptr(rhs.view()) {}
 
     MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr const& rhs)
     {
@@ -89,107 +93,113 @@ struct data_ptr
         {
             return *this;
         }
-
-        size_      = rhs.size_;
-        type_      = rhs.type_;
-        allocated_ = clone;
-
-        if constexpr (clone)
-        {
-            data_    = allocator_t::allocate(size_, type_);
-            aligned_ = true;
-            allocator_t::copy(rhs.data_, size_, data_, rhs.type_, type_);
-        }
-        else
-        {
-            data_    = rhs.data_;
-            aligned_ = rhs.aligned_;
-        }
-
+        data_ptr tmp(rhs);
+        *this = std::move(tmp);
         return *this;
     }
 
-    // Move — always transfers ownership, independent of clone
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
-        : data_(std::move(rhs.data_)),
-          size_(std::move(rhs.size_)),
-          type_(std::move(rhs.type_)),
-          allocated_(std::move(rhs.allocated_)),
-          aligned_(std::move(rhs.aligned_))
+        : data_(rhs.data_),
+          size_(rhs.size_),
+          type_(rhs.type_),
+          device_index_(rhs.device_index_),
+          stream_(rhs.stream_),
+          allocated_(rhs.allocated_),
+          aligned_(rhs.aligned_)
     {
-        rhs.data_      = nullptr;
-        rhs.allocated_ = false;
-        rhs.aligned_   = false;
+        rhs.clear_handle();
     }
 
-    MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr&& rhs) noexcept
+    MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr&& rhs)
     {
         if (this == &rhs)
         {
             return *this;
         }
-
-        data_      = std::move(rhs.data_);
-        size_      = std::move(rhs.size_);
-        type_      = std::move(rhs.type_);
-        allocated_ = std::move(rhs.allocated_);
-        aligned_   = std::move(rhs.aligned_);
-
-        rhs.data_      = nullptr;
-        rhs.allocated_ = false;
-        rhs.aligned_   = false;
-
+        release_owned();
+        data_         = rhs.data_;
+        size_         = rhs.size_;
+        type_         = rhs.type_;
+        device_index_ = rhs.device_index_;
+        stream_       = rhs.stream_;
+        allocated_    = rhs.allocated_;
+        aligned_      = rhs.aligned_;
+        rhs.clear_handle();
         return *this;
     }
 
-    MEMORY_FORCE_INLINE ~data_ptr()
+    MEMORY_FORCE_INLINE ~data_ptr() { release_owned(); }
+
+    MEMORY_FORCE_INLINE data_view<value_t> view() const noexcept
     {
-        if (allocated_ && data_ != nullptr)
-        {
-            allocator_t::free(data_, type_);
-            data_ = nullptr;
-        }
+        return data_view<value_t>(*this);
     }
 
-    MEMORY_FORCE_INLINE void copy(data_ptr const& rhs)
+    MEMORY_FORCE_INLINE data_view<value_t> view(size_t offset, size_t count) const noexcept
     {
-        if (data_ == nullptr)
-        {
-            data_      = allocator_t::allocate(rhs.size_, rhs.type_);
-            type_      = rhs.type_;
-            size_      = rhs.size_;
-            allocated_ = true;
-            aligned_   = true;
-        }
-        if (data_ != rhs.data_)
-        {
-            allocator_t::copy(rhs.data_, rhs.size_, data_, rhs.type_, type_);
-        }
+        return data_view<value_t>(*this, offset, count);
     }
 
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* data() const { return data_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* get() const { return data_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* begin() const { return data(); }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE const value_t* end() const { return data() + size_; }
-
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data() { return data_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get() { return data_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* begin() { return data(); }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() { return data() + size_; }
+    // Handle constness: a const data_ptr does not freeze the buffer (same as std::span<T>).
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data() const { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get() const { return data_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* begin() const { return data(); }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() const { return data() + size_; }
 
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
+    MEMORY_FORCE_INLINE int                          device_index() const { return device_index_; }
+    MEMORY_FORCE_INLINE device_enum                  device() const { return type_; }
+    MEMORY_FORCE_INLINE stream_t                     stream() const { return stream_; }
+
+    MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
+    {
+        allocator_t::record_stream(data_, type_, device_index_, stream);
+    }
+
+    friend struct data_view<value_t>;
+
+private:
+    MEMORY_FORCE_INLINE void release_owned()
+    {
+        if (allocated_ && data_ != nullptr)
+        {
+            allocator_t::free(data_, type_, device_index_, 0, stream_);
+            data_      = nullptr;
+            allocated_ = false;
+        }
+    }
+
+    MEMORY_FORCE_INLINE void clear_handle() noexcept
+    {
+        data_         = nullptr;
+        size_         = 0;
+        type_         = device_enum::CPU;
+        device_index_ = 0;
+        stream_       = nullptr;
+        allocated_    = false;
+        aligned_      = false;
+    }
 
     value_t*    data_{nullptr};
     size_t      size_{0};
     device_enum type_{device_enum::CPU};
+    int         device_index_{0};
+    stream_t    stream_{nullptr};
     bool        allocated_{false};
     bool        aligned_{false};
-
-private:
-    static MEMORY_FORCE_INLINE bool is_ptr_aligned(value_t const* ptr) noexcept
-    {
-        return ptr != nullptr && (reinterpret_cast<uintptr_t>(ptr) % MEMORY_ALIGNMENT == 0);
-    }
 };
+
+template <typename value_t>
+MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
+    : data_view(owner.data_, owner.size_, owner.type_, owner.device_index_, owner.stream_)
+{
+}
+
+template <typename value_t>
+MEMORY_FORCE_INLINE data_view<value_t>::data_view(
+    data_ptr<value_t> const& owner, size_t offset, size_t count) noexcept
+    : data_view(data_view(owner).subview(offset, count))
+{
+}
 }  // namespace memory

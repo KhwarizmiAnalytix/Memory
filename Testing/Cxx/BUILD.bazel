@@ -21,7 +21,24 @@ _MEMORY_TEST_SRCS = glob(
     ),
     "//conditions:default": [],
 }) + select({
-    "//bazel:enable_hip": glob(["TestHip*.cpp"], allow_empty = True),
+    "//bazel:enable_hip": glob(
+        [
+            "TestGpu*.cpp",
+            "TestGPU*.cpp",
+            "TestHip*.cpp",
+            "TestCuda*.cpp",
+        ],
+        allow_empty = True,
+    ),
+    "//conditions:default": [],
+}) + select({
+    "//bazel:enable_metal": glob(
+        [
+            "TestGpu*.cpp",
+            "TestGPU*.cpp",
+        ],
+        allow_empty = True,
+    ),
     "//conditions:default": [],
 })
 
@@ -32,16 +49,16 @@ cc_test(
     srcs = _MEMORY_TEST_SRCS,
     copts = memory_copts(),
     defines = memory_defines() + [
-        "QUARISMA_GOOGLE_TEST",
+        "XSIGMA_GOOGLE_TEST",
         "USE_GTEST",
         "_VARIADIC_MAX=10",
         "MEMORY_HAS_GTEST=1",
     ] + select({
-        "//bazel:enable_cuda": ["QUARISMA_HAS_CUDA=1"],
-        "//conditions:default": ["QUARISMA_HAS_CUDA=0"],
+        "//bazel:enable_cuda": ["XSIGMA_HAS_CUDA=1"],
+        "//conditions:default": ["XSIGMA_HAS_CUDA=0"],
     }) + select({
-        "//bazel:enable_hip": ["QUARISMA_HAS_HIP=1"],
-        "//conditions:default": ["QUARISMA_HAS_HIP=0"],
+        "//bazel:enable_hip": ["XSIGMA_HAS_HIP=1"],
+        "//conditions:default": ["XSIGMA_HAS_HIP=0"],
     }),
     includes = ["."],
     linkopts = memory_linkopts(),

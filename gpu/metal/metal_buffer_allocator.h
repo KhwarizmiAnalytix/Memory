@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
@@ -32,10 +32,10 @@ namespace memory::metal
 {
 // Owning id<MTLBuffer> for a live allocation, bridged to void* (not retained).
 // Returns nullptr if host_ptr is not a live METAL allocation.
-MEMORY_API void* mtl_buffer_handle(void* host_ptr);
+MEMORY_API void* mtl_buffer_handle(void const* host_ptr);
 
 // Byte offset of host_ptr within its owning MTLBuffer (0 at segment base).
-MEMORY_API std::size_t mtl_buffer_offset(void* host_ptr);
+MEMORY_API std::size_t mtl_buffer_offset(void const* host_ptr);
 
 // True if MTLCreateSystemDefaultDevice() is available.
 MEMORY_API bool device_available();

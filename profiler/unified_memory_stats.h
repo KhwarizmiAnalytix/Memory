@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
@@ -31,13 +31,16 @@ namespace memory
 /**
  * @brief Statistics for caching allocators (currently: cuda_caching_allocator)
  *
- * This is the only XSigma-owned statistics surface of the Memory library. The
- * CPU path (cpu::memory_allocator) carries no XSigma-level counters — counters
- * on the hot path would defeat its "thin dispatch over mimalloc/TBB" design;
- * use the benchmark suite (BenchmarkCPUMemoryAllocators) for CPU performance
- * data and cpu::memory_allocator::usable_size() for per-block tooling.
- * mimalloc's own opt-in statistics (MEMORY_ENABLE_MIMALLOC_STATS) are exposed
- * via cpu::memory_allocator::{has_stats, stats_print, process_info}.
+ * This is the GPU caching-allocator statistics surface of the Memory library.
+ * CPU alloc/free/OOM events go through profiled_cpu_memory_reporter, compiled
+ * into allocate/free only when MEMORY_HAS_PROFILER=1 and then only after
+ * profiler::memory_profiling_active(). The CPU path (cpu::memory_allocator)
+ * still carries no always-on counters — that would defeat its "thin dispatch
+ * over mimalloc/TBB" design; use the benchmark suite
+ * (BenchmarkCPUMemoryAllocators) for CPU performance data and
+ * cpu::memory_allocator::usable_size() for per-block tooling. mimalloc's own
+ * opt-in statistics (MEMORY_ENABLE_MIMALLOC_STATS) are exposed via
+ * cpu::memory_allocator::{has_stats, stats_print, process_info}.
  */
 struct MEMORY_VISIBILITY unified_cache_stats
 {
@@ -52,12 +55,14 @@ struct MEMORY_VISIBILITY unified_cache_stats
     std::atomic<size_t> successful_allocations{0};
     std::atomic<size_t> successful_frees{0};
     std::atomic<size_t> bytes_allocated{0};
+    std::atomic<size_t> peak_bytes_allocated{0};
 
     // PyTorch DeviceStats-style fields (cuda_caching_allocator): total segment
     // bytes held from the driver, bytes in free split-off remainders that
     // cannot be returned to the driver, OOM cache-flush retries, and
     // allocations that failed even after the flush-and-retry chain.
     std::atomic<size_t> bytes_reserved{0};
+    std::atomic<size_t> peak_bytes_reserved{0};
     std::atomic<size_t> inactive_split_bytes{0};
     std::atomic<size_t> num_alloc_retries{0};
     std::atomic<size_t> num_ooms{0};
@@ -77,6 +82,13 @@ struct MEMORY_VISIBILITY unified_cache_stats
      * @brief Reset all cache statistics to zero
      */
     MEMORY_API void reset() noexcept;
+
+    /**
+     * @brief Reset peak counters to the current allocated/reserved/cached values.
+     *
+     * Matches torch.cuda.reset_peak_memory_stats: live counters are unchanged.
+     */
+    MEMORY_API void reset_peaks() noexcept;
 
     /**
      * @brief Calculate cache hit rate as ratio

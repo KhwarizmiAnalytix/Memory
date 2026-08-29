@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #include "profiler/unified_memory_stats.h"
@@ -36,7 +36,9 @@ unified_cache_stats::unified_cache_stats(const unified_cache_stats& other) noexc
       successful_allocations(other.successful_allocations.load(std::memory_order_relaxed)),
       successful_frees(other.successful_frees.load(std::memory_order_relaxed)),
       bytes_allocated(other.bytes_allocated.load(std::memory_order_relaxed)),
+      peak_bytes_allocated(other.peak_bytes_allocated.load(std::memory_order_relaxed)),
       bytes_reserved(other.bytes_reserved.load(std::memory_order_relaxed)),
+      peak_bytes_reserved(other.peak_bytes_reserved.load(std::memory_order_relaxed)),
       inactive_split_bytes(other.inactive_split_bytes.load(std::memory_order_relaxed)),
       num_alloc_retries(other.num_alloc_retries.load(std::memory_order_relaxed)),
       num_ooms(other.num_ooms.load(std::memory_order_relaxed)),
@@ -71,8 +73,12 @@ unified_cache_stats& unified_cache_stats::operator=(const unified_cache_stats& o
             other.successful_frees.load(std::memory_order_relaxed), std::memory_order_relaxed);
         bytes_allocated.store(
             other.bytes_allocated.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        peak_bytes_allocated.store(
+            other.peak_bytes_allocated.load(std::memory_order_relaxed), std::memory_order_relaxed);
         bytes_reserved.store(
             other.bytes_reserved.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        peak_bytes_reserved.store(
+            other.peak_bytes_reserved.load(std::memory_order_relaxed), std::memory_order_relaxed);
         inactive_split_bytes.store(
             other.inactive_split_bytes.load(std::memory_order_relaxed), std::memory_order_relaxed);
         num_alloc_retries.store(
@@ -97,11 +103,23 @@ void unified_cache_stats::reset() noexcept
     successful_allocations.store(0, std::memory_order_relaxed);
     successful_frees.store(0, std::memory_order_relaxed);
     bytes_allocated.store(0, std::memory_order_relaxed);
+    peak_bytes_allocated.store(0, std::memory_order_relaxed);
     bytes_reserved.store(0, std::memory_order_relaxed);
+    peak_bytes_reserved.store(0, std::memory_order_relaxed);
     inactive_split_bytes.store(0, std::memory_order_relaxed);
     num_alloc_retries.store(0, std::memory_order_relaxed);
     num_ooms.store(0, std::memory_order_relaxed);
     num_sync_all_streams.store(0, std::memory_order_relaxed);
+}
+
+void unified_cache_stats::reset_peaks() noexcept
+{
+    peak_bytes_cached.store(
+        bytes_cached.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    peak_bytes_allocated.store(
+        bytes_allocated.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    peak_bytes_reserved.store(
+        bytes_reserved.load(std::memory_order_relaxed), std::memory_order_relaxed);
 }
 
 double unified_cache_stats::cache_hit_rate() const noexcept

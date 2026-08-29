@@ -1,5 +1,5 @@
 # =============================================================================
-# Quarisma Metal
+# XSigma Metal
 # Configuration Module
 
 # This module configures Apple's Metal for macOS GPU acceleration. Metal has no CMake
@@ -29,5 +29,5 @@ set(PROJECT_METAL_LIBRARIES ${METAL_FRAMEWORK} ${FOUNDATION_FRAMEWORK})
 # which is never actually consumed by Memory/CMakeLists.txt's target_link_libraries call).
 list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_METAL_LIBRARIES})
 
-message(STATUS "Quarisma: Metal framework: ${METAL_FRAMEWORK}")
-message(STATUS "Quarisma: Foundation framework: ${FOUNDATION_FRAMEWORK}")
+message(STATUS "XSigma: Metal framework: ${METAL_FRAMEWORK}")
+message(STATUS "XSigma: Foundation framework: ${FOUNDATION_FRAMEWORK}")

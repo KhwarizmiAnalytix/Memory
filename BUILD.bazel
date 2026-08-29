@@ -1,4 +1,5 @@
 # Standalone memory library. Include root is Library/Memory (no Memory/memory/ nesting).
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
 
 package(default_visibility = ["//visibility:public"])
@@ -34,24 +35,24 @@ filegroup(
 
 # cc_library's srcs don't accept .mm (Objective-C++) without rules_apple's objc_library,
 # which this project doesn't otherwise depend on. Work around it the standard way: copy each
-# .mm to a .cc-suffixed generated file (genrule, not glob) and force Objective-C++ mode back
+# .mm to a .cc-suffixed generated file (copy_file, not glob) and force Objective-C++ mode back
 # on via -x objective-c++ in copts -- but scoped to a small dedicated cc_library (below)
 # rather than applied to the whole memory_lib target, so plain .cpp sources never compile
 # under Objective-C++ mode (a real behavior divergence from CMake's per-file
 # set_source_files_properties, not just a cosmetic one: any future .cpp using `id`, `BOOL`,
 # `Class`, or `SEL` as an ordinary C++ identifier would silently fail only under Bazel).
-genrule(
+# copy_file is used instead of genrule+cp so the rename works on Windows (//... still
+# builds these targets even when Metal is off).
+copy_file(
     name = "metal_buffer_allocator_objcxx",
-    srcs = ["gpu/metal/metal_buffer_allocator.mm"],
-    outs = ["gpu/metal/metal_buffer_allocator_mm.cc"],
-    cmd = "cp $< $@",
+    src = "gpu/metal/metal_buffer_allocator.mm",
+    out = "gpu/metal/metal_buffer_allocator_mm.cc",
 )
 
-genrule(
+copy_file(
     name = "metal_caching_allocator_objcxx",
-    srcs = ["gpu/metal/metal_caching_allocator.mm"],
-    outs = ["gpu/metal/metal_caching_allocator_mm.cc"],
-    cmd = "cp $< $@",
+    src = "gpu/metal/metal_caching_allocator.mm",
+    out = "gpu/metal/metal_caching_allocator_mm.cc",
 )
 
 # Isolates the -x objective-c++ -fobjc-arc copts (mirrors CMake's set_source_files_properties(

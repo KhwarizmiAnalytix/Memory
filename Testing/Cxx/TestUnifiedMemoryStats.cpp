@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #include "MemoryTest.h"
@@ -80,6 +80,26 @@ MEMORYTEST(UnifiedCacheStats, CopyConstructorAndAssignment)
 
     assigned = assigned;
     EXPECT_EQ(assigned.cache_hits.load(), 6U);
+    END_TEST();
+}
+
+MEMORYTEST(UnifiedCacheStats, ResetPeaksKeepsLiveCounters)
+{
+    unified_cache_stats stats;
+    stats.bytes_allocated.store(128);
+    stats.peak_bytes_allocated.store(1024);
+    stats.bytes_reserved.store(256);
+    stats.peak_bytes_reserved.store(2048);
+    stats.bytes_cached.store(64);
+    stats.peak_bytes_cached.store(512);
+
+    stats.reset_peaks();
+    EXPECT_EQ(stats.bytes_allocated.load(), 128U);
+    EXPECT_EQ(stats.peak_bytes_allocated.load(), 128U);
+    EXPECT_EQ(stats.bytes_reserved.load(), 256U);
+    EXPECT_EQ(stats.peak_bytes_reserved.load(), 256U);
+    EXPECT_EQ(stats.bytes_cached.load(), 64U);
+    EXPECT_EQ(stats.peak_bytes_cached.load(), 64U);
     END_TEST();
 }
 

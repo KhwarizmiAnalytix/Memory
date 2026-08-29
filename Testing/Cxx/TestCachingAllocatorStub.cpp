@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 // gpu/cuda_caching_allocator.cpp compiles a trivial stub Impl (its `#else`
@@ -140,6 +140,16 @@ MEMORYTEST(CachingAllocatorStub, FreeMemoryCallbacksAreNoOps)
     END_TEST();
 }
 
+MEMORYTEST(CachingAllocatorStub, SetMemoryFractionAndPeaksAreNoOps)
+{
+    cuda_caching_allocator allocator;
+    EXPECT_NO_THROW({ allocator.set_memory_fraction(0.5); });
+    EXPECT_EQ(0.5, allocator.memory_fraction());
+    EXPECT_NO_THROW({ allocator.reset_peak_stats(); });
+    EXPECT_EQ(0U, allocator.device_total_memory());
+    END_TEST();
+}
+
 MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
 {
     const cuda_caching_allocator allocator;
@@ -152,14 +162,11 @@ MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
 #if MEMORY_HAS_PROFILER
 
 // report_caching_allocator_delta (gpu/caching_allocator_profiler_report.h) is
-// the helper cuda_caching_allocator::allocate/deallocate and
-// metal_caching_allocator::allocate/deallocate both call to report a real
-// byte delta to profiler::report_memory_usage. No Kineto/ITT session is
-// active in this test binary (Memory does not link the bespoke/kineto
-// headers Profiler's own tests use), so report_memory_usage() no-ops
-// internally -- this only verifies the helper itself is safe to call for
-// both a live pointer and the deallocate(nullptr) case its call sites rely
-// on, not the resulting profiler event.
+// a test helper that diffs two unified_cache_stats snapshots into one
+// report_caching_allocator_event. Production allocate/deallocate report the
+// known block size from Impl. No Kineto/ITT session is active in this test
+// binary, so report_memory_usage() no-ops internally -- this only verifies
+// the helper itself is safe to call for both a live pointer and nullptr.
 MEMORYTEST(CachingAllocatorStub, ReportCachingAllocatorDeltaDoesNotCrash)
 {
     unified_cache_stats before;
@@ -171,10 +178,14 @@ MEMORYTEST(CachingAllocatorStub, ReportCachingAllocatorDeltaDoesNotCrash)
     int dummy_block = 0;
     // device_type=3 (profiler::device_enum::PrivateUse1) matches what
     // metal_caching_allocator.mm's real call sites report.
-    EXPECT_NO_THROW(
-        { report_caching_allocator_delta(&dummy_block, before, after, /*device_index=*/0, /*device_type=*/3); });
-    EXPECT_NO_THROW(
-        { report_caching_allocator_delta(nullptr, before, after, /*device_index=*/0, /*device_type=*/3); });
+    EXPECT_NO_THROW({
+        report_caching_allocator_delta(
+            &dummy_block, before, after, /*device_index=*/0, /*device_type=*/3);
+    });
+    EXPECT_NO_THROW({
+        report_caching_allocator_delta(
+            nullptr, before, after, /*device_index=*/0, /*device_type=*/3);
+    });
     END_TEST();
 }
 

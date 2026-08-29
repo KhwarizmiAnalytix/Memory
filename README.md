@@ -1,13 +1,39 @@
 # Memory (`Library/Memory`)
 
-**Memory** layer: the `data_ptr` allocation path (`allocator<T>` — CPU via the raw **mimalloc** / **TBB** / platform aligned-malloc backend, CUDA via the per-device **cuda_caching_allocator**, Metal via the Metal buffer allocator), optional **NUMA**, **memkind**, and integration with **Logging** when enabled.
+**Memory** layer: unique `data_ptr<T>` + non-owning `data_view<T>`;
+`allocator<T>` (CPU via **mimalloc** / **TBB** / platform aligned malloc;
+CUDA/HIP/Metal via the process-wide **caching allocator**). Optional **NUMA**,
+**memkind**. Always links **Logging**. Full design and status:
+[`Docs/memory_design.md`](../../Docs/memory_design.md).
+
+## Status (August 2026)
+
+**Done.** Unique `data_ptr` (copy always clones) + non-owning `data_view`
+(window on a `data_ptr`, or `borrow()` for foreign memory). PyTorch-style
+512 B / 2–20 MiB GPU segment cache on CUDA, HIP, and Metal (expandable VM
+segments, mutex dropped around driver malloc, OOM flush+retry). Process-wide
+`empty_cache` / `memory_allocated` / `memory_reserved` / `set_memory_fraction`
+/ `reset_peak_memory_stats`. Tensor copy always clones; wrap / `t()` / `slice()`
+borrow. Sized ctors take `device_index` + stream; `assign_async` records dest
+and expression sources. Metal + CMake/Bazel tests green on macOS.
+
+**Still open.** CUDA/HIP runtime verification (no `TestHip*.cpp`); CUDA graphs
+/ MemPool; pinned host cache; AllocConf knobs; OOM snapshot / alloc history;
+`cudaMallocAsync` backend; views do not refcount owners; Metal `record_stream`
+is a no-op (device 0, no fp64); tensor defaults still GPU 0 / default stream;
+`empty_cache` is not re-exported from Vectorization. Do not call `empty_cache`
+on the allocate/free hot path.
+
+Details: [`Docs/memory_design.md`](../../Docs/memory_design.md) §10.
 
 ## Layout
 
 - `CMakeLists.txt` — `MEMORY_ENABLE_*`, `MEMORY_CXX_STANDARD`.
 - `BUILD.bazel` — `//Library/Memory:Memory`; GPU sources selected via Bazel defines.
 - `Cmake/` — `cuda.cmake`, `hip`, `tbb_memory.cmake`, `numa.cmake`, etc.
-- `common/`, `helper/`, `gpu/` (CUDA caching allocator, Metal buffer allocator), `profiler/` (unified memory stats) — implementation trees.
+- `common/` (`data_ptr.h`, `data_view.h`, device/NUMA), `helper/`, `gpu/`
+  (CUDA/HIP caching allocator, Metal caching allocator + bind helpers),
+  `profiler/` (unified cache stats).
 - `Testing/Cxx/` — tests and benchmark binaries when enabled.
 
 ---
@@ -24,7 +50,6 @@
 | `MEMORY_ENABLE_EXAMPLES` | OFF | Examples |
 | `MEMORY_ENABLE_GTEST` | ON | GoogleTest |
 | `MEMORY_ENABLE_BENCHMARK` | ON | Google Benchmark |
-| `MEMORY_ENABLE_LOGGING` | ON | Link Logging; `MEMORY_HAS_LOGGING` |
 | `MEMORY_ENABLE_MIMALLOC` | ON | mimalloc |
 | `MEMORY_ENABLE_MIMALLOC_STATS` | OFF | Compile mimalloc statistics (`MI_STAT=1` on the vendored `mimalloc-static`; release builds otherwise compile counters out). Enables `cpu::memory_allocator::{has_stats, stats_print, process_info}` and runtime reporting via `MIMALLOC_SHOW_STATS=1` (dump at process exit) / `MIMALLOC_VERBOSE=1`. setup.py: `--mimalloc_stats` (a `--` flag, not a dotted token — `_` is a token delimiter). Requires `MEMORY_ENABLE_MIMALLOC` |
 | `MEMORY_ENABLE_MEMKIND` | OFF | memkind (Linux); forced OFF on non-Linux in CMake |

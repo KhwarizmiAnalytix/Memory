@@ -1,5 +1,5 @@
 # =============================================================================
-# Quarisma HIP
+# XSigma HIP
 # (Heterogeneous-compute Interface for Portability) Configuration Module
 
 # This module configures HIP for AMD GPU acceleration and ROCm support. It manages HIP toolkit
@@ -26,6 +26,11 @@ if(CMAKE_VERSION VERSION_LESS "3.21")
   message(FATAL_ERROR "HIP support requires CMake 3.21 or later. Found: ${CMAKE_VERSION}")
 endif()
 
+# /opt/rocm is not a CMake default prefix; HIP_PATH=/usr (dirname of the
+# alternatives hipcc wrapper) is not an SDK root. Resolve a real prefix first.
+include(rocm_prefix)
+xsigma_setup_rocm_prefix()
+
 # Find HIP package
 find_package(hip REQUIRED)
 
@@ -38,12 +43,12 @@ enable_language(HIP)
 
 # Version checks
 if(hip_VERSION VERSION_LESS "5.0")
-  message(FATAL_ERROR "Quarisma requires HIP 5.0 or above. Found: ${hip_VERSION}")
+  message(FATAL_ERROR "XSigma requires HIP 5.0 or above. Found: ${hip_VERSION}")
 endif()
 
-message(STATUS "Quarisma: HIP detected: ${hip_VERSION}")
-message(STATUS "Quarisma: HIP compiler is: ${CMAKE_HIP_COMPILER}")
-message(STATUS "Quarisma: HIP toolkit directory: ${HIP_ROOT_DIR}")
+message(STATUS "XSigma: HIP detected: ${hip_VERSION}")
+message(STATUS "XSigma: HIP compiler is: ${CMAKE_HIP_COMPILER}")
+message(STATUS "XSigma: HIP toolkit directory: ${HIP_ROOT_DIR}")
 
 # Set C++ standard for HIP
 set(CMAKE_HIP_STANDARD 17)
@@ -96,7 +101,10 @@ elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "none")
 endif()
 
 # Set up HIP libraries using modern imported targets
-set(PROJECT_HIP_LIBRARIES hip::host hip::device)
+# Host runtime only on the PUBLIC interface. hip::device injects `-x hip
+# --offload-arch=...` into every consumer TU; leaking it PUBLIC compiles host
+# SIMD tests (TestSimdUtility.cpp) as device code.
+set(PROJECT_HIP_LIBRARIES hip::host)
 
 # Add HIP libraries to the dependency list
 list(APPEND PROJECT_DEPENDENCY_LIBS ${PROJECT_HIP_LIBRARIES})

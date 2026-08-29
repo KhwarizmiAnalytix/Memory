@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 // Standalone Memory module: use this header (memory_*.h) instead of Core common/macros.h.
@@ -144,7 +144,7 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 // ============================================================================
 // Deleted special members
 // ============================================================================
-#define MEMORY_DELETE_CLASS(type)          \
+#define MEMORY_DELETE_CLASS(type)            \
     type()                         = delete; \
     type(const type&)              = delete; \
     type& operator=(const type& a) = delete; \
@@ -152,7 +152,7 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
     type& operator=(type&&)        = delete; \
     ~type()                        = delete;
 
-#define MEMORY_DELETE_COPY_AND_MOVE(type)  \
+#define MEMORY_DELETE_COPY_AND_MOVE(type)    \
 private:                                     \
     type(const type&)              = delete; \
     type& operator=(const type& a) = delete; \
@@ -161,7 +161,7 @@ private:                                     \
                                              \
 public:
 
-#define MEMORY_DELETE_COPY(type)           \
+#define MEMORY_DELETE_COPY(type)             \
     type(const type&)              = delete; \
     type& operator=(const type& a) = delete;
 
@@ -181,8 +181,7 @@ public:
 #endif
 
 #if MEMORY_HAVE_ATTRIBUTE(exclusive_locks_required)
-#define MEMORY_EXCLUSIVE_LOCKS_REQUIRED(...) \
-    __attribute__((exclusive_locks_required(__VA_ARGS__)))
+#define MEMORY_EXCLUSIVE_LOCKS_REQUIRED(...) __attribute__((exclusive_locks_required(__VA_ARGS__)))
 #else
 #define MEMORY_EXCLUSIVE_LOCKS_REQUIRED(...)
 #endif

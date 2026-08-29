@@ -1,5 +1,5 @@
 # =============================================================================
-# Quarisma CUDA
+# XSigma CUDA
 # Configuration Module
 
 # This module handles CUDA compilation support for GPU acceleration. It manages CUDA toolkit
@@ -97,11 +97,11 @@ set(CMAKE_INCLUDE_FLAG_CUDA "${CMAKE_INCLUDE_FLAG_CUDA}" CACHE INTERNAL "CUDA in
 
 # Version checks using consistent CUDAToolkit variables
 if(CUDAToolkit_VERSION VERSION_LESS "12.0")
-  message(FATAL_ERROR "Quarisma requires CUDA 12.0 or above. Found: ${CUDAToolkit_VERSION}")
+  message(FATAL_ERROR "XSigma requires CUDA 12.0 or above. Found: ${CUDAToolkit_VERSION}")
 endif()
 
 if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA" AND CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "9.2")
-  message(FATAL_ERROR "QUARISMA CUDA support requires compiler version 9.2+")
+  message(FATAL_ERROR "XSigma CUDA support requires compiler version 9.2+")
 endif()
 
 # Check for version conflicts (nvcc only — Clang reports its own version, not the toolkit version)
@@ -114,9 +114,9 @@ if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA" AND NOT CMAKE_CUDA_COMPILER_VERSION 
   )
 endif()
 
-message(STATUS "Quarisma: CUDA detected: ${CUDAToolkit_VERSION}")
-message(STATUS "Quarisma: CUDA compiler is: ${CMAKE_CUDA_COMPILER}")
-message(STATUS "Quarisma: CUDA toolkit directory: ${CUDAToolkit_ROOT}")
+message(STATUS "XSigma: CUDA detected: ${CUDAToolkit_VERSION}")
+message(STATUS "XSigma: CUDA compiler is: ${CMAKE_CUDA_COMPILER}")
+message(STATUS "XSigma: CUDA toolkit directory: ${CUDAToolkit_ROOT}")
 
 # Set C++ standard based on CUDA compiler: Clang:    inherits the host C++ standard (C++17 minimum)
 # nvcc 12.0+: supports C++20 nvcc 11.0+: supports C++17 nvcc older: falls back to C++14

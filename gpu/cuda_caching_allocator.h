@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 #pragma once
@@ -27,6 +27,7 @@
 
 #include "common/device.h"
 #include "common/memory_macros.h"
+#include "profiler/gpu_memory_snapshot.h"
 #include "profiler/unified_memory_stats.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -149,6 +150,30 @@ public:
     MEMORY_API size_t max_cached_bytes() const;
 
     /**
+     * @brief Cap reserved device memory as a fraction of device capacity
+     *
+     * Matches torch.cuda.set_per_process_memory_fraction. @p fraction is in
+     * (0, 1]. Subsequent driver allocations that would push reserved bytes past
+     * fraction * device_total_memory() flush the cache and then fail with
+     * std::bad_alloc if still over the cap.
+     */
+    MEMORY_API void set_memory_fraction(double fraction);
+
+    MEMORY_API double memory_fraction() const;
+
+    /**
+     * @brief Reset peak allocated/reserved/cached counters to the live values
+     *
+     * Matches torch.cuda.reset_peak_memory_stats.
+     */
+    MEMORY_API void reset_peak_stats();
+
+    /**
+     * @brief Device capacity in bytes (cudaMemGetInfo total / HIP equivalent)
+     */
+    MEMORY_API size_t device_total_memory() const;
+
+    /**
      * @brief Callback invoked when an allocation cannot be served from the cache
      *
      * Free-memory callbacks run between the first cache miss and the cudaMalloc
@@ -175,6 +200,25 @@ public:
      * @return Statistics structure with performance metrics
      */
     MEMORY_API unified_cache_stats stats() const;
+
+    /**
+     * @brief Enable or disable the allocation-history ring
+     *        (`torch.cuda.memory._record_memory_history`).
+     *
+     * Independent of Kineto `profile_memory`. When enabled, allocate / free /
+     * segment / OOM actions are stored up to @p max_entries (oldest dropped).
+     * @p max_entries 0 keeps the previous cap (default 100000).
+     */
+    MEMORY_API void record_memory_history(
+        bool enabled, size_t max_entries = kDefaultMemoryHistoryEntries);
+
+    /**
+     * @brief Segment/block map plus history ring (`torch.cuda.memory._snapshot`).
+     *
+     * Does not capture C++/Python stacks. When history is enabled, a
+     * `gpu_memory_trace_action::snapshot` entry is appended first.
+     */
+    MEMORY_API gpu_memory_snapshot snapshot();
 
     /**
      * @brief Get device index this allocator manages

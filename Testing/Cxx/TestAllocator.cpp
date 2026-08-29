@@ -1,9 +1,9 @@
 /*
- * Quarisma: High-Performance Computational Library
+ * XSigma: High-Performance Computational Library
  *
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  *
- * This file is part of Quarisma and is licensed under a dual-license model:
+ * This file is part of XSigma and is licensed under a dual-license model:
  *
  *   - Open-source License (GPLv3):
  *       Free for personal, academic, and research use under the terms of
@@ -13,8 +13,8 @@
  *       A commercial license is required for proprietary, closed-source,
  *       or SaaS usage. Contact us to obtain a commercial agreement.
  *
- * Contact: licensing@quarisma.co.uk
- * Website: https://www.quarisma.co.uk
+ * Contact: licensing@xsigma.co.uk
+ * Website: https://www.xsigma.co.uk
  */
 
 // Exercises the memory::allocator<T> CPU path (allocate/free/copy and the
@@ -22,13 +22,15 @@
 // The Metal-specific device_enum::METAL path is covered separately in
 // TestMetalBufferAllocator.cpp.
 
-#include "allocator.h"
-
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "MemoryTest.h"
+#include "allocator.h"
+#include "common/data_ptr.h"
+#include "common/data_view.h"
 #include "common/device.h"
 
 using namespace memory;
@@ -87,17 +89,16 @@ MEMORYTEST(Allocator, AllocateHugeSizeThrowsBadAlloc)
     using alloc_t = allocator<char>;
     // Larger than any real system can satisfy -- forces the underlying
     // backend to return nullptr, which allocate() converts to bad_alloc.
-    EXPECT_THROW(
-        alloc_t::allocate(static_cast<size_t>(-1) / 2, device_enum::CPU), std::bad_alloc);
+    EXPECT_THROW(alloc_t::allocate(static_cast<size_t>(-1) / 2, device_enum::CPU), std::bad_alloc);
     END_TEST();
 }
 
 MEMORYTEST(Allocator, AllocateUnsupportedDeviceThrows)
 {
     using alloc_t = allocator<float>;
-#if !MEMORY_HAS_CUDA
-    // On a non-CUDA build, CUDA is not a compiled-in device path and must
-    // fall through to the "unsupported device type" branch.
+#if !MEMORY_HAS_CUDA && !MEMORY_HAS_HIP
+    // HIP reuses the CUDA device enum via gpu_runtime.h (is_active_gpu_device).
+    // On a CPU/Metal-only build, CUDA is not a compiled-in device path.
     EXPECT_THROW(alloc_t::allocate(4, device_enum::CUDA), std::invalid_argument);
 #endif
     END_TEST();
@@ -106,7 +107,7 @@ MEMORYTEST(Allocator, AllocateUnsupportedDeviceThrows)
 MEMORYTEST(Allocator, FreeUnsupportedDeviceThrows)
 {
     using alloc_t = allocator<float>;
-#if !MEMORY_HAS_CUDA
+#if !MEMORY_HAS_CUDA && !MEMORY_HAS_HIP
     float* ptr = alloc_t::allocate(4, device_enum::CPU);
     ASSERT_NE(ptr, nullptr);
     EXPECT_THROW(alloc_t::free(ptr, device_enum::CUDA), std::invalid_argument);
@@ -139,8 +140,7 @@ MEMORYTEST(Allocator, CopyWithNullptrOrZeroCountIsNoOp)
     using alloc_t = allocator<int>;
     std::vector<int> dst(4, -1);
 
-    EXPECT_NO_THROW(
-        { alloc_t::copy(nullptr, 4, dst.data(), device_enum::CPU, device_enum::CPU); });
+    EXPECT_NO_THROW({ alloc_t::copy(nullptr, 4, dst.data(), device_enum::CPU, device_enum::CPU); });
     EXPECT_NO_THROW({
         int src = 0;
         alloc_t::copy(&src, 4, nullptr, device_enum::CPU, device_enum::CPU);
@@ -168,8 +168,7 @@ MEMORYTEST(Allocator, CopyUnsupportedCombinationThrows)
     // (Metal/none), and is never handled by the Metal copy branch — it must
     // fall through to the final throw.
     EXPECT_THROW(
-        alloc_t::copy(&src, 1, &dst, device_enum::HIP, device_enum::HIP),
-        std::invalid_argument);
+        alloc_t::copy(&src, 1, &dst, device_enum::HIP, device_enum::HIP), std::invalid_argument);
     END_TEST();
 }
 #endif
@@ -267,5 +266,99 @@ MEMORYTEST(Allocator, IsActiveGpuDevice)
     EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
 #endif
     EXPECT_FALSE(is_active_gpu_device(device_enum::CPU));
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, stores_device_index_and_device)
+{
+    data_ptr<float> ptr(8, device_enum::CPU, 0);
+    EXPECT_EQ(0, ptr.device_index());
+    EXPECT_EQ(device_enum::CPU, ptr.device());
+    EXPECT_EQ(8U, ptr.size());
+    ASSERT_NE(nullptr, ptr.data());
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, copy_assign_releases_previous_storage)
+{
+    data_ptr<int> first(4, device_enum::CPU);
+    data_ptr<int> second(4, device_enum::CPU);
+    first.data()[0]  = 1;
+    second.data()[0] = 2;
+
+    first = second;
+    EXPECT_EQ(2, first.data()[0]);
+    EXPECT_EQ(2, second.data()[0]);
+    EXPECT_NE(first.data(), second.data());
+
+    for (int i = 0; i < 64; ++i)
+    {
+        data_ptr<int> tmp(4, device_enum::CPU);
+        tmp.data()[0] = i;
+        first         = tmp;
+        EXPECT_EQ(i, first.data()[0]);
+    }
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, move_assign_releases_previous_storage)
+{
+    data_ptr<int> first(4, device_enum::CPU);
+    data_ptr<int> second(4, device_enum::CPU);
+    first.data()[0]  = 1;
+    second.data()[0] = 2;
+    int* const kept  = second.data();
+
+    first = std::move(second);
+    EXPECT_EQ(kept, first.data());
+    EXPECT_EQ(2, first.data()[0]);
+    EXPECT_EQ(nullptr, second.data());
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, default_stream_is_null)
+{
+    data_ptr<float> ptr(4, device_enum::CPU);
+    EXPECT_EQ(nullptr, ptr.stream());
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, stores_and_moves_stream)
+{
+    using stream_t       = data_ptr<int>::stream_t;
+    stream_t const dummy = reinterpret_cast<stream_t>(static_cast<std::uintptr_t>(0x11));
+
+    data_ptr<int> ptr(4, device_enum::CPU, 0, dummy);
+    EXPECT_EQ(dummy, ptr.stream());
+
+    data_ptr<int> moved = std::move(ptr);
+    EXPECT_EQ(dummy, moved.stream());
+    EXPECT_EQ(nullptr, ptr.stream());
+    EXPECT_EQ(0U, ptr.size());
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, copy_clones_storage)
+{
+    data_ptr<int> src(4, device_enum::CPU);
+    src.data()[0] = 7;
+    data_ptr<int> dst(src);
+    EXPECT_NE(src.data(), dst.data());
+    EXPECT_EQ(7, dst.data()[0]);
+    dst.data()[0] = 9;
+    EXPECT_EQ(7, src.data()[0]);
+    END_TEST();
+}
+
+MEMORYTEST(DataPtr, clones_from_view)
+{
+    int            raw[4] = {1, 2, 3, 4};
+    data_view<int> view   = data_view<int>::borrow(raw, 4, device_enum::CPU);
+    data_ptr<int>  owned(view);
+    ASSERT_NE(nullptr, owned.data());
+    EXPECT_NE(owned.data(), raw);
+    EXPECT_EQ(1, owned.data()[0]);
+    owned.data()[0] = 8;
+    EXPECT_EQ(1, raw[0]);
     END_TEST();
 }
