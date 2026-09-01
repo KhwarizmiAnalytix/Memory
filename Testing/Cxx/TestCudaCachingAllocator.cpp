@@ -23,7 +23,10 @@
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
+#include <atomic>
+#include <chrono>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -48,6 +51,19 @@ bool cuda_device_available()
     int               device_count = 0;
     const cudaError_t err          = cudaGetDeviceCount(&device_count);
     return err == cudaSuccess && device_count > 0;
+}
+
+// cudaStreamAddCallback/cudaLaunchHostFunc target: blocks the stream it is
+// enqueued on until `*static_cast<std::atomic<bool>*>(user_data)` is set,
+// so a test can deterministically keep a stream "busy" without a real
+// kernel (this .cpp is compiled by the host compiler, not nvcc).
+void CUDART_CB block_stream_until_released(void* user_data)
+{
+    auto* release_flag = static_cast<std::atomic<bool>*>(user_data);
+    while (!release_flag->load(std::memory_order_acquire))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }
 }  // namespace
 
@@ -164,7 +180,7 @@ MEMORYTEST_F(CudaCachingAllocator, allocates_and_deallocates_memory)
  */
 MEMORYTEST_F(CudaCachingAllocator, manages_cache_correctly)
 {
-    cuda_caching_allocator allocator(0, 16 * 1024ULL);  // 16MB cache
+    cuda_caching_allocator allocator(0, 16ULL * 1024 * 1024);  // 16 MiB cache
 
     // Allocate and deallocate to populate cache
     void* ptr1 = allocator.allocate(1024);
@@ -449,18 +465,23 @@ MEMORYTEST_F(CudaCachingAllocator, splits_oversized_cached_blocks)
     ASSERT_NE(nullptr, big);
     allocator.deallocate(big, 4 * 1024 * 1024);
 
-    // A 1 MiB request should split the cached 4 MiB block, leaving a 3 MiB remainder
-    void* small = allocator.allocate(1024 * 1024);
+    // The free-block search never crosses the small/large pool boundary
+    // (kSmallSize == 1 MiB, see caching_allocator_config.h), so the second
+    // request must stay in the same (large) pool as "big" -- i.e. > 1 MiB --
+    // for this to exercise a same-segment split instead of a fresh cudaMalloc.
+    // A 2 MiB request should split the cached 20 MiB segment, leaving an
+    // 18 MiB remainder.
+    void* small = allocator.allocate(2 * 1024 * 1024);
     ASSERT_NE(nullptr, small);
     EXPECT_EQ(big, small);
 
     auto stats = allocator.stats();
     EXPECT_EQ(1, stats.driver_allocations.load());  // no new cudaMalloc for the split
-    EXPECT_EQ(1024 * 1024, stats.bytes_allocated.load());
-    EXPECT_EQ(3 * 1024 * 1024, stats.inactive_split_bytes.load());
+    EXPECT_EQ(2 * 1024 * 1024, stats.bytes_allocated.load());
+    EXPECT_EQ(18 * 1024 * 1024, stats.inactive_split_bytes.load());
 
-    allocator.deallocate(small, 1024 * 1024);
-    // Merge restores the whole 4 MiB block; nothing split remains
+    allocator.deallocate(small, 2 * 1024 * 1024);
+    // Merge restores the whole 20 MiB block; nothing split remains
     EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
 
     MEMORY_LOG_INFO("CUDA caching allocator block split test passed");
@@ -515,26 +536,54 @@ MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
     ASSERT_EQ(cudaSuccess, cudaStreamCreate(&alloc_stream));
     ASSERT_EQ(cudaSuccess, cudaStreamCreate(&use_stream));
 
-    void* ptr = allocator.allocate(1024, alloc_stream);
+    // Keep use_stream genuinely busy so the event the allocator records on it
+    // (via record_stream/deallocate below) cannot complete until released --
+    // without this, use_stream is idle and the event resolves immediately,
+    // making the deferred-reuse behavior this test targets unobservable.
+    std::atomic<bool> release_use_stream{false};
+    ASSERT_EQ(
+        cudaSuccess,
+        cudaLaunchHostFunc(use_stream, block_stream_until_released, &release_use_stream));
+    // WDDM batches queued stream work rather than submitting it immediately;
+    // querying the stream forces the driver to flush the batch so the host
+    // function actually starts running instead of sitting unsubmitted.
+    (void)cudaStreamQuery(use_stream);
+
+    // Pick a request whose segment_size_for() result equals the request
+    // itself, so alloc_found_block_locked's should_split() sees a zero
+    // remainder and caches nothing extra. 10 MiB hits the >= kMinLargeAlloc
+    // branch of segment_size_for(), which rounds up to a 2 MiB multiple --
+    // 10 MiB is already one, so segment_size_for(10 MiB) == 10 MiB exactly.
+    // (A smaller request, e.g. 1024 bytes or even one exact small/large
+    // buffer size below this threshold, rounds up to a bigger segment and
+    // should_split() then immediately caches the leftover remainder as its
+    // own free block -- independent of the deferred block below -- so a
+    // second same-size request would reuse that leftover space instead of
+    // exercising the deferral this test targets.)
+    size_t const segment_size = 10 * 1024 * 1024;
+
+    void* ptr = allocator.allocate(segment_size, alloc_stream);
     ASSERT_NE(nullptr, ptr);
 
     allocator.record_stream(ptr, use_stream);
-    allocator.deallocate(ptr, 1024, alloc_stream);
+    allocator.deallocate(ptr, segment_size, alloc_stream);
 
     // The block is withheld pending the use_stream event; a same-stream request
     // must not see it (and there is nothing else cached), so a new segment appears
-    void* ptr2 = allocator.allocate(1024, alloc_stream);
+    void* ptr2 = allocator.allocate(segment_size, alloc_stream);
     ASSERT_NE(nullptr, ptr2);
     EXPECT_EQ(2, allocator.stats().driver_allocations.load());
-    allocator.deallocate(ptr2, 1024, alloc_stream);
+    allocator.deallocate(ptr2, segment_size, alloc_stream);
 
-    // After the recorded stream finishes, the deferred block is reclaimable
+    // Release use_stream and wait for its pending work (and the allocator's
+    // recorded event) to actually complete before expecting reclaim.
+    release_use_stream.store(true, std::memory_order_release);
     ASSERT_EQ(cudaSuccess, cudaStreamSynchronize(use_stream));
-    void* ptr3 = allocator.allocate(1024, alloc_stream);
+    void* ptr3 = allocator.allocate(segment_size, alloc_stream);
     ASSERT_NE(nullptr, ptr3);
     EXPECT_EQ(ptr, ptr3);
 
-    allocator.deallocate(ptr3, 1024, alloc_stream);
+    allocator.deallocate(ptr3, segment_size, alloc_stream);
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(use_stream));
 
@@ -579,7 +628,10 @@ MEMORYTEST_F(CudaCachingAllocator, empty_cache_releases_cached_segments)
  */
 MEMORYTEST_F(CudaCachingAllocator, cache_cap_trims_on_deallocate)
 {
-    cuda_caching_allocator allocator(0, 2 * 1024 * 1024);  // one small segment
+    // max_cached_bytes is an "at most" cap (bytes_cached_ == cap does not trim,
+    // matching the class's own "Maximum bytes to cache" contract), so the cap
+    // must be strictly below the 2 MiB segment for this test to trigger a trim.
+    cuda_caching_allocator allocator(0, 2 * 1024 * 1024 - 1);
 
     void* ptr = allocator.allocate(1024);
     ASSERT_NE(nullptr, ptr);

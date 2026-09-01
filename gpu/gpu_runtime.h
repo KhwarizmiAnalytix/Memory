@@ -66,9 +66,17 @@ using cudaMemcpyKind = hipMemcpyKind;
 #define cudaStreamCreate hipStreamCreate
 #define cudaStreamDestroy hipStreamDestroy
 #define cudaStreamSynchronize hipStreamSynchronize
+#define cudaStreamQuery hipStreamQuery
+#define cudaLaunchHostFunc hipLaunchHostFunc
 #define cudaMemGetInfo hipMemGetInfo
 #define cudaMemcpyPeer hipMemcpyPeer
 #define cudaMemcpyPeerAsync hipMemcpyPeerAsync
+
+// CUDART_CB annotates the calling convention of host callbacks passed to
+// cudaLaunchHostFunc/cudaStreamAddCallback (__stdcall on Windows CUDA). HIP
+// is Unix-only in this project (see Vectorization/CLAUDE.md), where no such
+// annotation is needed.
+#define CUDART_CB
 
 #else
 #error "gpu/gpu_runtime.h requires MEMORY_HAS_CUDA or MEMORY_HAS_HIP"

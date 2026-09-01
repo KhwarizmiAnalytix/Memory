@@ -81,6 +81,28 @@ public:
 #endif
     }
 
+    // Best-effort variant for noexcept teardown paths (e.g. allocator destructors):
+    // the CUDA runtime may already be unloading at that point, in which case
+    // cudaGetDevice/cudaSetDevice report cudaErrorCudartUnloading; rather than
+    // throwing like the constructor above, this silently skips the device switch
+    // since there is nothing left to release on the driver side by then anyway.
+    DeviceGuard(int device, std::nothrow_t) noexcept
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        int current = 0;
+        if (cudaGetDevice(&current) == cudaSuccess)
+        {
+            prev_ = current;
+            if (current != device && cudaSetDevice(device) == cudaSuccess)
+            {
+                changed_ = true;
+            }
+        }
+#else
+        (void)device;
+#endif
+    }
+
     DeviceGuard(const DeviceGuard&)            = delete;
     DeviceGuard& operator=(const DeviceGuard&) = delete;
 
@@ -114,7 +136,6 @@ namespace
 {
 
 using caching_config::kMinBlockSize;
-using caching_config::kSmallBuffer;
 using caching_config::kSmallSize;
 using caching_config::round_request_size;
 using caching_config::segment_size_for;
@@ -290,7 +311,11 @@ inline void free_segment(int device, raw_segment const& seg)
     {
         return;
     }
-    DeviceGuard const guard(device);
+    // A free path has no useful way to report "couldn't switch device" (void
+    // return) and is reached from release_all_blocks_noexcept() during process
+    // teardown, where the CUDA runtime may already be unloading — so this must
+    // not throw the way segment allocation does.
+    DeviceGuard const guard(device, std::nothrow);
     if (seg.vm)
     {
 #if MEMORY_HAS_CUDA
@@ -659,7 +684,7 @@ struct cuda_caching_allocator::Impl
         record_trace_locked(gpu_memory_trace_action::snapshot, nullptr, 0, nullptr);
 
         std::map<uintptr_t, gpu_memory_segment_info> segments;
-        std::unordered_map<void*, cache_block*>      unique;
+        std::map<void*, cache_block*>                unique;
         auto consider = [&](cache_block* block)
         {
             if (block != nullptr)
@@ -688,10 +713,10 @@ struct cuda_caching_allocator::Impl
         }
         for (auto& entry : unique)
         {
-            cache_block*  block    = entry.second;
-            void* const   base     = block->segment_base != nullptr ? block->segment_base : block->ptr;
-            size_t        seg_size = 0;
-            auto          it       = driver_segments_.find(base);
+            cache_block* block = entry.second;
+            void* const  base  = block->segment_base != nullptr ? block->segment_base : block->ptr;
+            size_t       seg_size = 0;
+            auto         it       = driver_segments_.find(base);
             if (it != driver_segments_.end())
             {
                 seg_size = it->second.size;
@@ -850,8 +875,7 @@ private:
         stats_.bytes_allocated += block->size;
         bump_peak_locked(
             stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
-        record_trace_locked(
-            gpu_memory_trace_action::alloc, block->ptr, block->size, block->stream);
+        record_trace_locked(gpu_memory_trace_action::alloc, block->ptr, block->size, block->stream);
 #if MEMORY_HAS_PROFILER
         report_event_locked(block->ptr, static_cast<int64_t>(block->size));
 #endif
@@ -1094,9 +1118,9 @@ private:
         }
     }
 
-    void release_all_blocks_noexcept()
+    void release_all_blocks_noexcept() noexcept
     {
-        DeviceGuard const guard(device_);
+        DeviceGuard const guard(device_, std::nothrow);
 
         // A segment's base pointer is its first block; collect each segment once
         // (split blocks share their segment with neighbors) and each block once
