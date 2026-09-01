@@ -44,7 +44,7 @@ Details: [`Docs/memory_design.md`](../../Docs/memory_design.md) §10.
 
 | CMake variable | Default | Summary |
 |----------------|---------|---------|
-| `MEMORY_ENABLE_LTO` | OFF | Link-time optimization |
+| `MEMORY_LTO_MODE` | Build-type dependent | `off`, `thin`, `full`, `ipo`, or `auto`; non-Debug performance builds default to `auto` |
 | `MEMORY_ENABLE_COVERAGE` | OFF | Coverage instrumentation |
 | `MEMORY_ENABLE_TESTING` | ON | Test subtree |
 | `MEMORY_ENABLE_EXAMPLES` | OFF | Examples |
