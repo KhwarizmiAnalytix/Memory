@@ -18,6 +18,23 @@ endif()
 if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
   set(CMAKE_CUDA_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "CUDA compiler (Clang)" FORCE)
   message(STATUS "CUDA: using Clang ${CMAKE_CXX_COMPILER_VERSION} as CUDA compiler")
+else()
+  # With nvcc as CMAKE_CUDA_COMPILER, CMAKE_CXX_COMPILER only selects the compiler
+  # CMake uses for plain CXX-language sources -- nvcc's own host-side codegen is
+  # controlled by the separate CMAKE_CUDA_HOST_COMPILER variable (nvcc's -ccbin),
+  # which CMake does NOT automatically default to CMAKE_CXX_COMPILER in this
+  # project's configuration. Left unset, nvcc silently falls back to whatever
+  # gcc/g++ resolves to on PATH, ignoring any g++-<N> version explicitly selected
+  # via setup.py's compiler token (e.g. `gcc-12`). Confirmed: with
+  # CMAKE_CXX_COMPILER=g++-12 selected but this unset, nvcc still invoked the
+  # system default g++-13 for host compilation -- the resulting "internal
+  # compiler error in try_forward_edges, cfgcleanup.cc" crash's bug-report
+  # message pointed at gcc-13's README.Bugs, not gcc-12's, and reproduced the
+  # exact GCC-13 ICE this file documents further below even though GCC 13 was
+  # never the version requested.
+  if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER)
+    set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+  endif()
 endif()
 
 find_package(CUDAToolkit REQUIRED)
