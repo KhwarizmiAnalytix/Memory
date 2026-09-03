@@ -17,15 +17,15 @@
  * Website: https://www.xsigma.co.uk
  */
 
-#include <cstdint>    // for uintptr_t
-#include <cstdlib>    // for size_t
-#include <cstring>    // for memset
-#include <stdexcept>  // for runtime_error
-#include <vector>     // for vector
+#include <cstdint>  // for uintptr_t
+#include <cstdlib>  // for size_t
+#include <cstring>  // for memset
+#include <vector>   // for vector
 
 #include "MemoryTest.h"               // for MEMORYTEST, END_TEST, IsAligned
 #include "helper/memory_allocator.h"  // for free, allocate, usable_size
-#include "util/memory_exception.h"    // for MEMORY_LOG_INFO
+#include "logger/logger.h"            // for LOGGING_LOG_INFO
+#include "util/exception.h"           // for logging::exception
 
 using namespace memory;
 
@@ -36,7 +36,7 @@ using namespace memory;
 // Test memory port basic operations
 MEMORYTEST(MemoryPortTest, BasicMemoryOperations)
 {
-    MEMORY_LOG_INFO("Testing memory port basic operations...");
+    LOGGING_LOG_INFO("Testing memory port basic operations...");
 
     // Test aligned malloc/free (these are available)
     void* ptr2 = cpu::memory_allocator::allocate(2048, 64);
@@ -44,13 +44,13 @@ MEMORYTEST(MemoryPortTest, BasicMemoryOperations)
     EXPECT_TRUE(IsAligned(ptr2, 64));
     cpu::memory_allocator::free(ptr2);
 
-    MEMORY_LOG_INFO("Memory port basic operations tests completed successfully");
+    LOGGING_LOG_INFO("Memory port basic operations tests completed successfully");
 }
 
 // Test memory port alignment requirements
 MEMORYTEST(MemoryPortTest, AlignmentRequirements)
 {
-    MEMORY_LOG_INFO("Testing memory port alignment requirements...");
+    LOGGING_LOG_INFO("Testing memory port alignment requirements...");
 
     // Test various alignment values
     std::vector<int> alignments = {8, 16, 32, 64, 128, 256, 512, 1024};
@@ -64,27 +64,27 @@ MEMORYTEST(MemoryPortTest, AlignmentRequirements)
         cpu::memory_allocator::free(ptr);
     }
 
-    MEMORY_LOG_INFO("Memory port alignment requirements tests completed successfully");
+    LOGGING_LOG_INFO("Memory port alignment requirements tests completed successfully");
 }
 
 // Test memory port edge cases
 MEMORYTEST(MemoryPortTest, EdgeCases)
 {
-    MEMORY_LOG_INFO("Testing memory port edge cases...");
+    LOGGING_LOG_INFO("Testing memory port edge cases...");
 
     // Test null pointer free (should not crash)
     cpu::memory_allocator::free(nullptr);
 
-    // Test zero-size allocation: MEMORY_CHECK rejects it via std::runtime_error.
-    EXPECT_THROW({ cpu::memory_allocator::allocate(0, 64); }, std::runtime_error);
+    // Test zero-size allocation: LOGGING_CHECK rejects it via logging::exception.
+    EXPECT_THROW({ cpu::memory_allocator::allocate(0, 64); }, logging::exception);
 
-    MEMORY_LOG_INFO("Memory port edge cases tests completed successfully");
+    LOGGING_LOG_INFO("Memory port edge cases tests completed successfully");
 }
 
 // Test usable_size reporting of the raw CPU allocation backend
 MEMORYTEST(MemoryPortTest, UsableSize)
 {
-    MEMORY_LOG_INFO("Testing memory port usable_size...");
+    LOGGING_LOG_INFO("Testing memory port usable_size...");
 
     // Null pointer must report zero
     EXPECT_EQ(cpu::memory_allocator::usable_size(nullptr), 0U);
@@ -99,13 +99,13 @@ MEMORYTEST(MemoryPortTest, UsableSize)
 
     cpu::memory_allocator::free(ptr);
 
-    MEMORY_LOG_INFO("Memory port usable_size tests completed successfully");
+    LOGGING_LOG_INFO("Memory port usable_size tests completed successfully");
 }
 
 // Test zero-initialized allocation policy
 MEMORYTEST(MemoryPortTest, ZeroInitialization)
 {
-    MEMORY_LOG_INFO("Testing memory port zero-initialized allocation...");
+    LOGGING_LOG_INFO("Testing memory port zero-initialized allocation...");
 
     constexpr std::size_t kBytes = 4096;
     void*                 ptr    = cpu::memory_allocator::allocate_zero(kBytes, 64);
@@ -120,13 +120,13 @@ MEMORYTEST(MemoryPortTest, ZeroInitialization)
 
     cpu::memory_allocator::free(ptr);
 
-    MEMORY_LOG_INFO("Memory port zero-initialized allocation tests completed successfully");
+    LOGGING_LOG_INFO("Memory port zero-initialized allocation tests completed successfully");
 }
 
 // Test the debug-pattern initialization policy (0xCC fill)
 MEMORYTEST(MemoryPortTest, PatternInitialization)
 {
-    MEMORY_LOG_INFO("Testing memory port pattern-initialized allocation...");
+    LOGGING_LOG_INFO("Testing memory port pattern-initialized allocation...");
 
     constexpr std::size_t kBytes = 256;
     void*                 ptr    = cpu::memory_allocator::allocate(
@@ -143,7 +143,7 @@ MEMORYTEST(MemoryPortTest, PatternInitialization)
 
     cpu::memory_allocator::free(ptr);
 
-    MEMORY_LOG_INFO("Memory port pattern-initialized allocation tests completed successfully");
+    LOGGING_LOG_INFO("Memory port pattern-initialized allocation tests completed successfully");
 }
 
 // A request larger than the address space must fail gracefully (nullptr),
@@ -151,18 +151,18 @@ MEMORYTEST(MemoryPortTest, PatternInitialization)
 // layer up, in memory::allocator<T>::allocate() (see TestAllocator.cpp).
 MEMORYTEST(MemoryPortTest, HugeAllocationReturnsNullptr)
 {
-    MEMORY_LOG_INFO("Testing memory port huge allocation failure...");
+    LOGGING_LOG_INFO("Testing memory port huge allocation failure...");
 
     void* ptr = cpu::memory_allocator::allocate(static_cast<std::size_t>(-1) / 2, 64);
     EXPECT_EQ(ptr, nullptr);
 
-    MEMORY_LOG_INFO("Memory port huge allocation failure tests completed successfully");
+    LOGGING_LOG_INFO("Memory port huge allocation failure tests completed successfully");
 }
 
 // Test the alignment validation helper directly (power-of-2 >= sizeof(void*))
 MEMORYTEST(MemoryPortTest, IsValidAlignment)
 {
-    MEMORY_LOG_INFO("Testing memory port is_valid_alignment...");
+    LOGGING_LOG_INFO("Testing memory port is_valid_alignment...");
 
     EXPECT_TRUE(cpu::memory_allocator::is_valid_alignment(sizeof(void*)));
     EXPECT_TRUE(cpu::memory_allocator::is_valid_alignment(64));
@@ -171,19 +171,19 @@ MEMORYTEST(MemoryPortTest, IsValidAlignment)
     EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(3));                  // not a power of 2
     EXPECT_FALSE(cpu::memory_allocator::is_valid_alignment(sizeof(void*) / 2));  // too small
 
-    MEMORY_LOG_INFO("Memory port is_valid_alignment tests completed successfully");
+    LOGGING_LOG_INFO("Memory port is_valid_alignment tests completed successfully");
 }
 
 // Test the default_alignment() accessor
 MEMORYTEST(MemoryPortTest, DefaultAlignment)
 {
-    MEMORY_LOG_INFO("Testing memory port default_alignment...");
+    LOGGING_LOG_INFO("Testing memory port default_alignment...");
 
     EXPECT_GT(cpu::memory_allocator::default_alignment(), 0U);
     EXPECT_TRUE(
         cpu::memory_allocator::is_valid_alignment(cpu::memory_allocator::default_alignment()));
 
-    MEMORY_LOG_INFO("Memory port default_alignment tests completed successfully");
+    LOGGING_LOG_INFO("Memory port default_alignment tests completed successfully");
 }
 
 // Test the mimalloc-specific and TBB-specific allocation entry points.
@@ -191,7 +191,7 @@ MEMORYTEST(MemoryPortTest, DefaultAlignment)
 // documented nullptr/no-op stub rather than being unreachable.
 MEMORYTEST(MemoryPortTest, BackendSpecificAllocateMi)
 {
-    MEMORY_LOG_INFO("Testing memory port allocate_mi/free_mi...");
+    LOGGING_LOG_INFO("Testing memory port allocate_mi/free_mi...");
 
     void* ptr = cpu::memory_allocator::allocate_mi(1024, 64);
 #if MEMORY_HAS_MIMALLOC
@@ -202,12 +202,12 @@ MEMORYTEST(MemoryPortTest, BackendSpecificAllocateMi)
 #endif
     cpu::memory_allocator::free_mi(ptr);
 
-    MEMORY_LOG_INFO("Memory port allocate_mi/free_mi tests completed successfully");
+    LOGGING_LOG_INFO("Memory port allocate_mi/free_mi tests completed successfully");
 }
 
 MEMORYTEST(MemoryPortTest, BackendSpecificAllocateTbb)
 {
-    MEMORY_LOG_INFO("Testing memory port allocate_tbb/free_tbb...");
+    LOGGING_LOG_INFO("Testing memory port allocate_tbb/free_tbb...");
 
     void* ptr = cpu::memory_allocator::allocate_tbb(1024, 64);
 #if MEMORY_HAS_TBB
@@ -218,7 +218,7 @@ MEMORYTEST(MemoryPortTest, BackendSpecificAllocateTbb)
 #endif
     cpu::memory_allocator::free_tbb(ptr);
 
-    MEMORY_LOG_INFO("Memory port allocate_tbb/free_tbb tests completed successfully");
+    LOGGING_LOG_INFO("Memory port allocate_tbb/free_tbb tests completed successfully");
 }
 
 // mimalloc statistics availability must mirror the compile-time switches.
@@ -226,7 +226,7 @@ MEMORYTEST(MemoryPortTest, BackendSpecificAllocateTbb)
 // process_info / stats_print and display the counters for inspection.
 MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
 {
-    MEMORY_LOG_INFO("Testing memory port mimalloc statistics availability...");
+    LOGGING_LOG_INFO("Testing memory port mimalloc statistics availability...");
 
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
     EXPECT_TRUE(cpu::memory_allocator::has_stats());
@@ -245,8 +245,8 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
     EXPECT_TRUE(cpu::memory_allocator::process_info(info));
     EXPECT_GT(info.peak_rss, 0U);
 
-    MEMORY_LOG_INFO("mimalloc statistics supported: has_stats()=true");
-    MEMORY_LOG_INFO(
+    LOGGING_LOG_INFO("mimalloc statistics supported: has_stats()=true");
+    LOGGING_LOG_INFO(
         "mimalloc process_info: elapsed_msecs={} user_msecs={} system_msecs={} "
         "current_rss={} peak_rss={} current_commit={} peak_commit={} page_faults={}",
         info.elapsed_msecs,
@@ -259,7 +259,7 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
         info.page_faults);
 
     // Full mimalloc dump (allocation / reserved / committed / ...) via logger.
-    MEMORY_LOG_INFO("mimalloc stats_print() dump follows:");
+    LOGGING_LOG_INFO("mimalloc stats_print() dump follows:");
     cpu::memory_allocator::stats_print();
 
     for (std::size_t i = 0; i < kBlockCount; ++i)
@@ -268,7 +268,7 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
     }
 #else
     EXPECT_FALSE(cpu::memory_allocator::has_stats());
-    MEMORY_LOG_INFO(
+    LOGGING_LOG_INFO(
         "mimalloc statistics not compiled in (need MEMORY_HAS_MIMALLOC && "
         "MEMORY_HAS_MIMALLOC_STATS / --mimalloc_stats)");
 
@@ -280,5 +280,5 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
     cpu::memory_allocator::stats_print();  // no-op
 #endif
 
-    MEMORY_LOG_INFO("Memory port mimalloc statistics availability tests completed successfully");
+    LOGGING_LOG_INFO("Memory port mimalloc statistics availability tests completed successfully");
 }

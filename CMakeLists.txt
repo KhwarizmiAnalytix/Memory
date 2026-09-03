@@ -205,8 +205,8 @@ set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FOR
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
 
-# fmt — used by util/memory_exception.h and others. Logging is configured first
-# and registers Fmt::fmt; this block is a fallback if Logging is absent.
+# fmt — Logging is configured first and registers Fmt::fmt; this block is a
+# fallback if Logging is absent.
 if(NOT TARGET Fmt::fmt)
   set(FMT_TEST OFF CACHE BOOL "Disable fmt tests" FORCE)
   set(FMT_DOC OFF CACHE BOOL "Disable fmt documentation" FORCE)
@@ -333,7 +333,8 @@ else()
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
-# Required Logging sibling — Memory always uses Library/Logging (MEMORY_LOG_* → LOGGING_LOG_*).
+# Required Logging sibling — Memory uses Library/Logging's LOGGING_CHECK/LOGGING_THROW/
+# LOGGING_LOG_* macros directly (util/exception.h, logger/logger.h).
 if(NOT TARGET Logging::Logging)
   message(
     FATAL_ERROR

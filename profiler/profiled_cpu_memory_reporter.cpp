@@ -21,7 +21,7 @@
 
 #include <cstdint>
 
-#include "util/memory_exception.h"
+#include "logger/logger.h"
 
 #if MEMORY_HAS_PROFILER
 #include "common/instrumentation.h"
@@ -100,7 +100,7 @@ void profiled_cpu_memory_reporter::record_deallocation(void* ptr, bool emit_even
         }
         else if (emit_event && unknown_free_log_count_++ % 1000 == 0)
         {
-            MEMORY_LOG_WARNING(
+            LOGGING_LOG_WARNING(
                 "CPU memory block of unknown size was allocated before profiling "
                 "started; deallocation event is omitted");
         }

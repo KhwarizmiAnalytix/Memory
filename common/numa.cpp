@@ -7,7 +7,7 @@
 #include <numaif.h>
 #include <unistd.h>
 
-#include "util/memory_exception.h"
+#include "util/exception.h"
 #endif
 
 namespace memory
@@ -32,7 +32,7 @@ void NUMABind(MEMORY_UNUSED int numa_node_id)
     {
         return;
     }
-    MEMORY_CHECK(numa_node_id <= numa_max_node(), "NUMA node id ", numa_node_id, " is unavailable");
+    LOGGING_CHECK(numa_node_id <= numa_max_node(), "NUMA node id {} is unavailable", numa_node_id);
 
     auto* bm = numa_allocate_nodemask();
     numa_bitmask_setbit(bm, numa_node_id);
@@ -48,13 +48,13 @@ int GetNUMANode(const void* ptr)
     {
         return -1;
     }
-    MEMORY_CHECK(ptr != nullptr, "");
+    LOGGING_CHECK(ptr != nullptr, "");
 
     int numa_node = -1;
-    MEMORY_CHECK(
+    LOGGING_CHECK(
         get_mempolicy(&numa_node, nullptr, 0, const_cast<void*>(ptr), MPOL_F_NODE | MPOL_F_ADDR) ==
             0,
-        "Unable to get memory policy, errno:",
+        "Unable to get memory policy, errno: {}",
         errno);
     return numa_node;
 #else
@@ -87,14 +87,14 @@ void NUMAMove(void* ptr, size_t size, int numa_node_id)
     {
         return;
     }
-    MEMORY_CHECK(ptr != nullptr, "");
+    LOGGING_CHECK(ptr != nullptr, "");
 
     uintptr_t page_start_ptr = ((reinterpret_cast<uintptr_t>(ptr)) & ~(getpagesize() - 1));
     ptrdiff_t offset         = reinterpret_cast<uintptr_t>(ptr) - page_start_ptr;
     // Avoid extra dynamic allocation and NUMA api calls
-    MEMORY_CHECK(static_cast<unsigned>(numa_node_id) < sizeof(unsigned long) * 8, "");
+    LOGGING_CHECK(static_cast<unsigned>(numa_node_id) < sizeof(unsigned long) * 8, "");
     unsigned long mask = 1UL << numa_node_id;
-    MEMORY_CHECK(
+    LOGGING_CHECK(
         mbind(
             reinterpret_cast<void*>(page_start_ptr),
             size + offset,

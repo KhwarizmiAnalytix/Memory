@@ -20,7 +20,7 @@
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
 #include "gpu/caching_allocator_config.h"
-#include "util/memory_exception.h"
+#include "util/exception.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/gpu_runtime.h"
@@ -408,7 +408,7 @@ struct cuda_caching_allocator::Impl
         // Validate device
         int device_count = 0;
         throw_on_cuda_error(cudaGetDeviceCount(&device_count), "cudaGetDeviceCount");
-        MEMORY_CHECK(  //NOLINT
+        LOGGING_CHECK(  //NOLINT
             device >= 0 && device < device_count,
             "Invalid CUDA device index: {} (available: 0-{})",
             device,
@@ -423,7 +423,7 @@ struct cuda_caching_allocator::Impl
 
     void* allocate(size_t size, cudaStream_t stream)
     {
-        MEMORY_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
+        LOGGING_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
 
         std::unique_lock lock(mutex_);
         process_events_locked();
@@ -489,12 +489,12 @@ struct cuda_caching_allocator::Impl
         process_events_locked();
 
         auto it = allocated_blocks_.find(ptr);
-        MEMORY_CHECK(
+        LOGGING_CHECK(
             it != allocated_blocks_.end(),
             "cuda_caching_allocator does not own the provided pointer");
 
         cache_block* block = it->second;
-        MEMORY_CHECK(block->allocated, "cuda_caching_allocator detected a double free");
+        LOGGING_CHECK(block->allocated, "cuda_caching_allocator detected a double free");
 
         allocated_blocks_.erase(it);
         block->allocated = false;
@@ -546,7 +546,7 @@ struct cuda_caching_allocator::Impl
 
         std::scoped_lock const lock(mutex_);
         auto                   it = allocated_blocks_.find(ptr);
-        MEMORY_CHECK(
+        LOGGING_CHECK(
             it != allocated_blocks_.end(),
             "cuda_caching_allocator::record_stream on a pointer that is not a live allocation");
 
@@ -685,7 +685,7 @@ struct cuda_caching_allocator::Impl
 
         std::map<uintptr_t, gpu_memory_segment_info> segments;
         std::map<void*, cache_block*>                unique;
-        auto consider = [&](cache_block* block)
+        auto                                         consider = [&](cache_block* block)
         {
             if (block != nullptr)
             {

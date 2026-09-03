@@ -19,7 +19,7 @@
 
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
-#include "util/memory_exception.h"
+#include "logger/logger.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
@@ -30,12 +30,10 @@
 #include <utility>
 #include <vector>
 
-#include "gpu/gpu_runtime.h"
-
-//#include "logger/logger.h"
 #include "allocator.h"
 #include "common/data_ptr.h"
 #include "gpu/cuda_caching_allocator.h"
+#include "gpu/gpu_runtime.h"
 
 #if MEMORY_HAS_PROFILER
 #include "gpu/caching_allocator_profiler_report.h"
@@ -105,7 +103,7 @@ MEMORYTEST_F(CudaCachingAllocator, constructs_with_valid_parameters)
     // Verify cache size
     EXPECT_EQ(64 * 1024ULL, allocator.max_cached_bytes());
 
-    MEMORY_LOG_INFO("CUDA caching allocator construction test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator construction test passed");
 }
 
 /**
@@ -140,7 +138,7 @@ MEMORYTEST_F(CudaCachingAllocator, constructor_variations)
         EXPECT_EQ(cache_size, allocator.max_cached_bytes());
     }
 
-    MEMORY_LOG_INFO("CUDA caching allocator constructor variations test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator constructor variations test passed");
 }
 
 /**
@@ -172,7 +170,7 @@ MEMORYTEST_F(CudaCachingAllocator, allocates_and_deallocates_memory)
         allocator.deallocate(ptrs[i], 512 * (i + 1));
     }
 
-    MEMORY_LOG_INFO("CUDA caching allocator allocation/deallocation test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator allocation/deallocation test passed");
 }
 
 /**
@@ -198,7 +196,7 @@ MEMORYTEST_F(CudaCachingAllocator, manages_cache_correctly)
     EXPECT_GT(stats_before.bytes_cached.load(), stats_after.bytes_cached.load());
     EXPECT_EQ(0, stats_after.bytes_cached.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator cache management test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator cache management test passed");
 }
 
 /**
@@ -216,7 +214,7 @@ MEMORYTEST_F(CudaCachingAllocator, respects_cache_size_limits)
     allocator.set_max_cached_bytes(0);
     EXPECT_EQ(0, allocator.max_cached_bytes());
 
-    MEMORY_LOG_INFO("CUDA caching allocator cache size limits test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator cache size limits test passed");
 }
 
 /**
@@ -243,7 +241,7 @@ MEMORYTEST_F(CudaCachingAllocator, provides_accurate_statistics)
     auto after_dealloc_stats = allocator.stats();
     EXPECT_EQ(0, after_dealloc_stats.bytes_allocated.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator statistics test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator statistics test passed");
 }
 
 /**
@@ -266,7 +264,7 @@ MEMORYTEST_F(CudaCachingAllocator, supports_move_semantics)
     // Moved-to allocator should work
     allocator2.deallocate(ptr, 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator move semantics test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator move semantics test passed");
 }
 
 /**
@@ -284,7 +282,7 @@ MEMORYTEST_F(CudaCachingAllocator, handles_errors_gracefully)
     // Should not crash
     allocator.deallocate(nullptr, 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator error handling test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator error handling test passed");
 }
 
 /**
@@ -302,7 +300,7 @@ MEMORYTEST_F(CudaCachingAllocatorTemplate, constructs_with_different_types)
     EXPECT_EQ(0, double_allocator.device());
     EXPECT_EQ(0, int_allocator.device());
 
-    MEMORY_LOG_INFO("CUDA caching allocator template construction test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator template construction test passed");
 }
 
 /**
@@ -324,7 +322,7 @@ MEMORYTEST_F(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
     EXPECT_NE(nullptr, ptr2);
     allocator.deallocate(ptr2, 10000);
 
-    MEMORY_LOG_INFO("CUDA caching allocator template typed allocation test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator template typed allocation test passed");
 }
 
 /**
@@ -344,7 +342,7 @@ MEMORYTEST_F(CudaCachingAllocatorTemplate, respects_alignment_requirements)
 
     allocator.deallocate(ptr, 50);
 
-    MEMORY_LOG_INFO("CUDA caching allocator template alignment test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator template alignment test passed");
 }
 
 /**
@@ -373,7 +371,7 @@ MEMORYTEST_F(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control
     // Test cache clearing
     allocator.empty_cache();
 
-    MEMORY_LOG_INFO("CUDA caching allocator template statistics test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator template statistics test passed");
 }
 
 // ============================================================================
@@ -402,7 +400,7 @@ MEMORYTEST_F(CudaCachingAllocator, rounds_requests_to_512_byte_multiples)
     allocator.deallocate(ptr2, 512);
     EXPECT_EQ(0, allocator.stats().bytes_allocated.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator size rounding test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator size rounding test passed");
 }
 
 /**
@@ -425,7 +423,7 @@ MEMORYTEST_F(CudaCachingAllocator, packs_small_allocations_into_one_segment)
     allocator.deallocate(ptr1, 1024);
     allocator.deallocate(ptr2, 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator small segment packing test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator small segment packing test passed");
 }
 
 /**
@@ -451,7 +449,7 @@ MEMORYTEST_F(CudaCachingAllocator, reuses_cached_blocks)
 
     allocator.deallocate(ptr2, 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator cached block reuse test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator cached block reuse test passed");
 }
 
 /**
@@ -484,7 +482,7 @@ MEMORYTEST_F(CudaCachingAllocator, splits_oversized_cached_blocks)
     // Merge restores the whole 20 MiB block; nothing split remains
     EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator block split test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator block split test passed");
 }
 
 /**
@@ -520,7 +518,7 @@ MEMORYTEST_F(CudaCachingAllocator, never_reuses_blocks_across_streams)
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_a));
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_b));
 
-    MEMORY_LOG_INFO("CUDA caching allocator per-stream pool test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator per-stream pool test passed");
 }
 
 /**
@@ -587,7 +585,7 @@ MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(use_stream));
 
-    MEMORY_LOG_INFO("CUDA caching allocator record_stream deferral test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator record_stream deferral test passed");
 }
 
 /**
@@ -619,7 +617,7 @@ MEMORYTEST_F(CudaCachingAllocator, empty_cache_releases_cached_segments)
     EXPECT_EQ(2, allocator.stats().driver_allocations.load());
     allocator.deallocate(ptr2, 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator empty_cache release test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator empty_cache release test passed");
 }
 
 /**
@@ -644,7 +642,7 @@ MEMORYTEST_F(CudaCachingAllocator, cache_cap_trims_on_deallocate)
     EXPECT_EQ(1, stats.driver_frees.load());
     EXPECT_EQ(1, stats.cache_evictions.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator cache cap trim test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator cache cap trim test passed");
 }
 
 /**
@@ -669,7 +667,7 @@ MEMORYTEST_F(CudaCachingAllocator, rounds_huge_allocations_to_2_mib_multiples)
     allocator.deallocate(ptr, request);
     EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator huge allocation rounding test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator huge allocation rounding test passed");
 }
 
 /**
@@ -706,7 +704,7 @@ MEMORYTEST_F(CudaCachingAllocator, free_memory_callbacks_run_before_driver_fallb
 
     allocator.deallocate(ptr, 17 * 1024 * 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator free-memory callback test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator free-memory callback test passed");
 }
 
 /**
@@ -740,7 +738,7 @@ MEMORYTEST_F(CudaCachingAllocator, recycles_equal_size_segments_fifo)
     allocator.deallocate(ptr_c, 17 * 1024 * 1024);
     allocator.deallocate(ptr_d, 17 * 1024 * 1024);
 
-    MEMORY_LOG_INFO("CUDA caching allocator FIFO recycling test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator FIFO recycling test passed");
 }
 
 /**
@@ -756,7 +754,7 @@ MEMORYTEST_F(CudaCachingAllocator, counts_sync_all_streams_on_cache_release)
     allocator.empty_cache();
     EXPECT_EQ(2, allocator.stats().num_sync_all_streams.load());
 
-    MEMORY_LOG_INFO("CUDA caching allocator sync-all-streams counter test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator sync-all-streams counter test passed");
 }
 
 MEMORYTEST_F(CudaCachingAllocator, data_ptr_move_assign_returns_block_to_cache)
@@ -774,7 +772,7 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_move_assign_returns_block_to_cache)
     }
 
     EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
-    MEMORY_LOG_INFO("data_ptr move-assign returns GPU block to cache");
+    LOGGING_LOG_INFO("data_ptr move-assign returns GPU block to cache");
 }
 
 MEMORYTEST_F(CudaCachingAllocator, data_ptr_copy_assign_returns_block_to_cache)
@@ -790,7 +788,7 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_copy_assign_returns_block_to_cache)
     }
 
     EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
-    MEMORY_LOG_INFO("data_ptr copy-assign returns GPU block to cache");
+    LOGGING_LOG_INFO("data_ptr copy-assign returns GPU block to cache");
 }
 
 MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
@@ -822,7 +820,7 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
 
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_a));
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_b));
-    MEMORY_LOG_INFO("data_ptr allocates and frees on the given CUDA stream");
+    LOGGING_LOG_INFO("data_ptr allocates and frees on the given CUDA stream");
 }
 
 #if MEMORY_HAS_PROFILER
@@ -854,7 +852,7 @@ MEMORYTEST_F(CudaCachingAllocator, report_caching_allocator_delta_does_not_crash
             nullptr, before, after, /*device_index=*/0, /*device_type=*/1);
     });
 
-    MEMORY_LOG_INFO("CUDA caching allocator profiler-report helper test passed");
+    LOGGING_LOG_INFO("CUDA caching allocator profiler-report helper test passed");
 }
 
 #endif  // MEMORY_HAS_PROFILER
@@ -881,7 +879,7 @@ MEMORYTEST_F(CudaCachingAllocator, process_wide_api_matches_pytorch)
 
     alloc_t::free(ptr, device_enum::CUDA);
     alloc_t::empty_cache(0);
-    MEMORY_LOG_INFO("process-wide GPU cache API test passed");
+    LOGGING_LOG_INFO("process-wide GPU cache API test passed");
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP

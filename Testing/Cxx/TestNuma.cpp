@@ -24,11 +24,11 @@
 // MEMORY_HAS_NUMA is on, the same calls exercise the real libnuma path.
 
 #include <cstddef>
-#include <stdexcept>
 
 #include "MemoryTest.h"
 #include "common/numa.h"
 #include "helper/memory_allocator.h"
+#include "util/exception.h"
 
 using namespace memory;
 
@@ -86,7 +86,7 @@ MEMORYTEST(Numa, GetNUMANodeNullptr)
 #if MEMORY_HAS_NUMA
     if (IsNUMAEnabled())
     {
-        EXPECT_THROW(GetNUMANode(nullptr), std::runtime_error);
+        EXPECT_THROW(GetNUMANode(nullptr), logging::exception);
     }
     else
     {

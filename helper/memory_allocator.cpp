@@ -24,7 +24,7 @@
 #include <cstring>  // for std::memset
 
 #include "common/memory_macros.h"
-#include "util/memory_exception.h"
+#include "util/exception.h"
 
 #if MEMORY_HAS_PROFILER
 #include "common/instrumentation.h"
@@ -95,12 +95,12 @@ MEMORY_FORCE_INLINE void maybe_record_out_of_memory(std::size_t nbytes)
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    MEMORY_CHECK(
+    LOGGING_CHECK(
         static_cast<std::ptrdiff_t>(nbytes) > 0,
         "cpu allocate() called with negative or zero size: {}",
         nbytes);
 
-    MEMORY_CHECK_DEBUG(
+    LOGGING_CHECK_DEBUG(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,
@@ -257,7 +257,7 @@ bool has_stats() noexcept
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
 namespace
 {
-// Route each mimalloc stats line into MEMORY_LOG_INFO (line-buffered by
+// Route each mimalloc stats line into LOGGING_LOG_INFO (line-buffered by
 // mi_stats_print_out). Strip trailing CR/LF so the logger's newline is not
 // doubled. Pass msg as a fmt arg so '{' in mimalloc text cannot break formatting.
 void mi_cdecl log_mimalloc_stats_line(const char* msg, void* /*arg*/)
@@ -284,7 +284,7 @@ void mi_cdecl log_mimalloc_stats_line(const char* msg, void* /*arg*/)
         return;
     }
 
-    MEMORY_LOG_INFO("mimalloc: {}", line);
+    LOGGING_LOG_INFO("mimalloc: {}", line);
 }
 }  // namespace
 #endif

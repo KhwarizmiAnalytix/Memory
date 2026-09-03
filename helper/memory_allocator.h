@@ -123,7 +123,7 @@ struct MEMORY_VISIBILITY process_memory_info
 MEMORY_API bool has_stats() noexcept;
 
 /**
- * @brief Log mimalloc allocator statistics via MEMORY_LOG_INFO.
+ * @brief Log mimalloc allocator statistics via LOGGING_LOG_INFO.
  *
  * Merges the calling thread's counters into the process totals first
  * (mi_stats_merge), then dumps line-by-line through mi_stats_print_out into

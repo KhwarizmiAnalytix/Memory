@@ -39,7 +39,7 @@
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
 #include "gpu/caching_allocator_config.h"
-#include "util/memory_exception.h"
+#include "util/exception.h"
 
 #if MEMORY_HAS_PROFILER
 #include "gpu/caching_allocator_profiler_report.h"
@@ -137,8 +137,8 @@ struct metal_caching_allocator::Impl
 {
     Impl(int device, size_t max_cached_bytes) : device_(device), max_cached_bytes_(max_cached_bytes)
     {
-        MEMORY_CHECK(device == 0, "Metal caching allocator only supports device index 0");
-        MEMORY_CHECK(
+        LOGGING_CHECK(device == 0, "Metal caching allocator only supports device index 0");
+        LOGGING_CHECK(
             system_metal_device() != nil,
             "Metal caching allocator requires a Metal-capable device");
     }
@@ -151,7 +151,7 @@ struct metal_caching_allocator::Impl
 
     void* allocate(size_t size, void* stream)
     {
-        MEMORY_CHECK(size > 0, "metal_caching_allocator cannot allocate zero bytes");
+        LOGGING_CHECK(size > 0, "metal_caching_allocator cannot allocate zero bytes");
         (void)stream;  // v1: single default-stream pool
 
         std::scoped_lock const lock(mutex_);
@@ -208,12 +208,12 @@ struct metal_caching_allocator::Impl
         std::scoped_lock const lock(mutex_);
 
         auto it = allocated_blocks_.find(ptr);
-        MEMORY_CHECK(
+        LOGGING_CHECK(
             it != allocated_blocks_.end(),
             "metal_caching_allocator does not own the provided pointer");
 
         cache_block* block = it->second;
-        MEMORY_CHECK(block->allocated, "metal_caching_allocator detected a double free");
+        LOGGING_CHECK(block->allocated, "metal_caching_allocator detected a double free");
 
         allocated_blocks_.erase(it);
         block->allocated = false;
@@ -375,7 +375,7 @@ struct metal_caching_allocator::Impl
 
         std::map<uintptr_t, gpu_memory_segment_info> segments;
         std::unordered_map<void*, cache_block*>      unique;
-        auto consider = [&](cache_block* block)
+        auto                                         consider = [&](cache_block* block)
         {
             if (block != nullptr)
             {
@@ -396,8 +396,8 @@ struct metal_caching_allocator::Impl
         }
         for (auto& entry : unique)
         {
-            cache_block* block = entry.second;
-            void*        base  = nullptr;
+            cache_block* block    = entry.second;
+            void*        base     = nullptr;
             size_t       seg_size = 0;
             if (block->buffer != nil)
             {
@@ -800,7 +800,7 @@ private:
     std::vector<metal_caching_allocator::free_memory_callback> free_memory_callbacks_;
     std::atomic<int64_t>                                       registration_counter_global_{0};
     unified_cache_stats                                        stats_;
-    gpu_memory_history                                        history_;
+    gpu_memory_history                                         history_;
     std::vector<id<MTLHeap>>                                   heaps_;
 };
 
