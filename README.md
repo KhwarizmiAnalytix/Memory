@@ -60,8 +60,7 @@ Details: [`Docs/memory_design.md`](../../Docs/memory_design.md) §10.
 
 | CMake variable | Summary |
 |----------------|---------|
-| `MEMORY_ENABLE_CUDA` | From `include(cuda)` — GPU CUDA path |
-| `MEMORY_ENABLE_HIP` | From HIP finder |
+| `MEMORY_GPU_BACKEND` | `none` (default), `cuda`, `hip`, or `metal` — selects GPU path (`include(cuda)` / `hip` / `metal`); drives `MEMORY_HAS_CUDA` / `MEMORY_HAS_HIP` / `MEMORY_HAS_METAL` |
 | `MEMORY_ENABLE_TBB` | From `Cmake/tbb_memory.cmake` (TBB **allocator**, not Parallel’s SMP TBB) |
 | `MEMORY_ENABLE_NUMA` | From `include(numa)`; forced OFF on non-Unix in CMake |
 

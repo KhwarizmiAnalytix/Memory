@@ -429,6 +429,16 @@ endif()
 
 add_library(Memory::Memory ALIAS Memory)
 
+if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  # CUDA is enabled in Memory's directory scope. Pass the detected toolkit to
+  # CUDA consumers in sibling directories too, where CMake's language rules
+  # may omit --cuda-path (notably Clang + Ninja on Windows).
+  target_compile_options(
+    Memory
+    PUBLIC "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:--cuda-path=${CUDAToolkit_LIBRARY_ROOT}>>"
+  )
+endif()
+
 xsigma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
 
 set_target_properties(

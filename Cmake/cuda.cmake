@@ -9,6 +9,10 @@
 # Include guard to prevent multiple inclusions
 include_guard(GLOBAL)
 
+# Default SM list shared with Vectorization (Turing+). sm_70 (Volta) was removed
+# in CUDA 12.8; CUDA 13.x starts at sm_75. Keep Memory and Vectorization in sync.
+set(XSIGMA_CUDA_ARCHITECTURES_DEFAULT "75;80;86;89;90")
+
 # CUDA is not supported with the MinGW/MSYS2 toolchain in this project.
 if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64"))
   message(STATUS "CUDA: disabled on Windows+MinGW/MSYS2 toolchains")
@@ -54,12 +58,27 @@ endif()
 # default CUDA architecture". Provide an explicit Turing-and-above list so the
 # configure step succeeds without a GPU present at configure time.
 if(CMAKE_CUDA_COMPILER_FORCED AND NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90")
-  message(STATUS "CUDA: Clang+COMPILER_FORCED — pre-setting architectures to 75;80;86;89;90")
+  set(CMAKE_CUDA_ARCHITECTURES "${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}")
+  message(
+    STATUS
+      "CUDA: Clang+COMPILER_FORCED — pre-setting architectures to ${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}"
+  )
 endif()
 
 # Enable CUDA language support
 enable_language(CUDA)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CUDA_COMPILER_FORCED)
+  # The forced compiler skips CMake's CUDA ABI probe, including implicit
+  # include detection. Clang uses the same host headers for CXX and CUDA.
+  # Preserve their implicit status so dependencies cannot inject, for example,
+  # -isystem /usr/include ahead of libstdc++ and break cmath's include_next.
+  list(APPEND CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+  list(REMOVE_DUPLICATES CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES)
+  set(CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES "${CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES}"
+      CACHE INTERNAL "CUDA implicit host include directories" FORCE
+  )
+endif()
 
 # Persist CUDA language rules to the CMake cache so every directory scope can access them during
 # generation.
@@ -148,10 +167,18 @@ if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
     set(CMAKE_CUDA_STANDARD 14)
   endif()
 else()
-  # Clang as CUDA compiler: match the host C++ standard
-  set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
-  if(NOT CMAKE_CUDA_STANDARD)
-    set(CMAKE_CUDA_STANDARD 17)
+  # Clang as CUDA compiler: match Memory's C++ standard.
+  # MEMORY_CXX_STANDARD is set before include(cuda); CMAKE_CXX_STANDARD may still
+  # be a CLI/cache value (e.g. CI's -DCMAKE_CXX_STANDARD=17) because Memory only
+  # applies MEMORY_CXX_STANDARD to CMAKE_CXX_STANDARD after this include. Preferring
+  # MEMORY_CXX_STANDARD keeps CUDA TUs on C++20 (needed for gtest u16string_view /
+  # std::span) even when the top-level cache still says 17.
+  if(DEFINED MEMORY_CXX_STANDARD AND MEMORY_CXX_STANDARD)
+    set(CMAKE_CUDA_STANDARD ${MEMORY_CXX_STANDARD})
+  elseif(CMAKE_CXX_STANDARD)
+    set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
+  else()
+    set(CMAKE_CUDA_STANDARD 20)
   endif()
   message(STATUS "CUDA: Clang will use C++${CMAKE_CUDA_STANDARD} standard")
 endif()
@@ -163,17 +190,15 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES "native")
 endif()
 
-# GPU Architecture options
+# Default SM list shared with Vectorization (Turing+). Keep Memory and
+# Vectorization in sync via XSIGMA_CUDA_ARCHITECTURES_DEFAULT (defined above).
+
+# GPU Architecture options — only gens still supported by CUDA 12.8+ / 13.x.
 set(PROJECT_CUDA_ARCH_OPTIONS "native" CACHE STRING "Which GPU Architecture(s) to compile for")
 set_property(
   CACHE PROJECT_CUDA_ARCH_OPTIONS
   PROPERTY STRINGS
            native
-           fermi
-           kepler
-           maxwell
-           pascal
-           volta
            turing
            ampere
            ada
@@ -186,28 +211,16 @@ set_property(
 if(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "native")
   # "native" requires CMake to probe the GPU at configure time.  When CMAKE_CUDA_COMPILER_FORCED is
   # set (Clang + CMake 4.2 workaround) that probe is skipped, so CMake cannot resolve "native"
-  # during generation. Fall back to "all-major" which compiles for every major CUDA SM without
-  # needing a GPU present at configure time.
+  # during generation. Fall back to the shared Turing-and-above list.
   if(CMAKE_CUDA_COMPILER_FORCED)
-    # CUDA 13.0 removed pre-Pascal (sm_52-) libdevice; "all-major" still expands to sm_52 in CMake
-    # 4.x, so use an explicit Turing-and-above list.
-    set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90")
+    set(CMAKE_CUDA_ARCHITECTURES "${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}")
     message(
-      STATUS "CUDA: native arch detection unavailable (COMPILER_FORCED), using 75;80;86;89;90"
+      STATUS
+        "CUDA: native arch detection unavailable (COMPILER_FORCED), using ${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}"
     )
   else()
     set(CMAKE_CUDA_ARCHITECTURES "native")
   endif()
-elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "fermi")
-  set(CMAKE_CUDA_ARCHITECTURES "20")
-elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "kepler")
-  set(CMAKE_CUDA_ARCHITECTURES "30;35")
-elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "maxwell")
-  set(CMAKE_CUDA_ARCHITECTURES "50")
-elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "pascal")
-  set(CMAKE_CUDA_ARCHITECTURES "60;61")
-elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "volta")
-  set(CMAKE_CUDA_ARCHITECTURES "70")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "turing")
   set(CMAKE_CUDA_ARCHITECTURES "75")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "ampere")
@@ -217,7 +230,7 @@ elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "ada")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "hopper")
   set(CMAKE_CUDA_ARCHITECTURES "90")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "all")
-  set(CMAKE_CUDA_ARCHITECTURES "50;60;70;75;80;86;89;90")
+  set(CMAKE_CUDA_ARCHITECTURES "${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "none")
   # Don't set any architectures, let parent project handle it
 endif()
