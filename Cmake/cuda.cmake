@@ -279,6 +279,38 @@ else()
   else()
     string(APPEND CMAKE_CUDA_FLAGS " -O3")
   endif()
+
+  # On Windows, CMAKE_CUDA_COMPILER_FORCED (set above) makes CMake skip the normal
+  # CUDA compiler probe, so it never loads the Clang-CUDA Windows platform rules that
+  # translate CMAKE_MSVC_RUNTIME_LIBRARY into runtime-library flags for CUDA-language
+  # sources (the way it does automatically for plain CXX sources). A .cpp file tagged
+  # LANGUAGE CUDA (see vectorization_tag_gpu_expression_sources(), used for the
+  # ODR-safety reason documented in Library/Vectorization/Testing/Cxx/CMakeLists.txt)
+  # therefore compiles with Clang's un-annotated default runtime-library linkage
+  # (static CRT) while every ordinary CXX source in the same target gets the dynamic
+  # CRT that CMAKE_MSVC_RUNTIME_LIBRARY selects (MultiThreadedDLL by default under
+  # CMP0091 NEW, set by cmake_minimum_required(VERSION 3.16) at the top of
+  # CMakeLists.txt). Mixing the two in one executable trips lld-link's
+  # /failifmismatch check on the 'RuntimeLibrary' object attribute (confirmed:
+  # VectorizationCxxTests failing to link with "mismatch detected for
+  # 'RuntimeLibrary': ... has value MD_DynamicRelease ... has value
+  # MT_StaticRelease" on Windows CUDA CI). Mirror the same flags CXX gets so every
+  # CUDA-tagged TU matches.
+  if(WIN32)
+    if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+      if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DEBUG -Xclang --dependent-lib=libcmtd")
+      else()
+        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -Xclang --dependent-lib=libcmt")
+      endif()
+    else()
+      if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DLL -D_DEBUG -Xclang --dependent-lib=msvcrtd")
+      else()
+        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DLL -Xclang --dependent-lib=msvcrt")
+      endif()
+    endif()
+  endif()
 endif()
 
 # For backward compatibility, set legacy variables (if needed elsewhere)
