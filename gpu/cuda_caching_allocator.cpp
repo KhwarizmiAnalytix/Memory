@@ -23,6 +23,7 @@
 #include "util/exception.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 #endif
 #if MEMORY_HAS_CUDA
@@ -37,92 +38,6 @@ namespace memory
 {
 namespace gpu
 {
-namespace
-{
-
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-inline void throw_on_cuda_error(cudaError_t result, const char* what)
-{
-    if (result != cudaSuccess)
-    {
-        std::string const message = std::string(what) + ": " + cudaGetErrorString(result);
-        // Log error (simplified for build compatibility)
-        throw std::runtime_error(message);
-    }
-}
-#else
-inline void throw_on_cuda_error(int result, const char* what)
-{
-    if (result != 0)
-    {
-        std::string message = std::string(what) + ": CUDA/HIP not available";
-        // Log error (simplified for build compatibility)
-        throw std::runtime_error(message);
-    }
-}
-#endif
-
-class DeviceGuard
-{
-public:
-    explicit DeviceGuard(int device)
-    {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        int current = 0;
-        throw_on_cuda_error(cudaGetDevice(&current), "cudaGetDevice");
-        prev_ = current;
-        if (current != device)
-        {
-            throw_on_cuda_error(cudaSetDevice(device), "cudaSetDevice");
-            changed_ = true;
-        }
-#else
-        (void)device;
-#endif
-    }
-
-    // Best-effort variant for noexcept teardown paths (e.g. allocator destructors):
-    // the CUDA runtime may already be unloading at that point, in which case
-    // cudaGetDevice/cudaSetDevice report cudaErrorCudartUnloading; rather than
-    // throwing like the constructor above, this silently skips the device switch
-    // since there is nothing left to release on the driver side by then anyway.
-    DeviceGuard(int device, std::nothrow_t) noexcept
-    {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        int current = 0;
-        if (cudaGetDevice(&current) == cudaSuccess)
-        {
-            prev_ = current;
-            if (current != device && cudaSetDevice(device) == cudaSuccess)
-            {
-                changed_ = true;
-            }
-        }
-#else
-        (void)device;
-#endif
-    }
-
-    DeviceGuard(const DeviceGuard&)            = delete;
-    DeviceGuard& operator=(const DeviceGuard&) = delete;
-
-    ~DeviceGuard()
-    {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        if (changed_)
-        {
-            cudaSetDevice(prev_);
-        }
-#endif
-    }
-
-private:
-    int  prev_{0};
-    bool changed_{false};
-};
-
-}  // namespace
-
 // cuda_caching_allocator is the CUDA/HIP caching layer (PyTorch-style segmented
 // caching with per-stream pools, block split/merge, and event-deferred cross-stream
 // reclamation). Metal uses metal_caching_allocator instead.
@@ -274,19 +189,22 @@ inline void hip_vm_free(raw_segment const& seg)
 }
 #endif
 
-inline raw_segment malloc_segment(int device, size_t size, cudaError_t* err_out)
+inline raw_segment malloc_segment(int device, size_t size, cudaError_t* err_out, bool expandable)
 {
-    DeviceGuard const guard(device);
-    raw_segment       out;
+    device_guard const guard(device);
+    raw_segment        out;
     *err_out = cudaSuccess;
+    // VM mapping is opt-in: a per-segment cuMemAddressReserve of exactly
+    // `size` is not PyTorch expandable_segments (one large VA, incremental
+    // physical maps) and was measured 1.25–1.66× slower than cudaMalloc.
 #if MEMORY_HAS_CUDA
-    if (try_cu_vm_alloc(device, size, out))
+    if (expandable && try_cu_vm_alloc(device, size, out))
     {
         return out;
     }
 #endif
 #if MEMORY_HAS_HIP && defined(HIP_VERSION) && HIP_VERSION >= 50600000
-    if (try_hip_vm_alloc(device, size, out))
+    if (expandable && try_hip_vm_alloc(device, size, out))
     {
         return out;
     }
@@ -315,7 +233,7 @@ inline void free_segment(int device, raw_segment const& seg)
     // return) and is reached from release_all_blocks_noexcept() during process
     // teardown, where the CUDA runtime may already be unloading — so this must
     // not throw the way segment allocation does.
-    DeviceGuard const guard(device, std::nothrow);
+    device_guard const guard(device, std::nothrow);
     if (seg.vm)
     {
 #if MEMORY_HAS_CUDA
@@ -578,6 +496,18 @@ struct cuda_caching_allocator::Impl
         return max_cached_bytes_;
     }
 
+    void set_expandable_segments(bool enabled)
+    {
+        std::scoped_lock const lock(mutex_);
+        expandable_segments_ = enabled;
+    }
+
+    bool expandable_segments() const
+    {
+        std::scoped_lock const lock(mutex_);
+        return expandable_segments_;
+    }
+
     void set_memory_fraction(double fraction)
     {
         if (fraction <= 0.0 || fraction > 1.0)
@@ -611,9 +541,9 @@ struct cuda_caching_allocator::Impl
 
     size_t query_device_total_memory() const
     {
-        DeviceGuard const guard(device_);
-        size_t            free_b  = 0;
-        size_t            total_b = 0;
+        device_guard const guard(device_);
+        size_t             free_b  = 0;
+        size_t             total_b = 0;
         throw_on_cuda_error(cudaMemGetInfo(&free_b, &total_b), "cudaMemGetInfo");
         return total_b;
     }
@@ -809,7 +739,7 @@ private:
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool);
         lock.unlock();
         cudaError_t err = cudaSuccess;
-        raw_segment raw = malloc_segment(device_, alloc_size, &err);
+        raw_segment raw = malloc_segment(device_, alloc_size, &err, expandable_segments_);
         lock.lock();
         if (raw.ptr == nullptr)
         {
@@ -897,13 +827,46 @@ private:
             gpu_memory_trace_action::free_completed, block->ptr, freed_size, block->stream);
     }
 
+    void erase_from_pool_locked(block_pool& pool, cache_block* block)
+    {
+        auto const it = pool.blocks.find(block);
+        if (it != pool.blocks.end() && *it == block)
+        {
+            pool.blocks.erase(it);
+            return;
+        }
+        // Comparator lookup can miss if fields were mutated while the block
+        // was in the set. Fall back to pointer identity so we never delete a
+        // block that remains in the free pool.
+        for (auto it2 = pool.blocks.begin(); it2 != pool.blocks.end(); ++it2)
+        {
+            if (*it2 == block)
+            {
+                pool.blocks.erase(it2);
+                return;
+            }
+        }
+    }
+
     void try_merge_locked(cache_block* dst, cache_block* src)
     {
         if (src == nullptr || src->allocated || src->event_count > 0 || !src->stream_uses.empty())
         {
             return;
         }
-        if (dst->prev == src)  // [src dst]
+        bool const src_is_prev = dst->prev == src;
+        bool const src_is_next = dst->next == src;
+        if (!src_is_prev && !src_is_next)
+        {
+            return;
+        }
+        auto const* src_bytes = static_cast<char const*>(src->ptr);
+        auto const* dst_bytes = static_cast<char const*>(dst->ptr);
+        LOGGING_CHECK(
+            (src_is_prev && src_bytes + src->size == dst_bytes) ||
+                (src_is_next && dst_bytes + dst->size == src_bytes),
+            "cuda_caching_allocator: merge of non-adjacent blocks");
+        if (src_is_prev)  // [src dst]
         {
             dst->ptr  = src->ptr;
             dst->prev = src->prev;
@@ -921,13 +884,13 @@ private:
             }
         }
         dst->size += src->size;
-        dst->pool->blocks.erase(src);
+        erase_from_pool_locked(*dst->pool, src);
         delete src;
     }
 
     void insert_events_locked(cache_block* block)
     {
-        DeviceGuard const      guard(device_);
+        device_guard const     guard(device_);
         std::set<cudaStream_t> streams;
         streams.swap(block->stream_uses);
         // Boundary/interop path: a CUDA error here must not orphan the block
@@ -972,8 +935,12 @@ private:
 
     void process_events_locked()
     {
+        if (cuda_events_.empty())
+        {
+            return;
+        }
         // Events are device-local: polling must run on the owning device.
-        DeviceGuard const guard(device_);
+        device_guard const guard(device_);
 
         // Per-stream queues are drained independently so one stream's long-running
         // work does not head-of-line block reclamation from other streams.
@@ -1019,7 +986,7 @@ private:
     void synchronize_and_free_events_locked()
     {
         stats_.num_sync_all_streams++;
-        DeviceGuard const guard(device_);
+        device_guard const guard(device_);
         for (auto map_it = cuda_events_.begin(); map_it != cuda_events_.end();)
         {
             for (auto& entry : map_it->second)
@@ -1120,7 +1087,7 @@ private:
 
     void release_all_blocks_noexcept() noexcept
     {
-        DeviceGuard const guard(device_, std::nothrow);
+        device_guard const guard(device_, std::nothrow);
 
         // A segment's base pointer is its first block; collect each segment once
         // (split blocks share their segment with neighbors) and each block once
@@ -1211,6 +1178,7 @@ private:
     std::atomic<int64_t>                                      registration_counter_global_{0};
     unified_cache_stats                                       stats_;
     gpu_memory_history                                        history_;
+    bool                                                      expandable_segments_{false};
 };
 #else
 struct cuda_caching_allocator::Impl
@@ -1220,9 +1188,7 @@ struct cuda_caching_allocator::Impl
     }
 
     void* allocate(size_t, cuda_caching_allocator::stream_type)
-    {
-        throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip");
-    }
+    { throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip"); }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
     void                add_free_memory_callback(cuda_caching_allocator::free_memory_callback) {}
@@ -1230,6 +1196,8 @@ struct cuda_caching_allocator::Impl
     void                empty_cache() {}
     void                set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }
     size_t              max_cached_bytes() const { return max_cached_bytes_; }
+    void                set_expandable_segments(bool enabled) { expandable_segments_ = enabled; }
+    bool                expandable_segments() const { return expandable_segments_; }
     void                set_memory_fraction(double fraction) { memory_fraction_ = fraction; }
     double              memory_fraction() const { return memory_fraction_; }
     void                reset_peak_stats() {}
@@ -1242,6 +1210,7 @@ struct cuda_caching_allocator::Impl
 private:
     int    device_;
     size_t max_cached_bytes_;
+    bool   expandable_segments_{false};
     double memory_fraction_{1.0};
 };
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -1269,79 +1238,55 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 }
 
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
-{
-    impl_->deallocate(ptr, size, stream);
-}
+{ impl_->deallocate(ptr, size, stream); }
 
 void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
-{
-    impl_->record_stream(ptr, stream);
-}
+{ impl_->record_stream(ptr, stream); }
 
 void cuda_caching_allocator::add_free_memory_callback(free_memory_callback callback)
-{
-    impl_->add_free_memory_callback(std::move(callback));
-}
+{ impl_->add_free_memory_callback(std::move(callback)); }
 
 void cuda_caching_allocator::clear_free_memory_callbacks()
-{
-    impl_->clear_free_memory_callbacks();
-}
+{ impl_->clear_free_memory_callbacks(); }
 
 void cuda_caching_allocator::empty_cache()
-{
-    impl_->empty_cache();
-}
+{ impl_->empty_cache(); }
 
 void cuda_caching_allocator::set_max_cached_bytes(size_t bytes)
-{
-    impl_->set_max_cached_bytes(bytes);
-}
+{ impl_->set_max_cached_bytes(bytes); }
 
 size_t cuda_caching_allocator::max_cached_bytes() const
-{
-    return impl_->max_cached_bytes();
-}
+{ return impl_->max_cached_bytes(); }
+
+void cuda_caching_allocator::set_expandable_segments(bool enabled)
+{ impl_->set_expandable_segments(enabled); }
+
+bool cuda_caching_allocator::expandable_segments() const
+{ return impl_->expandable_segments(); }
 
 void cuda_caching_allocator::set_memory_fraction(double fraction)
-{
-    impl_->set_memory_fraction(fraction);
-}
+{ impl_->set_memory_fraction(fraction); }
 
 double cuda_caching_allocator::memory_fraction() const
-{
-    return impl_->memory_fraction();
-}
+{ return impl_->memory_fraction(); }
 
 void cuda_caching_allocator::reset_peak_stats()
-{
-    impl_->reset_peak_stats();
-}
+{ impl_->reset_peak_stats(); }
 
 size_t cuda_caching_allocator::device_total_memory() const
-{
-    return impl_->device_total_memory();
-}
+{ return impl_->device_total_memory(); }
 
 unified_cache_stats cuda_caching_allocator::stats() const
-{
-    return impl_->stats();
-}
+{ return impl_->stats(); }
 
 void cuda_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
-{
-    impl_->record_memory_history(enabled, max_entries);
-}
+{ impl_->record_memory_history(enabled, max_entries); }
 
 gpu_memory_snapshot cuda_caching_allocator::snapshot()
-{
-    return impl_->snapshot();
-}
+{ return impl_->snapshot(); }
 
 int cuda_caching_allocator::device() const
-{
-    return impl_->device();
-}
+{ return impl_->device(); }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 cuda_caching_allocator& caching_allocator_for_device(int device_index)

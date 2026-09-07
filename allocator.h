@@ -40,6 +40,7 @@
 #endif
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 #endif
 
@@ -288,10 +289,10 @@ public:
      * reused until @p stream completes.
     */
     MEMORY_FORCE_INLINE static void record_stream(
-        pointer ptr,  // cppcheck-suppress constParameterPointer
+        pointer     ptr,  // cppcheck-suppress constParameterPointer
         device_enum type,
-        int device_index = 0,
-        stream_t stream = nullptr)  // cppcheck-suppress constParameterPointer
+        int         device_index = 0,
+        stream_t    stream       = nullptr)  // cppcheck-suppress constParameterPointer
     {
         if (ptr == nullptr || stream == nullptr)
         {
@@ -338,22 +339,6 @@ public:
         if (from_type == device_enum::CUDA || to_type == device_enum::CUDA ||
             from_type == device_enum::HIP || to_type == device_enum::HIP)
         {
-            struct current_device_guard
-            {
-                int prev_{0};
-                explicit current_device_guard(int device)
-                {
-                    cudaGetDevice(&prev_);
-                    if (prev_ != device)
-                    {
-                        cudaSetDevice(device);
-                    }
-                }
-                ~current_device_guard() { cudaSetDevice(prev_); }
-                current_device_guard(current_device_guard const&)            = delete;
-                current_device_guard& operator=(current_device_guard const&) = delete;
-            };
-
             cudaError_t result = cudaSuccess;
             if ((from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
                 (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
@@ -398,7 +383,7 @@ public:
                 int const gpu_index = (to_type == device_enum::CUDA || to_type == device_enum::HIP)
                                           ? to_index
                                           : from_index;
-                current_device_guard const guard(gpu_index);
+                gpu::device_guard const guard(gpu_index);
                 result = (stream != nullptr)
                              ? cudaMemcpyAsync(
                                    to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
@@ -447,9 +432,7 @@ public:
 
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
-    {
-        return aligned_start + (((size - aligned_start) / simd_stride) * simd_stride);
-    }
+    { return aligned_start + (((size - aligned_start) / simd_stride) * simd_stride); }
 };
 
 }  // namespace memory

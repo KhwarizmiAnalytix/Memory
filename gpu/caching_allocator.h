@@ -52,9 +52,7 @@ using caching_allocator = metal_caching_allocator;
 
 // Same registry name as CUDA/HIP so allocate/free dispatch is identical.
 MEMORY_FORCE_INLINE caching_allocator& caching_allocator_for_device(int device_index)
-{
-    return metal_caching_allocator_for_device(device_index);
-}
+{ return metal_caching_allocator_for_device(device_index); }
 }  // namespace memory::gpu
 
 #endif
@@ -66,9 +64,7 @@ namespace memory::gpu
 // per-device allocator that allocator<T> / data_ptr / tensor already use.
 
 MEMORY_FORCE_INLINE void empty_cache(int device_index = 0)
-{
-    caching_allocator_for_device(device_index).empty_cache();
-}
+{ caching_allocator_for_device(device_index).empty_cache(); }
 
 MEMORY_FORCE_INLINE size_t memory_allocated(int device_index = 0)
 {
@@ -99,46 +95,36 @@ MEMORY_FORCE_INLINE size_t max_memory_reserved(int device_index = 0)
 }
 
 MEMORY_FORCE_INLINE unified_cache_stats memory_stats(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index).stats();
-}
+{ return caching_allocator_for_device(device_index).stats(); }
 
 MEMORY_FORCE_INLINE void reset_peak_memory_stats(int device_index = 0)
-{
-    caching_allocator_for_device(device_index).reset_peak_stats();
-}
+{ caching_allocator_for_device(device_index).reset_peak_stats(); }
 
 MEMORY_FORCE_INLINE void set_memory_fraction(double fraction, int device_index = 0)
-{
-    caching_allocator_for_device(device_index).set_memory_fraction(fraction);
-}
+{ caching_allocator_for_device(device_index).set_memory_fraction(fraction); }
 
 MEMORY_FORCE_INLINE double memory_fraction(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index).memory_fraction();
-}
+{ return caching_allocator_for_device(device_index).memory_fraction(); }
 
 MEMORY_FORCE_INLINE void set_max_cached_bytes(size_t bytes, int device_index = 0)
-{
-    caching_allocator_for_device(device_index).set_max_cached_bytes(bytes);
-}
+{ caching_allocator_for_device(device_index).set_max_cached_bytes(bytes); }
+
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+MEMORY_FORCE_INLINE void set_expandable_segments(bool enabled, int device_index = 0)
+{ caching_allocator_for_device(device_index).set_expandable_segments(enabled); }
+
+MEMORY_FORCE_INLINE bool expandable_segments(int device_index = 0)
+{ return caching_allocator_for_device(device_index).expandable_segments(); }
+#endif
 
 MEMORY_FORCE_INLINE size_t device_total_memory(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index).device_total_memory();
-}
+{ return caching_allocator_for_device(device_index).device_total_memory(); }
 
 MEMORY_FORCE_INLINE void record_memory_history(
-    bool   enabled,
-    size_t max_entries  = kDefaultMemoryHistoryEntries,
-    int    device_index = 0)
-{
-    caching_allocator_for_device(device_index).record_memory_history(enabled, max_entries);
-}
+    bool enabled, size_t max_entries = kDefaultMemoryHistoryEntries, int device_index = 0)
+{ caching_allocator_for_device(device_index).record_memory_history(enabled, max_entries); }
 
 MEMORY_FORCE_INLINE gpu_memory_snapshot memory_snapshot(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index).snapshot();
-}
+{ return caching_allocator_for_device(device_index).snapshot(); }
 }  // namespace memory::gpu
 #endif

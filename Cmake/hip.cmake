@@ -65,7 +65,6 @@ set_property(
   CACHE PROJECT_HIP_ARCH_OPTIONS
   PROPERTY STRINGS
            native
-           gfx803 # Fiji (R9 Fury, R9 Nano)
            gfx900 # Vega 10 (RX Vega 56/64)
            gfx906 # Vega 20 (Radeon VII, MI50/60)
            gfx908 # CDNA (MI100)
@@ -80,8 +79,6 @@ set_property(
 if(PROJECT_HIP_ARCH_OPTIONS STREQUAL "native")
   # Let CMake handle native detection
   set(CMAKE_HIP_ARCHITECTURES "native")
-elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "gfx803")
-  set(CMAKE_HIP_ARCHITECTURES "gfx803")
 elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "gfx900")
   set(CMAKE_HIP_ARCHITECTURES "gfx900")
 elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "gfx906")
@@ -95,7 +92,7 @@ elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "gfx1030")
 elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "gfx1100")
   set(CMAKE_HIP_ARCHITECTURES "gfx1100")
 elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "all")
-  set(CMAKE_HIP_ARCHITECTURES "gfx803;gfx900;gfx906;gfx908;gfx90a;gfx1030;gfx1100")
+  set(CMAKE_HIP_ARCHITECTURES "gfx900;gfx906;gfx908;gfx90a;gfx1030;gfx1100")
 elseif(PROJECT_HIP_ARCH_OPTIONS STREQUAL "none")
   # Don't set any architectures, let parent project handle it
 endif()

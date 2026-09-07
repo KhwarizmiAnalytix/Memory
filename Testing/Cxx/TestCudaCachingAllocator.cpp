@@ -72,7 +72,7 @@ protected:
     {
         if (!cuda_device_available())
         {
-            GTEST_SKIP() << "No CUDA device available";
+            GTEST_SKIP() << "No GPU device available";
         }
     }
 };
@@ -84,7 +84,7 @@ protected:
     {
         if (!cuda_device_available())
         {
-            GTEST_SKIP() << "No CUDA device available";
+            GTEST_SKIP() << "No GPU device available";
         }
     }
 };
@@ -880,6 +880,38 @@ MEMORYTEST_F(CudaCachingAllocator, process_wide_api_matches_pytorch)
     alloc_t::free(ptr, device_enum::CUDA);
     alloc_t::empty_cache(0);
     LOGGING_LOG_INFO("process-wide GPU cache API test passed");
+}
+
+MEMORYTEST_F(CudaCachingAllocator, expandable_segments_default_off)
+{
+    cuda_caching_allocator allocator(0);
+    EXPECT_FALSE(allocator.expandable_segments());
+
+    void* ptr = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr);
+    allocator.deallocate(ptr, 1024);
+
+    allocator.set_expandable_segments(true);
+    EXPECT_TRUE(allocator.expandable_segments());
+    void* ptr_vm = allocator.allocate(2048);
+    ASSERT_NE(nullptr, ptr_vm);
+    allocator.deallocate(ptr_vm, 2048);
+    allocator.set_expandable_segments(false);
+    EXPECT_FALSE(allocator.expandable_segments());
+}
+
+MEMORYTEST_F(CudaCachingAllocator, same_size_alloc_free_churn)
+{
+    cuda_caching_allocator allocator(0);
+    constexpr size_t       kBytes      = 4096;
+    constexpr int          kIterations = 100000;
+    for (int i = 0; i < kIterations; ++i)
+    {
+        void* ptr = allocator.allocate(kBytes);
+        ASSERT_NE(nullptr, ptr);
+        allocator.deallocate(ptr, kBytes);
+    }
+    EXPECT_EQ(0U, allocator.stats().bytes_allocated.load());
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP

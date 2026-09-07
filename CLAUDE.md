@@ -34,7 +34,8 @@ allocation paths:
 - GPU allocations (CUDA, HIP, or Metal — compile-time exclusive) go through
   `gpu/caching_allocator.h` → `gpu::caching_allocator_for_device(device_index)`:
   - CUDA/HIP: `cuda_caching_allocator` — PyTorch-style segment cache with
-    stream-aware reuse, expandable VM segments, mutex dropped around driver
+    stream-aware reuse, optional expandable VM segments (off by default),
+    mutex dropped around driver
     malloc. HIP uses the same Impl via `gpu/gpu_runtime.h`.
   - Metal: `metal_caching_allocator` — same size classes on shared
     `MTLBuffer`s / heaps (`record_stream` is a no-op for sync dispatch).

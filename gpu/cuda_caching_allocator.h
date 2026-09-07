@@ -150,6 +150,18 @@ public:
     MEMORY_API size_t max_cached_bytes() const;
 
     /**
+     * @brief Opt into cuMemMap / hipMem* segment backing (default: off)
+     *
+     * When false (default), segments use cudaMalloc / hipMalloc. The previous
+     * always-on VM path reserved exactly one segment's worth of VA per cache
+     * miss and never expanded it — a net loss versus driver malloc. Enable
+     * only when experimenting with a real expandable-VA implementation.
+     */
+    MEMORY_API void set_expandable_segments(bool enabled);
+
+    MEMORY_API bool expandable_segments() const;
+
+    /**
      * @brief Cap reserved device memory as a fraction of device capacity
      *
      * Matches torch.cuda.set_per_process_memory_fraction. @p fraction is in
