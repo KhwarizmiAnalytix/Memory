@@ -476,7 +476,7 @@ target_include_directories(
 # independent of PROFILER_BACKEND (Kineto/ITT) -- gate this on Profiler being available at all,
 # the same condition MEMORY_HAS_PROFILER_BUILD already captures above.
 if(MEMORY_HAS_PROFILER_BUILD)
-  target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Library/Profiler>)
+  target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${XSIGMA_THIRDPARTY_DIR}/Profiler>)
 endif()
 
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
