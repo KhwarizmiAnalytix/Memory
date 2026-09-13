@@ -343,7 +343,9 @@ if(NOT TARGET Logging::Logging)
 endif()
 list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
 
-# Optional Profiler sibling module — only wire link when MEMORY_ENABLE_PROFILER and target exists.
+# Optional Profiler sibling — pure third-party (ThirdParty/CMakeLists.txt);
+# only wire link when MEMORY_ENABLE_PROFILER and target exists.
+xsigma_add_profiler()
 set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   set(MEMORY_HAS_PROFILER_BUILD 1)
@@ -473,7 +475,9 @@ target_include_directories(
 )
 
 # native/ (traceme/xplane/host_tracer/profiler_session) is always compiled into Profiler now,
-# independent of PROFILER_BACKEND (Kineto/ITT) -- gate this on Profiler being available at all,
+# Link Memory with Profiler when available (instrumentation backend is owned
+# by ThirdParty/Profiler).
+
 # the same condition MEMORY_HAS_PROFILER_BUILD already captures above.
 if(MEMORY_HAS_PROFILER_BUILD)
   target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${XSIGMA_THIRDPARTY_DIR}/Profiler>)
