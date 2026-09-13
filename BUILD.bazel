@@ -83,7 +83,7 @@ cc_library(
     includes = ["."],
     deps = [
         "//Library/Logging:logging_lib",
-        "//Library/Profiler:Profiler",
+        "@profiler//:Profiler",
     ],
     visibility = ["//Library/Memory:__pkg__"],
 )
@@ -136,7 +136,7 @@ cc_library(
     }),
     deps = [
         "//Library/Logging:logging_lib",
-        "//Library/Profiler:Profiler",
+        "@profiler//:Profiler",
         "//ThirdParty/cpuinfo:cpuinfo",
     ] + select({
         "//bazel:disable_mimalloc": [],
