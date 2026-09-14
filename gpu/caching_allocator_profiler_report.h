@@ -25,7 +25,8 @@
 
 #include <cstdint>
 
-#include "common/instrumentation.h"
+#include <profiler.h>
+
 #include "common/memory_export.h"
 #include "profiler/unified_memory_stats.h"
 
@@ -38,7 +39,7 @@ namespace memory::gpu
  *
  * @p alloc_size is the known block size (positive alloc, negative free) --
  * not a caller-supplied size, which deallocate ignores. Predicted-false
- * `memory_profiling_active()` so idle sessions skip the Kineto hop.
+ * `memory_profiling_active()` so idle sessions skip the report.
  *
  * @param device_type Raw profiler::device_enum value (CPU=0, CUDA=1, HIP=2,
  *        PrivateUse1=3).

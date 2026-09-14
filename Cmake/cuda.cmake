@@ -238,7 +238,7 @@ endif()
 # Set up CUDA libraries using modern imported targets
 set(PROJECT_CUDA_LIBRARIES CUDA::cudart CUDA::cuda_driver CUDA::cusparse CUDA::curand CUDA::cublas)
 
-# Add nvperf_host if available (required by Kineto for CUPTI range profiler)
+# Add nvperf_host if available (optional NVIDIA performance libraries)
 if(TARGET CUDA::nvperf_host)
   list(APPEND PROJECT_CUDA_LIBRARIES CUDA::nvperf_host)
 endif()

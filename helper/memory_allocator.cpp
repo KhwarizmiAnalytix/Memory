@@ -23,12 +23,13 @@
 #include <cstdlib>
 #include <cstring>  // for std::memset
 
-#include <util/exception.h>
+#include <logging/util/exception.h>
 
 #include "common/memory_macros.h"
 
 #if MEMORY_HAS_PROFILER
-#include "common/instrumentation.h"
+#include <profiler.h>
+
 #include "profiler/profiled_cpu_memory_reporter.h"
 #endif
 
@@ -60,7 +61,7 @@
 #include <mimalloc.h>
 #endif
 
-//#include <logger/logger.h>
+//#include <logging/logger/logger.h>
 
 namespace memory::cpu::memory_allocator
 {

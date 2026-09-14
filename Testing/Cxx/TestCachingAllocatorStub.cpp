@@ -164,7 +164,7 @@ MEMORYTEST(CachingAllocatorStub, StatsReturnsDefault)
 // report_caching_allocator_delta (gpu/caching_allocator_profiler_report.h) is
 // a test helper that diffs two unified_cache_stats snapshots into one
 // report_caching_allocator_event. Production allocate/deallocate report the
-// known block size from Impl. No Kineto/ITT session is active in this test
+// known block size from Impl. No profiler session is active in this test
 // binary, so report_memory_usage() no-ops internally -- this only verifies
 // the helper itself is safe to call for both a live pointer and nullptr.
 MEMORYTEST(CachingAllocatorStub, ReportCachingAllocatorDeltaDoesNotCrash)

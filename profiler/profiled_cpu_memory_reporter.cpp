@@ -21,10 +21,10 @@
 
 #include <cstdint>
 
-#include <logger/logger.h>
+#include <logging/logger/logger.h>
 
 #if MEMORY_HAS_PROFILER
-#include "common/instrumentation.h"
+#include <profiler.h>
 #endif
 
 namespace memory

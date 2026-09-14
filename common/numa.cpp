@@ -7,7 +7,7 @@
 #include <numaif.h>
 #include <unistd.h>
 
-#include <util/exception.h>
+#include <logging/util/exception.h>
 #endif
 
 namespace memory

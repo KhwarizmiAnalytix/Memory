@@ -334,7 +334,7 @@ endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # Required Logging dependency — Memory uses Logging's LOGGING_CHECK/LOGGING_THROW/
-# LOGGING_LOG_* macros directly (util/exception.h, logger/logger.h).
+# LOGGING_LOG_* macros directly (`<logging/logging.h>`).
 # Logging is pure third-party (ThirdParty/CMakeLists.txt); added on demand.
 xsigma_add_logging()
 if(NOT TARGET Logging::Logging)
@@ -475,15 +475,6 @@ target_include_directories(
          $<INSTALL_INTERFACE:include>
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 )
-
-# native/ (traceme/xplane/host_tracer/profiler_session) is always compiled into Profiler now,
-# Link Memory with Profiler when available (instrumentation backend is owned
-# by ThirdParty/Profiler).
-
-# the same condition MEMORY_HAS_PROFILER_BUILD already captures above.
-if(MEMORY_HAS_PROFILER_BUILD)
-  target_include_directories(Memory PRIVATE $<BUILD_INTERFACE:${XSIGMA_THIRDPARTY_DIR}/Profiler>)
-endif()
 
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})

@@ -217,7 +217,7 @@ public:
      * @brief Enable or disable the allocation-history ring
      *        (`torch.cuda.memory._record_memory_history`).
      *
-     * Independent of Kineto `profile_memory`. When enabled, allocate / free /
+     * Independent of profiler memory-event reporting. When enabled, allocate / free /
      * segment / OOM actions are stored up to @p max_entries (oldest dropped).
      * @p max_entries 0 keeps the previous cap (default 100000).
      */
