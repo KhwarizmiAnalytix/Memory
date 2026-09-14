@@ -19,7 +19,6 @@
 
 #include "MemoryTest.h"
 #include "common/memory_macros.h"
-#include "logger/logger.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
@@ -29,6 +28,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <logger/logger.h>
 
 #include "allocator.h"
 #include "common/data_ptr.h"

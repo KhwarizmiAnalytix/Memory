@@ -17,10 +17,11 @@
 #include <utility>
 #include <vector>
 
+#include <util/exception.h>
+
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
 #include "gpu/caching_allocator_config.h"
-#include "util/exception.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/device_guard.h"

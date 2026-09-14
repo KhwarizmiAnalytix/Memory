@@ -25,10 +25,11 @@
 
 #include <cstddef>
 
+#include <util/exception.h>
+
 #include "MemoryTest.h"
 #include "common/numa.h"
 #include "helper/memory_allocator.h"
-#include "util/exception.h"
 
 using namespace memory;
 

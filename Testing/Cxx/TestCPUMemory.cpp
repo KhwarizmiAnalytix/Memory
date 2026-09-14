@@ -22,10 +22,11 @@
 #include <cstring>  // for memset
 #include <vector>   // for vector
 
+#include <logger/logger.h>  // for LOGGING_LOG_INFO
+#include <util/exception.h>  // for logging::exception
+
 #include "MemoryTest.h"               // for MEMORYTEST, END_TEST, IsAligned
 #include "helper/memory_allocator.h"  // for free, allocate, usable_size
-#include "logger/logger.h"            // for LOGGING_LOG_INFO
-#include "util/exception.h"           // for logging::exception
 
 using namespace memory;
 
