@@ -333,12 +333,14 @@ else()
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
-# Required Logging sibling — Memory uses Library/Logging's LOGGING_CHECK/LOGGING_THROW/
+# Required Logging dependency — Memory uses Logging's LOGGING_CHECK/LOGGING_THROW/
 # LOGGING_LOG_* macros directly (util/exception.h, logger/logger.h).
+# Logging is pure third-party (ThirdParty/CMakeLists.txt); added on demand.
+xsigma_add_logging()
 if(NOT TARGET Logging::Logging)
   message(
     FATAL_ERROR
-      "Memory requires Logging::Logging. Configure Logging in this tree (full build or --project.memory, which now enables Logging)."
+      "Memory requires Logging::Logging. xsigma_add_logging() should have provided it — is ThirdParty/Logging initialized?"
   )
 endif()
 list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
