@@ -122,7 +122,7 @@ struct cache_block_comparator
 
 struct block_pool
 {
-    explicit block_pool(bool small) : is_small(small) {}
+    explicit block_pool(bool is_small_pool) : is_small(is_small_pool) {}
 
     std::set<cache_block*, cache_block_comparator> blocks;
     const bool                                     is_small;
