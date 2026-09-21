@@ -21,7 +21,7 @@
 
 #include <cstdint>
 
-#include <logging/logger/logger.h>
+#include <logger.h>
 
 #if MEMORY_HAS_PROFILER
 #include <profiler.h>

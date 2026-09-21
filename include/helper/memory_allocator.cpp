@@ -23,7 +23,7 @@
 #include <cstdlib>
 #include <cstring>  // for std::memset
 
-#include <logging/util/exception.h>
+#include <include/util/exception.h>
 
 #include "common/memory_macros.h"
 
@@ -61,7 +61,7 @@
 #include <mimalloc.h>
 #endif
 
-//#include <logging/logger/logger.h>
+//#include <logger.h>
 
 namespace memory::cpu::memory_allocator
 {

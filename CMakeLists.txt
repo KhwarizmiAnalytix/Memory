@@ -387,7 +387,7 @@ endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # Required Logging dependency — Memory uses Logging's LOGGING_CHECK/LOGGING_THROW/
-# LOGGING_LOG_* macros directly (`<logging/logging.h>`). Submodule-or-FetchContent when
+# LOGGING_LOG_* macros directly (`<include/logging.h>`). Submodule-or-FetchContent when
 # standalone; reuses the host's Logging host-overlay wiring when embedded in XSigma.
 memory_setup_logging()
 if(NOT TARGET Logging::Logging)
@@ -397,6 +397,7 @@ if(NOT TARGET Logging::Logging)
   )
 endif()
 list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
+list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>")
 
 # Optional Profiler sibling — submodule-or-FetchContent when standalone; reuses the
 # host's Profiler host-overlay wiring when embedded in XSigma. Only wire link when
@@ -406,6 +407,7 @@ set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   set(MEMORY_HAS_PROFILER_BUILD 1)
   list(APPEND MEMORY_DEPENDENCY_LIBS Profiler::Profiler)
+  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "$<TARGET_PROPERTY:Profiler::Profiler,INTERFACE_INCLUDE_DIRECTORIES>")
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_PROFILER=${MEMORY_HAS_PROFILER_BUILD})
 
@@ -430,10 +432,10 @@ if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
 endif()
 
 # --- Source discovery ---
-# Public headers/sources live under memory/ (mirrors Logging's logging/ layout): consumers
+# Public headers/sources live under include/ (mirrors Logging's logging/ layout): consumers
 # include bare filenames relative to that root, e.g. "allocator.h", "common/data_ptr.h",
-# "gpu/caching_allocator.h", "helper/memory_allocator.h" — never "memory/allocator.h".
-set(_memory_src_root "${CMAKE_CURRENT_SOURCE_DIR}/memory")
+# "gpu/caching_allocator.h", "helper/memory_allocator.h" — never "include/allocator.h".
+set(_memory_src_root "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set(memory_headers "")
 set(memory_sources "")
 set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
@@ -471,6 +473,32 @@ endif()
 
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
+
+# Profiler and Memory both publish a "common/device.h" at their include root (unrelated types:
+# profiler::device_enum vs memory::device_enum). Whichever root sits earlier on the -I list wins
+# that quote-include for the *whole* translation unit, including nested includes reached through
+# <profiler.h>. Memory's own root must stay first for Memory's own headers/tests, so the few
+# TUs that pull in <profiler.h> directly (and therefore transitively hit Profiler's own
+# "common/device.h") need Profiler's own include root pinned ahead of Memory's for just those
+# files. Prepending Profiler's *full* INTERFACE_INCLUDE_DIRECTORIES (which also drags in Kineto's
+# include/src dirs) is not safe here: Kineto ships its own "Logger.h", which — on a
+# case-insensitive filesystem — shadows Logging's "logger.h" the same way once it outranks
+# Logging's own include dir. Only Profiler's own repository include root is needed to resolve
+# "common/device.h"; pull just that one directory instead of the whole transitive set.
+if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
+  get_target_property(_profiler_src_dir Profiler::Profiler SOURCE_DIR)
+  if(_profiler_src_dir AND EXISTS "${_profiler_src_dir}/include/common/device.h")
+    set(_memory_profiler_shadowed_sources
+        "${_memory_src_root}/helper/memory_allocator.cpp"
+        "${_memory_src_root}/profiler/profiled_cpu_memory_reporter.cpp"
+    )
+    set_source_files_properties(
+      ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES
+                                                        "${_profiler_src_dir}/include"
+    )
+  endif()
+endif()
+
 xsigma_target_apply_lto(Memory MEMORY)
 if(MEMORY_ENABLE_SANITIZER)
   xsigma_configure_sanitizer(MEMORY)
@@ -525,7 +553,7 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/Testing/MemoryTest.h" @ONLY
 )
 
-# Include roots: memory/ → "allocator.h", "common/data_ptr.h", "gpu/caching_allocator.h",
+# Include roots: include/ → "allocator.h", "common/data_ptr.h", "gpu/caching_allocator.h",
 # "helper/memory_allocator.h", generated "common/memory_export.h".
 target_include_directories(
   Memory

@@ -25,7 +25,7 @@
 
 #include <cstddef>
 
-#include <logging/util/exception.h>
+#include <include/util/exception.h>
 
 #include "MemoryTest.h"
 #include "common/numa.h"

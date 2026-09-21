@@ -22,7 +22,7 @@
 #include <cstring>  // for memset
 #include <vector>   // for vector
 
-#include <logging/logging.h>
+#include <include/logging.h>
 
 #include "MemoryTest.h"               // for MEMORYTEST, END_TEST, IsAligned
 #include "helper/memory_allocator.h"  // for free, allocate, usable_size

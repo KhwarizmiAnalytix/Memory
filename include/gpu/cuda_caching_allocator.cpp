@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-#include <logging/util/exception.h>
+#include <include/util/exception.h>
 
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"

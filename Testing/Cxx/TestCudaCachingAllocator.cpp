@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include <logging/logger/logger.h>
+#include <logger.h>
 
 #include "allocator.h"
 #include "common/data_ptr.h"

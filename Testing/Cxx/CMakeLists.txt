@@ -44,10 +44,28 @@ endforeach()
 add_executable(MemoryCxxTests ${TestFiles})
 
 # Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory
-# interface.
-target_include_directories(
-  MemoryCxxTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_BINARY_DIR}/.."
+# interface. Memory's own include/ root must come first: some third-party deps (e.g. Profiler)
+# vendor an identically-named relative header (common/device.h) and would otherwise shadow
+# Memory's own copy for quote-include resolution.
+set(_memory_test_include_dirs "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
+                               "${CMAKE_CURRENT_BINARY_DIR}/.."
 )
+
+# Homebrew (and other package managers) install headers straight under a shared prefix/include
+# that other found packages (Fmt::fmt, Mimalloc::mimalloc) pull onto the include path too. If
+# Homebrew also has `googletest` installed there, its <gtest/gtest.h> silently shadows the
+# vendored ThirdParty/googletest submodule that libgtest.dylib is actually built from —
+# same-named header, different ABI (e.g. MakeAndRegisterTestInfo's std::string vs const char*
+# overload), causing link-time "symbol not found" instead of a compile error. Pin the vendored
+# gtest's own include dir ahead of everything so it always wins.
+if(TARGET gtest)
+  get_target_property(_memory_gtest_src_dir gtest SOURCE_DIR)
+  if(_memory_gtest_src_dir AND EXISTS "${_memory_gtest_src_dir}/include/gtest/gtest.h")
+    list(PREPEND _memory_test_include_dirs "${_memory_gtest_src_dir}/include")
+  endif()
+endif()
+
+target_include_directories(MemoryCxxTests PRIVATE ${_memory_test_include_dirs})
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
@@ -170,7 +188,8 @@ if(MEMORY_ENABLE_BENCHMARK)
 
     add_executable(${target_name} "${_bench_source}")
     target_include_directories(
-      ${target_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_BINARY_DIR}/.."
+      ${target_name} PRIVATE "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
+                              "${CMAKE_CURRENT_BINARY_DIR}/.."
     )
     if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
       target_include_directories(${target_name} PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
