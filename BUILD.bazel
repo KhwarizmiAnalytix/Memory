@@ -1,4 +1,5 @@
-# Standalone memory library. Include root is Library/Memory (no Memory/memory/ nesting).
+# Standalone Memory library (KhwarizmiAnalytix/Memory). Include root is the repo root;
+# public headers are under memory/ (e.g. "memory/allocator.h", "memory/common/data_ptr.h").
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
 
@@ -8,9 +9,8 @@ filegroup(
     name = "memory_hdrs",
     srcs = glob(
         [
-            "*.h",
-            "common/*.h",
-            "**/*.h",
+            "memory/*.h",
+            "memory/**/*.h",
         ],
         allow_empty = True,
     ),
@@ -20,45 +20,33 @@ filegroup(
     name = "memory_srcs",
     srcs = glob(
         [
-            "*.cpp",
-            "common/*.cpp",
-            "gpu/*.cpp",
-            "helper/*.cpp",
-            "profiler/*.cpp",
-        ],
-        exclude = [
-            "gpu/*.cpp",
+            "memory/*.cpp",
+            "memory/common/*.cpp",
+            "memory/helper/*.cpp",
+            "memory/profiler/*.cpp",
         ],
         allow_empty = True,
     ),
 )
 
 # cc_library's srcs don't accept .mm (Objective-C++) without rules_apple's objc_library,
-# which this project doesn't otherwise depend on. Work around it the standard way: copy each
-# .mm to a .cc-suffixed generated file (copy_file, not glob) and force Objective-C++ mode back
-# on via -x objective-c++ in copts -- but scoped to a small dedicated cc_library (below)
-# rather than applied to the whole memory_lib target, so plain .cpp sources never compile
-# under Objective-C++ mode (a real behavior divergence from CMake's per-file
-# set_source_files_properties, not just a cosmetic one: any future .cpp using `id`, `BOOL`,
-# `Class`, or `SEL` as an ordinary C++ identifier would silently fail only under Bazel).
-# copy_file is used instead of genrule+cp so the rename works on Windows (//... still
-# builds these targets even when Metal is off).
+# which this repo doesn't otherwise depend on. Work around it the standard way: copy each
+# .mm to a .cc-suffixed generated file (copy_file, not glob) and force Objective-C++ mode
+# back on via -x objective-c++ in copts -- scoped to a small dedicated cc_library (below)
+# rather than applied to the whole memory_lib target, matching CMake's per-file
+# set_source_files_properties(${memory_objcxx_sources} PROPERTIES COMPILE_OPTIONS "-fobjc-arc").
 copy_file(
     name = "metal_buffer_allocator_objcxx",
-    src = "gpu/metal/metal_buffer_allocator.mm",
-    out = "gpu/metal/metal_buffer_allocator_mm.cc",
+    src = "memory/gpu/metal/metal_buffer_allocator.mm",
+    out = "memory/gpu/metal/metal_buffer_allocator_mm.cc",
 )
 
 copy_file(
     name = "metal_caching_allocator_objcxx",
-    src = "gpu/metal/metal_caching_allocator.mm",
-    out = "gpu/metal/metal_caching_allocator_mm.cc",
+    src = "memory/gpu/metal/metal_caching_allocator.mm",
+    out = "memory/gpu/metal/metal_caching_allocator_mm.cc",
 )
 
-# Isolates the -x objective-c++ -fobjc-arc copts (mirrors CMake's set_source_files_properties(
-# ${memory_objcxx_sources} PROPERTIES COMPILE_OPTIONS "-fobjc-arc"), which applies ARC only to
-# the .mm files) to just these two translation units. Depends on memory_hdrs directly rather
-# than :memory_lib to avoid a dependency cycle.
 cc_library(
     name = "memory_metal_objcxx",
     srcs = select({
@@ -69,7 +57,7 @@ cc_library(
         "//conditions:default": [],
     }),
     hdrs = [":memory_hdrs"] + select({
-        "//bazel:enable_metal": glob(["gpu/*.h", "gpu/metal/*.h"], allow_empty = True),
+        "//bazel:enable_metal": glob(["memory/gpu/*.h", "memory/gpu/metal/*.h"], allow_empty = True),
         "//conditions:default": [],
     }),
     copts = memory_copts() + select({
@@ -81,11 +69,11 @@ cc_library(
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
     }),
     includes = ["."],
-    deps = [
-        "@logging//:Logging",
-        "@profiler//:Profiler",
-    ],
-    visibility = ["//Library/Memory:__pkg__"],
+    deps = ["@logging//:Logging"] + select({
+        "//bazel:disable_profiler": [],
+        "//conditions:default": ["@profiler//:Profiler"],
+    }),
+    visibility = ["//visibility:private"],
 )
 
 cc_library(
@@ -93,20 +81,20 @@ cc_library(
     srcs = [
         ":memory_srcs",
     ] + select({
-        "//bazel:enable_cuda": glob(["gpu/*.cpp"], allow_empty = True),
-        "//bazel:enable_hip": glob(["gpu/*.cpp"], allow_empty = True),
+        "//bazel:enable_cuda": glob(["memory/gpu/*.cpp"], allow_empty = True),
+        "//bazel:enable_hip": glob(["memory/gpu/*.cpp"], allow_empty = True),
         # gpu/*.cpp (cuda_caching_allocator.cpp) is included for Metal too, matching CMake
-        # (Memory/CMakeLists.txt only strips it for GPU backend "none") -- the file's own
+        # (CMakeLists.txt only strips it for GPU backend "none") -- the file's own
         # #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP guard makes it compile to an empty TU here.
-        "//bazel:enable_metal": glob(["gpu/*.cpp"], allow_empty = True),
+        "//bazel:enable_metal": glob(["memory/gpu/*.cpp"], allow_empty = True),
         "//conditions:default": [],
     }),
     hdrs = [
         ":memory_hdrs",
     ] + select({
-        "//bazel:enable_cuda": glob(["gpu/*.h"], allow_empty = True),
-        "//bazel:enable_hip": glob(["gpu/*.h"], allow_empty = True),
-        "//bazel:enable_metal": glob(["gpu/*.h", "gpu/metal/*.h"], allow_empty = True),
+        "//bazel:enable_cuda": glob(["memory/gpu/*.h"], allow_empty = True),
+        "//bazel:enable_hip": glob(["memory/gpu/*.h"], allow_empty = True),
+        "//bazel:enable_metal": glob(["memory/gpu/*.h", "memory/gpu/metal/*.h"], allow_empty = True),
         "//conditions:default": [],
     }),
     copts = memory_copts(),
@@ -120,13 +108,12 @@ cc_library(
         "@platforms//os:macos": [],
         "//conditions:default": ["-lpthread", "-ldl", "-lrt"],
     }) + select({
-        # Mirrors Library/Memory/Cmake/metal.cmake's find_library(Metal)/find_library(Foundation).
+        # Mirrors Cmake/metal.cmake's find_library(Metal)/find_library(Foundation).
         "//bazel:enable_metal": ["-framework", "Metal", "-framework", "Foundation"],
         "//conditions:default": [],
     }) + select({
-        # Mirrors Library/Memory/Cmake/numa.cmake's find_package(Numa) -> Numa::numa
-        # (a plain system library, -lnuma on Linux; Unix/Linux-only, matching numa.cmake's
-        # own `if(NOT UNIX) ... disable` guard).
+        # Mirrors Cmake/numa.cmake's find_package(Numa) -> Numa::numa (a plain system
+        # library, -lnuma on Linux; Unix/Linux-only, matching numa.cmake's own guard).
         "//bazel:enable_numa": ["-lnuma"],
         "//conditions:default": [],
     }),
@@ -136,9 +123,10 @@ cc_library(
     }),
     deps = [
         "@logging//:Logging",
-        "@profiler//:Profiler",
-        "@cpuinfo//:cpuinfo",
     ] + select({
+        "//bazel:disable_profiler": [],
+        "//conditions:default": ["@profiler//:Profiler"],
+    }) + select({
         "//bazel:disable_mimalloc": [],
         "//conditions:default": ["@mimalloc//:mimalloc"],
     }) + select({
@@ -148,22 +136,16 @@ cc_library(
         "//bazel:enable_hip": ["@local_config_hip//:hip"],
         "//conditions:default": [],
     }) + select({
-        "//bazel:enable_mkl": ["@mkl//:mkl"],
-        "//conditions:default": [],
-    }) + select({
         "//bazel:enable_metal": [":memory_metal_objcxx"],
         "//conditions:default": [],
     }) + select({
-        # Mirrors Memory/CMakeLists.txt:356-357 (if(MEMORY_ENABLE_TBB AND TARGET
-        # Tbb::tbbmalloc) list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)).
+        # Mirrors CMakeLists.txt (if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
+        # list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)).
         "//bazel:memory_enable_tbb": ["@tbb//:tbbmalloc"],
         "//conditions:default": [],
     }),
     alwayslink = False,
-    visibility = [
-        "//Library/Memory:__pkg__",
-        "//Library/Core:__pkg__",
-    ],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(

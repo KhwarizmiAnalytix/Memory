@@ -1,0 +1,73 @@
+# =============================================================================
+# Memory — Bazel Configuration Settings (standalone)
+# =============================================================================
+# Starlark --define keys mirror this repo's CMake cache names:
+# memory_gpu_backend, memory_enable_tbb, memory_enable_mimalloc,
+# memory_enable_numa, memory_enable_memkind, build_shared_libs.
+# =============================================================================
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "xsigma.bzl",
+    "memory.bzl",
+])
+
+# =============================================================================
+# Library Type Configuration
+# =============================================================================
+
+config_setting(
+    name = "shared_libs",
+    define_values = {"build_shared_libs": "true"},
+)
+
+# =============================================================================
+# GPU Backend Configuration (mirrors MEMORY_GPU_BACKEND)
+# =============================================================================
+
+config_setting(
+    name = "enable_cuda",
+    define_values = {"memory_gpu_backend": "cuda"},
+)
+
+config_setting(
+    name = "enable_hip",
+    define_values = {"memory_gpu_backend": "hip"},
+)
+
+config_setting(
+    name = "enable_metal",
+    define_values = {"memory_gpu_backend": "metal"},
+)
+
+# =============================================================================
+# Memory Feature Toggles
+# =============================================================================
+
+config_setting(
+    name = "memory_enable_tbb",
+    define_values = {"memory_enable_tbb": "true"},
+)
+
+# Opt-out when the CMake-equivalent default is ON (MEMORY_ENABLE_MIMALLOC).
+config_setting(
+    name = "disable_mimalloc",
+    define_values = {"memory_enable_mimalloc": "false"},
+)
+
+config_setting(
+    name = "enable_numa",
+    define_values = {"memory_enable_numa": "true"},
+)
+
+config_setting(
+    name = "enable_memkind",
+    define_values = {"memory_enable_memkind": "true"},
+)
+
+# Opt-out when the CMake-equivalent default is ON (MEMORY_ENABLE_PROFILER).
+config_setting(
+    name = "disable_profiler",
+    define_values = {"memory_enable_profiler": "false"},
+)

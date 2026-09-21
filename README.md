@@ -1,10 +1,30 @@
-# Memory (`Library/Memory`)
+# Memory
+
+Standalone C++17/20 memory-allocation library, extracted from
+[XSigma](https://github.com/KhwarizmiAnalytix)'s `Library/Memory` and vendored
+back into XSigma as the `ThirdParty/Memory` submodule (see XSigma's
+`ThirdParty/memory.cmake` host overlay). Same treatment as this org's
+[Logging](https://github.com/KhwarizmiAnalytix/Logging) and
+[Profiler](https://github.com/KhwarizmiAnalytix/Profiler) repos.
 
 **Memory** layer: unique `data_ptr<T>` + non-owning `data_view<T>`;
 `allocator<T>` (CPU via **mimalloc** / **TBB** / platform aligned malloc;
 CUDA/HIP/Metal via the process-wide **caching allocator**). Optional **NUMA**,
-**memkind**. Always links **Logging**. Full design and status:
-[`Docs/memory_design.md`](../../Docs/memory_design.md).
+**memkind**. Always links **Logging**, optionally links **Profiler**.
+
+## Building standalone
+
+```
+cmake -S . -B build -DMEMORY_GPU_BACKEND=none
+cmake --build build
+ctest --test-dir build
+```
+
+Sibling dependencies (Logging, Profiler) and vendored third parties (fmt,
+mimalloc, googletest, benchmark) resolve from the `ThirdParty/` git
+submodules when initialized (`git submodule update --init --recursive`), and
+fall back to `FetchContent`/`add_subdirectory` from their upstream GitHub
+repos otherwise — see `Cmake/MemoryDependencies.cmake`.
 
 ## Status (August 2026)
 
@@ -24,16 +44,18 @@ is a no-op (device 0, no fp64); tensor defaults still GPU 0 / default stream;
 `empty_cache` is not re-exported from Vectorization. Do not call `empty_cache`
 on the allocate/free hot path.
 
-Details: [`Docs/memory_design.md`](../../Docs/memory_design.md) §10.
-
 ## Layout
 
 - `CMakeLists.txt` — `MEMORY_ENABLE_*`, `MEMORY_CXX_STANDARD`.
-- `BUILD.bazel` — `//Library/Memory:Memory`; GPU sources selected via Bazel defines.
-- `Cmake/` — `cuda.cmake`, `hip`, `tbb_memory.cmake`, `numa.cmake`, etc.
-- `common/` (`data_ptr.h`, `data_view.h`, device/NUMA), `helper/`, `gpu/`
-  (CUDA/HIP caching allocator, Metal caching allocator + bind helpers),
-  `profiler/` (unified cache stats).
+- `BUILD.bazel` — `//:Memory`; GPU sources selected via Bazel defines.
+- `Cmake/` — `cuda.cmake`, `hip.cmake`, `tbb_memory.cmake`, `numa.cmake`,
+  `MemoryDependencies.cmake`, plus generic toolchain modules shared with
+  Logging/Profiler's own standalone repos.
+- `memory/` — public headers/sources, included bare (`"allocator.h"`,
+  `"common/data_ptr.h"`, `"gpu/caching_allocator.h"`, `"helper/memory_allocator.h"`),
+  matching Logging's `logging/` layout: `common/` (`data_ptr.h`, `data_view.h`,
+  device/NUMA), `helper/`, `gpu/` (CUDA/HIP caching allocator, Metal caching
+  allocator + bind helpers), `profiler/` (unified cache stats).
 - `Testing/Cxx/` — tests and benchmark binaries when enabled.
 
 ---
@@ -79,7 +101,7 @@ Public `MEMORY_HAS_*` macros are documented at the top of `CMakeLists.txt`.
 
 ## Bazel flags
 
-Starlark: [`bazel/memory.bzl`](../../bazel/memory.bzl). Rules: [`bazel/BUILD.bazel`](../../bazel/BUILD.bazel).
+Starlark: [`bazel/memory.bzl`](bazel/memory.bzl). Rules: [`bazel/BUILD.bazel`](bazel/BUILD.bazel).
 
 ### `--define` keys
 

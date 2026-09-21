@@ -1,5 +1,5 @@
 # =============================================================================
-# Library/Memory —
+# Memory —
 # CMakeLists.txt
 #
 # CPU/GPU allocators, mimalloc integration, CUDA/HIP device memory, NUMA-aware allocation, and
@@ -13,6 +13,39 @@
 # module (always links Logging::Logging).
 # =============================================================================
 cmake_minimum_required(VERSION 3.16)
+
+# Standalone CMake package — any C++ project can consume it via add_subdirectory;
+# XSigma is one consumer (via the ThirdParty/Memory submodule + ThirdParty/memory.cmake
+# host overlay), not a required host.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(
+    Memory
+    VERSION 1.0.0
+    DESCRIPTION "CPU/GPU allocators, mimalloc integration, CUDA/HIP/Metal device memory"
+    HOMEPAGE_URL "https://github.com/KhwarizmiAnalytix/Memory"
+    LANGUAGES CXX C
+  )
+  set(MEMORY_STANDALONE ON)
+  include(CTest)
+  enable_testing()
+  option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+else()
+  set(MEMORY_STANDALONE OFF)
+endif()
+
+# Own CMake modules: toolchain helpers (lto/cache/sanitize/...), the
+# add_third_party_library machinery (third_party_helpers.cmake), Memory-owned
+# feature finders (cuda/hip/metal/numa/tbb_memory), and test/sibling dependency
+# resolvers (MemoryDependencies.cmake) all live in Cmake/.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Cmake")
+
+# add_third_party_library + alias/folder helpers. When embedded in XSigma these
+# are already defined by XSigma's ThirdParty/CMakeLists.txt; including the
+# repo's own copy is a harmless identical redefinition.
+include(third_party_helpers)
 
 # --- Section 1: Feature flags (MEMORY_ENABLE_*) ---
 
@@ -40,9 +73,9 @@ option(MEMORY_ENABLE_GTEST "Enable GoogleTest for Memory" ON)
 
 # When ON and target Profiler::Profiler exists: link Profiler and set MEMORY_HAS_PROFILER=1, so
 # the CPU allocator and GPU caching allocators can report allocation/deallocation/OOM events via
-# profiler::report_memory_usage() / report_out_of_memory() (Docs/profiler/profiler.md,
-# Instrumentation). CPU allocate/free compile those calls out when this is 0; when it is 1 they
-# run only after profiler::memory_profiling_active() (predicted-false). Safe to leave ON.
+# profiler::report_memory_usage() / report_out_of_memory(). CPU allocate/free compile those calls
+# out when this is 0; when it is 1 they run only after profiler::memory_profiling_active()
+# (predicted-false). Safe to leave ON.
 option(MEMORY_ENABLE_PROFILER "Link Memory with the Profiler library when available" ON)
 
 # Microsoft mimalloc — high-performance drop-in malloc replacement. ON by default to match the CMake
@@ -156,7 +189,7 @@ include(CMakeDependentOption)
 include(cache) # Configures per-target compiler cache launcher
 include(memory_utils) # Memory-specific compiler checks (NUMA availability)
 
-# c) Memory-owned feature finders (Library/Memory/Cmake/)
+# c) Memory-owned feature finders (Cmake/)
 if(MEMORY_GPU_BACKEND STREQUAL "cuda")
   include(cuda) # Detects/configures CUDA
 elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
@@ -199,14 +232,34 @@ elseif(MSVC)
 endif()
 
 # --- Third-party dependencies owned by Memory ---
-set(_tpdir "${CMAKE_SOURCE_DIR}/ThirdParty")
+# Host (XSigma) ThirdParty vs this repo's nested ThirdParty/. Standalone (CMAKE_SOURCE_DIR ==
+# this repo) resolves to the nested ThirdParty/; embedded in XSigma resolves to the host's.
+include(MemoryDependencies)
+
+set(_memory_own_tp "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
+set(_memory_host_tp "${CMAKE_SOURCE_DIR}/ThirdParty")
+
+macro(_memory_tp_root _component _out)
+  set(${_out} "")
+  if(EXISTS "${_memory_host_tp}/${_component}/CMakeLists.txt")
+    set(${_out} "${_memory_host_tp}")
+  elseif(EXISTS "${_memory_own_tp}/${_component}/CMakeLists.txt")
+    set(${_out} "${_memory_own_tp}")
+  else()
+    set(${_out} "${_memory_own_tp}")
+  endif()
+endmacro()
+
+_memory_tp_root(fmt _tp_fmt)
+_memory_tp_root(mimalloc _tp_mimalloc)
 
 set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
 
-# fmt — Logging is configured first and registers Fmt::fmt; this block is a
-# fallback if Logging is absent.
+# fmt — Logging (below) also registers Fmt::fmt; this block is a fallback if
+# Logging's own third-party setup does not run first (e.g. Logging resolved via
+# FetchContent without add_third_party_library involvement).
 if(NOT TARGET Fmt::fmt)
   set(FMT_TEST OFF CACHE BOOL "Disable fmt tests" FORCE)
   set(FMT_DOC OFF CACHE BOOL "Disable fmt documentation" FORCE)
@@ -218,13 +271,13 @@ if(NOT TARGET Fmt::fmt)
     LIBRARY_TYPE
     STATIC
     SOURCE_DIR
-    "${_tpdir}/fmt"
+    "${_tp_fmt}/fmt"
     ALIASES
     "fmt::fmt-header-only"
     XSIGMA_TARGETS
     "Fmt::fmt=fmt::fmt-header-only|fmt::fmt|fmt"
     INCLUDE_DIR
-    "${_tpdir}/fmt/include"
+    "${_tp_fmt}/fmt/include"
     AUTO_ADD_TO_DEPENDENCIES
     OFF
   )
@@ -246,7 +299,7 @@ if(MEMORY_ENABLE_MIMALLOC)
     LIBRARY_TYPE
     STATIC
     SOURCE_DIR
-    "${_tpdir}/mimalloc"
+    "${_tp_mimalloc}/mimalloc"
     LIBRARY_TYPE_VAR
     MI_BUILD_STATIC
     # Do not list -Wno-strict-prototypes here: FILTER_FLAGS removes flags from CMAKE_*_FLAGS, which
@@ -257,12 +310,12 @@ if(MEMORY_ENABLE_MIMALLOC)
     XSIGMA_TARGETS
     "Mimalloc::mimalloc=mimalloc|mimalloc-static"
     INCLUDE_DIR
-    "${_tpdir}/mimalloc/include"
+    "${_tp_mimalloc}/mimalloc/include"
     AUTO_ADD_TO_DEPENDENCIES
     OFF
   )
 
-  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tpdir}/mimalloc/include")
+  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tp_mimalloc}/mimalloc/include")
 
   # mimalloc release builds compile statistics out (MI_STAT=0); re-enable them on the
   # vendored target only — no ThirdParty source edits.
@@ -334,20 +387,21 @@ endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 
 # Required Logging dependency — Memory uses Logging's LOGGING_CHECK/LOGGING_THROW/
-# LOGGING_LOG_* macros directly (`<logging/logging.h>`).
-# Logging is pure third-party (ThirdParty/CMakeLists.txt); added on demand.
-xsigma_add_logging()
+# LOGGING_LOG_* macros directly (`<logging/logging.h>`). Submodule-or-FetchContent when
+# standalone; reuses the host's Logging host-overlay wiring when embedded in XSigma.
+memory_setup_logging()
 if(NOT TARGET Logging::Logging)
   message(
     FATAL_ERROR
-      "Memory requires Logging::Logging. xsigma_add_logging() should have provided it — is ThirdParty/Logging initialized?"
+      "Memory requires Logging::Logging. memory_setup_logging() should have provided it."
   )
 endif()
 list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
 
-# Optional Profiler sibling — pure third-party (ThirdParty/CMakeLists.txt);
-# only wire link when MEMORY_ENABLE_PROFILER and target exists.
-xsigma_add_profiler()
+# Optional Profiler sibling — submodule-or-FetchContent when standalone; reuses the
+# host's Profiler host-overlay wiring when embedded in XSigma. Only wire link when
+# MEMORY_ENABLE_PROFILER and target exists.
+memory_setup_profiler()
 set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   set(MEMORY_HAS_PROFILER_BUILD 1)
@@ -376,18 +430,22 @@ if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
 endif()
 
 # --- Source discovery ---
+# Public headers/sources live under memory/ (mirrors Logging's logging/ layout): consumers
+# include bare filenames relative to that root, e.g. "allocator.h", "common/data_ptr.h",
+# "gpu/caching_allocator.h", "helper/memory_allocator.h" — never "memory/allocator.h".
+set(_memory_src_root "${CMAKE_CURRENT_SOURCE_DIR}/memory")
 set(memory_headers "")
 set(memory_sources "")
 set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
 
-file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
-                                                        "${CMAKE_CURRENT_SOURCE_DIR}/*.hxx"
+file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${_memory_src_root}/*.h"
+                                                        "${_memory_src_root}/*.hxx"
 )
-file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${_memory_src_root}/*.cpp")
 
 # Objective-C++ sources (Metal backend only) are globbed separately since they require
 # OBJCXX language support, only enabled when MEMORY_GPU_BACKEND=metal (see below).
-file(GLOB_RECURSE memory_objcxx_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/*.mm")
+file(GLOB_RECURSE memory_objcxx_sources LIST_DIRECTORIES false "${_memory_src_root}/*.mm")
 
 # Keep test sources out of the Memory library target.
 list(FILTER memory_sources EXCLUDE REGEX ".*/Testing/.*")
@@ -396,9 +454,9 @@ list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
-  file(GLOB_RECURSE GPU_SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.cpp")
-  file(GLOB_RECURSE GPU_HEADER_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.h"
-       "${CMAKE_CURRENT_SOURCE_DIR}/gpu/*.hxx"
+  file(GLOB_RECURSE GPU_SOURCE_FILES "${_memory_src_root}/gpu/*.cpp")
+  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_src_root}/gpu/*.h"
+       "${_memory_src_root}/gpu/*.hxx"
   )
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
@@ -443,7 +501,9 @@ if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   )
 endif()
 
-xsigma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
+if(COMMAND xsigma_module_create_filters)
+  xsigma_module_create_filters("${_memory_src_root}")
+endif()
 
 set_target_properties(
   Memory PROPERTIES CXX_STANDARD ${MEMORY_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
@@ -465,15 +525,16 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/Testing/MemoryTest.h" @ONLY
 )
 
-# Include roots: Library/Memory → "allocator.h", "backend/…", "common/memory_export.h"
+# Include roots: memory/ → "allocator.h", "common/data_ptr.h", "gpu/caching_allocator.h",
+# "helper/memory_allocator.h", generated "common/memory_export.h".
 target_include_directories(
   Memory
-  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  PUBLIC $<BUILD_INTERFACE:${_memory_src_root}>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Testing>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Testing>
          $<INSTALL_INTERFACE:include>
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+  PRIVATE ${_memory_src_root}
 )
 
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
@@ -516,7 +577,12 @@ install(
   INCLUDES
   DESTINATION include
 )
-install(FILES ${memory_headers} DESTINATION include/Memory/Memory COMPONENT Development)
+install(
+  DIRECTORY "${_memory_src_root}/"
+  DESTINATION include/Memory
+  FILES_MATCHING
+  PATTERN "*.h"
+)
 
 # --- Testing ---
 if(MEMORY_ENABLE_TESTING)

@@ -1,0 +1,79 @@
+# =============================================================================
+# Memory — Bazel workspace (standalone)
+# =============================================================================
+# Standalone Bazel build for the Memory library. When consumed from XSigma,
+# XSigma's own workspace provides an overlay BUILD file instead — do not edit
+# this repo's vendored third-party trees.
+# =============================================================================
+
+workspace(name = "xsigma_memory")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# =============================================================================
+# Bazel Skylib
+# =============================================================================
+http_archive(
+    name = "bazel_skylib",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.4.2/bazel-skylib-1.4.2.tar.gz",
+        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.4.2/bazel-skylib-1.4.2.tar.gz",
+    ],
+)
+
+load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
+
+bazel_skylib_workspace()
+
+# =============================================================================
+# fmt / mimalloc — vendored nested submodules (ThirdParty/)
+# =============================================================================
+new_local_repository(
+    name = "fmt",
+    path = "ThirdParty/fmt",
+    build_file = "//ThirdParty:fmt.BUILD",
+)
+
+new_local_repository(
+    name = "mimalloc",
+    path = "ThirdParty/mimalloc",
+    build_file = "//ThirdParty:mimalloc.BUILD",
+)
+
+# =============================================================================
+# Google Test / Benchmark — vendored nested submodules (ThirdParty/)
+# =============================================================================
+local_repository(
+    name = "com_google_googletest",
+    path = "ThirdParty/googletest",
+)
+
+local_repository(
+    name = "com_google_benchmark",
+    path = "ThirdParty/benchmark",
+)
+
+# =============================================================================
+# Logging — required sibling dependency (https://github.com/KhwarizmiAnalytix/Logging)
+# =============================================================================
+# Git submodule ThirdParty/Logging. Overlay BUILD so we do not edit the
+# vendored tree, using the same local-repository-with-overlay technique
+# XSigma itself uses for its own ThirdParty/logging.BUILD.
+load("//bazel:logging_repository.bzl", "local_logging_repository")
+
+local_logging_repository(
+    name = "logging",
+    path = "ThirdParty/Logging",
+    build_file = "//ThirdParty:logging.BUILD",
+)
+
+# =============================================================================
+# Profiler — optional sibling dependency (https://github.com/KhwarizmiAnalytix/Profiler)
+# =============================================================================
+load("//bazel:profiler_repository.bzl", "local_profiler_repository")
+
+local_profiler_repository(
+    name = "profiler",
+    path = "ThirdParty/Profiler",
+    build_file = "//ThirdParty:profiler.BUILD",
+)

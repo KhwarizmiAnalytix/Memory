@@ -2,7 +2,9 @@
 # Memory Library C++
 # Tests
 # =============================================================================
-xsigma_add_googletest()
+include(MemoryDependencies)
+
+memory_setup_gtest()
 
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 
@@ -78,47 +80,7 @@ endif()
 
 if(MEMORY_ENABLE_BENCHMARK)
   # --- Google Benchmark setup ---
-  if(NOT TARGET benchmark)
-    set(_bench_external_found FALSE)
-    if(XSIGMA_ENABLE_EXTERNAL)
-      find_package(benchmark QUIET)
-      if(benchmark_FOUND)
-        message(STATUS "Found external Google Benchmark")
-        _create_third_party_interface_targets(
-          "Benchmark::benchmark=benchmark::benchmark|benchmark"
-          "Benchmark::benchmark_main=benchmark::benchmark_main|benchmark_main"
-        )
-        set(_bench_external_found TRUE)
-      endif()
-    endif()
-    if(NOT _bench_external_found)
-      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        string(APPEND CMAKE_CXX_FLAGS " -Wno-c2y-extensions")
-      endif()
-      if(NOT DEFINED HAVE_STD_REGEX)
-        set(HAVE_STD_REGEX 1 CACHE INTERNAL "")
-      endif()
-      set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark tests" FORCE)
-      set(BENCHMARK_ENABLE_EXCEPTIONS ON CACHE BOOL "Enable benchmark exceptions" FORCE)
-      set(BENCHMARK_ENABLE_LTO OFF CACHE BOOL "Disable benchmark LTO" FORCE)
-      set(BENCHMARK_USE_LIBCXX OFF CACHE BOOL "Disable benchmark libcxx" FORCE)
-      set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "Disable benchmark werror" FORCE)
-      set(BENCHMARK_FORCE_WERROR OFF CACHE BOOL "Disable benchmark force werror" FORCE)
-      set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "Disable benchmark install" FORCE)
-      set(BENCHMARK_INSTALL_DOCS OFF CACHE BOOL "Disable benchmark docs install" FORCE)
-      set(BENCHMARK_ENABLE_DOXYGEN OFF CACHE BOOL "Disable benchmark doxygen" FORCE)
-      set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "Disable benchmark gtest tests" FORCE)
-      set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Don't use bundled gtest for benchmark" FORCE)
-      set(BENCHMARK_DOWNLOAD_DEPENDENCIES OFF CACHE BOOL "Don't download dependencies" FORCE)
-      add_subdirectory(
-        "${XSIGMA_THIRDPARTY_DIR}/benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
-        EXCLUDE_FROM_ALL
-      )
-      _set_third_party_folder_properties(
-        "benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
-      )
-    endif()
-  endif()
+  memory_setup_benchmark()
   _create_third_party_interface_targets(
     "Benchmark::benchmark=benchmark::benchmark|benchmark"
     "Benchmark::benchmark_main=benchmark::benchmark_main|benchmark_main"
