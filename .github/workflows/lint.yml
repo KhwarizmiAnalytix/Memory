@@ -1,0 +1,41 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lintrunner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lintrunner and lint-tool
+        # typing_extensions is imported by lint-tool adapters but not declared
+        # as an install_requires on current PyPI lint-tool.
+        run: pip install lintrunner lint-tool typing_extensions
+
+      - name: Initialize linters
+        run: lintrunner init
+
+      - name: Run lintrunner
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            lintrunner --force-color -m "origin/${{ github.base_ref }}"
+          else
+            lintrunner --force-color -m HEAD~1
+          fi

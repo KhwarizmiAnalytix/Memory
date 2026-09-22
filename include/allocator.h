@@ -89,7 +89,8 @@ MEMORY_FORCE_INLINE constexpr std::size_t checked_byte_count(
 {
     if (elem_size != 0 && count > std::numeric_limits<std::size_t>::max() / elem_size)
     {
-        throw std::overflow_error("memory::allocator: element count * element size overflows size_t");
+        throw std::overflow_error(
+            "memory::allocator: element count * element size overflows size_t");
     }
     return count * elem_size;
 }
@@ -163,8 +164,7 @@ public:
         if (type == device_enum::CPU)
         {
             (void)stream;
-            ptr =
-                static_cast<pointer>(memory::cpu::memory_allocator::allocate(nbytes, alignment));
+            ptr = static_cast<pointer>(memory::cpu::memory_allocator::allocate(nbytes, alignment));
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
@@ -316,7 +316,7 @@ public:
      * that use silently. `cuda_caching_allocator::record_stream` already
      * compares against the block's own allocation stream and no-ops when they
      * match, so forwarding unconditionally is safe for the same-stream case.
-    */
+     */
     MEMORY_FORCE_INLINE static void record_stream(
         pointer     ptr,  // cppcheck-suppress constParameterPointer
         device_enum type,
@@ -482,7 +482,9 @@ public:
 
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
-    { return aligned_start + (((size - aligned_start) / simd_stride) * simd_stride); }
+    {
+        return aligned_start + (((size - aligned_start) / simd_stride) * simd_stride);
+    }
 };
 
 }  // namespace memory

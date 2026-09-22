@@ -34,11 +34,7 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr(
         size_t size, device_enum type, int device_index = 0, stream_t stream = nullptr)
-        : size_(size),
-          type_(type),
-          device_index_(device_index),
-          stream_(stream),
-          allocated_(false),
+        : size_(size), type_(type), device_index_(device_index), stream_(stream), allocated_(false),
           aligned_(true)
     {
         if (size == 0)
@@ -99,13 +95,8 @@ struct data_ptr
     }
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
-        : data_(rhs.data_),
-          size_(rhs.size_),
-          type_(rhs.type_),
-          device_index_(rhs.device_index_),
-          stream_(rhs.stream_),
-          allocated_(rhs.allocated_),
-          aligned_(rhs.aligned_)
+        : data_(rhs.data_), size_(rhs.size_), type_(rhs.type_), device_index_(rhs.device_index_),
+          stream_(rhs.stream_), allocated_(rhs.allocated_), aligned_(rhs.aligned_)
     {
         rhs.clear_handle();
     }

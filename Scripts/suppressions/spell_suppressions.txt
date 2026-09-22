@@ -1,2 +1,2 @@
-thirdparty
 statics
+thirdparty

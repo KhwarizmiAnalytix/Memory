@@ -43,7 +43,10 @@ message(STATUS "clang-tidy: ${CLANG_TIDY_PATH} (major ${CLANG_TIDY_VERSION_MAJOR
 # enable_fix — pass the caller's XXX_ENABLE_FIX variable value as the second argument. WARNING: fix
 # mode modifies source files. Use with caution in version control.
 function(xsigma_target_clang_tidy target_name enable_fix)
-  set(XSIGMA_CLANG_TIDY_HEADER_FILTER "^${PROJECT_SOURCE_DIR}/(Library|Cmake|Tools|Examples)/.*")
+  # Memory's own layout is include/ (+ Testing/ for tests, not linted here) --
+  # the XSigma-original (Library|Cmake|Tools|Examples) filter predates this
+  # module's extraction into a standalone repo and matched nothing here.
+  set(XSIGMA_CLANG_TIDY_HEADER_FILTER "^${PROJECT_SOURCE_DIR}/include/.*")
   set(XSIGMA_CLANG_TIDY_EXCLUDE_FILTER ".*/(ThirdParty|third_party|3rdparty|third-party)/.*")
 
   set(_tidy_args "${CLANG_TIDY_PATH}")

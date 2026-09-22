@@ -981,13 +981,13 @@ MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fr
     // A request in [kMinLargeAlloc, ...) rounds up to a 2 MiB multiple of
     // itself exactly (see caching_allocator_config.h), so each accepted
     // allocate() reserves exactly one kSegmentSize segment.
-    size_t const kSegmentSize     = 20 * 1024 * 1024;
+    size_t const  kSegmentSize    = 20 * 1024 * 1024;
     constexpr int kBudgetSegments = 2;
     constexpr int kThreads        = 8;
 
     double const fraction = static_cast<double>(kSegmentSize) *
-                             (static_cast<double>(kBudgetSegments) + 0.5) /
-                             static_cast<double>(total);
+                            (static_cast<double>(kBudgetSegments) + 0.5) /
+                            static_cast<double>(total);
     ASSERT_GT(fraction, 0.0);
     ASSERT_LE(fraction, 1.0) << "device does not have enough free memory for this test's budget";
     allocator.set_memory_fraction(fraction);
@@ -1022,7 +1022,7 @@ MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fr
     // rest must fail cleanly rather than all succeeding and overshooting it.
     EXPECT_LE(succeeded.load(), kBudgetSegments);
     EXPECT_GT(failed.load(), 0) << "budget was too generous for this thread count to prove "
-                                    "the race is closed -- tighten kBudgetSegments/kThreads";
+                                   "the race is closed -- tighten kBudgetSegments/kThreads";
     EXPECT_LE(allocator.stats().bytes_reserved.load(), kSegmentSize * kBudgetSegments);
 
     for (void* ptr : ptrs)

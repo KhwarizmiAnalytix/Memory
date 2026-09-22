@@ -111,11 +111,10 @@ MEMORYTEST(Allocator, AllocateOverflowingElementCountThrowsOverflowError)
 MEMORYTEST(Allocator, CopyOverflowingElementCountThrowsOverflowError)
 {
     using alloc_t = allocator<double>;
-    double        from      = 0.0;
-    double        to        = 0.0;
+    double from   = 0.0;
+    double to     = 0.0;
     EXPECT_THROW(
-        alloc_t::copy(&from, std::numeric_limits<size_t>::max() / 2, &to),
-        std::overflow_error);
+        alloc_t::copy(&from, std::numeric_limits<size_t>::max() / 2, &to), std::overflow_error);
     END_TEST();
 }
 

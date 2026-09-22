@@ -51,7 +51,10 @@ bool gpu_device_available()
 
 #elif MEMORY_HAS_METAL
 
-bool gpu_device_available() { return memory::metal::device_available(); }
+bool gpu_device_available()
+{
+    return memory::metal::device_available();
+}
 
 #endif
 
@@ -176,7 +179,7 @@ MEMORYTEST_F(GpuMemoryProfilerTest, free_completed_trace_keeps_original_address_
     alloc.deallocate(low, 1024);   // low becomes a free neighbor of high
     alloc.deallocate(high, 1024);  // merges with low: dst(=high)->ptr = src(=low)->ptr
 
-    gpu_memory_snapshot const snap = alloc.snapshot();
+    gpu_memory_snapshot const snap                      = alloc.snapshot();
     bool                      found_high_free_completed = false;
     for (const gpu_memory_trace_entry& entry : snap.device_trace)
     {

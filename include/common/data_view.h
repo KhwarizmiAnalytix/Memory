@@ -65,10 +65,10 @@ struct data_view
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
     /** Allocation's own base pointer, independent of any offset this view was sliced to. */
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* base() const { return base_; }
-    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
-    MEMORY_FORCE_INLINE int                           device_index() const { return device_index_; }
-    MEMORY_FORCE_INLINE device_enum                   device() const { return type_; }
-    MEMORY_FORCE_INLINE stream_t                      stream() const { return stream_; }
+    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE bool     is_aligned() const { return aligned_; }
+    MEMORY_FORCE_INLINE int         device_index() const { return device_index_; }
+    MEMORY_FORCE_INLINE device_enum device() const { return type_; }
+    MEMORY_FORCE_INLINE stream_t    stream() const { return stream_; }
 
     /**
      * @brief Record a cross-stream use of this view's underlying allocation.
@@ -94,13 +94,8 @@ private:
         int         device_index,
         stream_t    stream,
         value_t*    base) noexcept
-        : data_(data),
-          size_(size),
-          type_(type),
-          device_index_(device_index),
-          stream_(stream),
-          aligned_(is_ptr_aligned(data)),
-          base_(base)
+        : data_(data), size_(size), type_(type), device_index_(device_index), stream_(stream),
+          aligned_(is_ptr_aligned(data)), base_(base)
     {
     }
 
@@ -118,6 +113,6 @@ private:
     bool        aligned_{false};
     // Allocation's own base pointer (== data_ptr::data()), independent of any
     // offset this view was sliced to. nullptr for a default-constructed view.
-    value_t*    base_{nullptr};
+    value_t* base_{nullptr};
 };
 }  // namespace memory

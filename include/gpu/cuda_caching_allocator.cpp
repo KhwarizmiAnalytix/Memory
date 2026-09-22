@@ -280,7 +280,7 @@ struct cache_block
     // proven complete. A quarantined block is permanently withheld from the
     // free pools even once its (partial) event_count reaches zero, rather
     // than being reused while a use we couldn't track might still be live.
-    bool                   quarantined{false};
+    bool quarantined{false};
     // Segment creation order; equal-size free blocks recycle FIFO (upstream
     // registration_counter). Search keys keep the -1 default so lower_bound
     // finds the oldest matching block.
@@ -334,7 +334,7 @@ struct cuda_caching_allocator::Impl
         // Validate device
         int device_count = 0;
         throw_on_cuda_error(cudaGetDeviceCount(&device_count), "cudaGetDeviceCount");
-        LOGGING_CHECK(  //NOLINT
+        LOGGING_CHECK(  // NOLINT
             device >= 0 && device < device_count,
             "Invalid CUDA device index: {} (available: 0-{})",
             device,
@@ -767,7 +767,7 @@ private:
         // for, and expandable_segments_ must not be read concurrently with
         // set_expandable_segments()'s write to it.
         pending_reserved_bytes_ += alloc_size;
-        bool const  expandable = expandable_segments_;
+        bool const expandable = expandable_segments_;
         lock.unlock();
         cudaError_t err = cudaSuccess;
         raw_segment raw = malloc_segment(device_, alloc_size, &err, expandable);
@@ -1250,7 +1250,9 @@ struct cuda_caching_allocator::Impl
     }
 
     void* allocate(size_t, cuda_caching_allocator::stream_type)
-    { throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip"); }
+    {
+        throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip");
+    }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
     void                add_free_memory_callback(cuda_caching_allocator::free_memory_callback) {}
@@ -1291,7 +1293,7 @@ cuda_caching_allocator& cuda_caching_allocator::operator=(cuda_caching_allocator
 
 void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 {
-    //cppcheck-suppress syntaxError
+    // cppcheck-suppress syntaxError
     if MEMORY_UNLIKELY (size == 0)
     {
         return nullptr;
@@ -1300,55 +1302,89 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 }
 
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
-{ impl_->deallocate(ptr, size, stream); }
+{
+    impl_->deallocate(ptr, size, stream);
+}
 
 void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
-{ impl_->record_stream(ptr, stream); }
+{
+    impl_->record_stream(ptr, stream);
+}
 
 void cuda_caching_allocator::add_free_memory_callback(free_memory_callback callback)
-{ impl_->add_free_memory_callback(std::move(callback)); }
+{
+    impl_->add_free_memory_callback(std::move(callback));
+}
 
 void cuda_caching_allocator::clear_free_memory_callbacks()
-{ impl_->clear_free_memory_callbacks(); }
+{
+    impl_->clear_free_memory_callbacks();
+}
 
 void cuda_caching_allocator::empty_cache()
-{ impl_->empty_cache(); }
+{
+    impl_->empty_cache();
+}
 
 void cuda_caching_allocator::set_max_cached_bytes(size_t bytes)
-{ impl_->set_max_cached_bytes(bytes); }
+{
+    impl_->set_max_cached_bytes(bytes);
+}
 
 size_t cuda_caching_allocator::max_cached_bytes() const
-{ return impl_->max_cached_bytes(); }
+{
+    return impl_->max_cached_bytes();
+}
 
 void cuda_caching_allocator::set_expandable_segments(bool enabled)
-{ impl_->set_expandable_segments(enabled); }
+{
+    impl_->set_expandable_segments(enabled);
+}
 
 bool cuda_caching_allocator::expandable_segments() const
-{ return impl_->expandable_segments(); }
+{
+    return impl_->expandable_segments();
+}
 
 void cuda_caching_allocator::set_memory_fraction(double fraction)
-{ impl_->set_memory_fraction(fraction); }
+{
+    impl_->set_memory_fraction(fraction);
+}
 
 double cuda_caching_allocator::memory_fraction() const
-{ return impl_->memory_fraction(); }
+{
+    return impl_->memory_fraction();
+}
 
 void cuda_caching_allocator::reset_peak_stats()
-{ impl_->reset_peak_stats(); }
+{
+    impl_->reset_peak_stats();
+}
 
 size_t cuda_caching_allocator::device_total_memory() const
-{ return impl_->device_total_memory(); }
+{
+    return impl_->device_total_memory();
+}
 
 unified_cache_stats cuda_caching_allocator::stats() const
-{ return impl_->stats(); }
+{
+    return impl_->stats();
+}
 
 void cuda_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
-{ impl_->record_memory_history(enabled, max_entries); }
+{
+    impl_->record_memory_history(enabled, max_entries);
+}
 
 gpu_memory_snapshot cuda_caching_allocator::snapshot()
-{ return impl_->snapshot(); }
+{
+    return impl_->snapshot();
+}
 
 int cuda_caching_allocator::device() const
-{ return impl_->device(); }
+{
+    return impl_->device();
+}
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 cuda_caching_allocator& caching_allocator_for_device(int device_index)
