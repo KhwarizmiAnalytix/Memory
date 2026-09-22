@@ -13,24 +13,22 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Linux: gcc + clang, all four backends, Release; one Debug canary per compiler.
+  # Linux CPU: gcc + clang, Release; one Debug canary per compiler.
+  # MEMORY_GPU_BACKEND=none exercises the CPU allocator paths only.
   # ---------------------------------------------------------------------------
-  linux:
-    name: Linux / ${{ matrix.compiler }} / ${{ matrix.backend }} / ${{ matrix.build_type }}
+  linux-cpu:
+    name: Linux CPU / ${{ matrix.compiler }} / ${{ matrix.build_type }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         compiler: [gcc, clang]
-        backend: [LOGURU, SPDLOG, GLOG, NATIVE]
         build_type: [Release]
         include:
           - compiler: gcc
-            backend: LOGURU
             build_type: Debug
           - compiler: clang
-            backend: LOGURU
             build_type: Debug
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +52,9 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DLOGGING_BACKEND=${{ matrix.backend }}
-          -DLOGGING_ENABLE_BENCHMARK=ON
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
 
       - name: Build
         run: cmake --build build
@@ -64,16 +63,76 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # macOS: AppleClang, all four backends, Release.
+  # Linux CUDA: builds and runs the Memory test suite against a real CUDA
+  # device. Requires a self-hosted runner with the CUDA toolkit and an
+  # NVIDIA GPU (labels: self-hosted, linux, gpu, cuda).
   # ---------------------------------------------------------------------------
-  macos:
-    name: macOS / ${{ matrix.backend }}
+  linux-cuda:
+    name: Linux GPU / CUDA
+    runs-on: [self-hosted, linux, gpu, cuda]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify CUDA device is visible
+        run: nvidia-smi
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMEMORY_GPU_BACKEND=cuda
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Linux HIP: builds and runs the Memory test suite against a real ROCm
+  # device. HIP is Unix-only in this project (see Cmake/hip.cmake). Requires
+  # a self-hosted runner with ROCm/hipcc and an AMD GPU
+  # (labels: self-hosted, linux, gpu, rocm).
+  # ---------------------------------------------------------------------------
+  linux-hip:
+    name: Linux GPU / HIP
+    runs-on: [self-hosted, linux, gpu, rocm]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify ROCm device is visible
+        run: rocm-smi
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMEMORY_GPU_BACKEND=hip
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # macOS CPU: AppleClang, Release. Metal is the GPU backend on this
+  # platform but stays out of the default CPU/CUDA/HIP CI focus.
+  # ---------------------------------------------------------------------------
+  macos-cpu:
+    name: macOS CPU
     runs-on: macos-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [LOGURU, SPDLOG, GLOG, NATIVE]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,8 +145,9 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
-          -DLOGGING_BACKEND=${{ matrix.backend }}
-          -DLOGGING_ENABLE_BENCHMARK=ON
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
 
       - name: Build
         run: cmake --build build
@@ -96,16 +156,13 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # Windows: MSVC, all four backends, Release.
+  # Windows CPU: MSVC, Release. HIP is Unix-only and CUDA-on-Windows is not
+  # part of the self-hosted GPU fleet, so Windows stays CPU-only here.
   # ---------------------------------------------------------------------------
-  windows:
-    name: Windows / ${{ matrix.backend }}
+  windows-cpu:
+    name: Windows CPU
     runs-on: windows-latest
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [LOGURU, SPDLOG, GLOG, NATIVE]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,8 +171,9 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build
-          -DLOGGING_BACKEND=${{ matrix.backend }}
-          -DLOGGING_ENABLE_BENCHMARK=ON
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
 
       - name: Build
         run: cmake --build build --config Release
@@ -124,7 +182,7 @@ jobs:
         run: ctest --test-dir build --build-config Release --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # Bazel: builds/tests the whole tree (default LOGURU backend), cross-platform.
+  # Bazel: builds/tests the whole tree (CPU-only default backend), cross-platform.
   # ---------------------------------------------------------------------------
   bazel:
     name: Bazel / ${{ matrix.os }}
@@ -156,7 +214,7 @@ jobs:
         run: bazel test //... --test_output=errors
 
   # ---------------------------------------------------------------------------
-  # Sanitizers: Clang ASan and UBSan, default backend, Debug.
+  # Sanitizers: Clang ASan and UBSan, CPU backend, Debug.
   # Linux + macOS only — Cmake/sanitize.cmake requires Clang/GCC and explicitly
   # warns "Sanitizers require GCC or Clang" for MSVC, so Windows is skipped
   # (unsupported by the codebase's own sanitizer module, not a CI gap).
@@ -190,10 +248,11 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
-          -DLOGGING_BACKEND=LOGURU
-          -DLOGGING_ENABLE_BENCHMARK=OFF
-          -DLOGGING_ENABLE_SANITIZER=ON
-          -DLOGGING_SANITIZER_TYPE=${{ matrix.sanitizer }}
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=OFF
+          -DMEMORY_ENABLE_SANITIZER=ON
+          -DMEMORY_SANITIZER_TYPE=${{ matrix.sanitizer }}
 
       - name: Build
         run: cmake --build build
@@ -211,7 +270,7 @@ jobs:
   # with CMAKE_CXX_COMPILER=/usr/bin/c++, and coverage-tool cannot map that path
   # (no "clang" in the filename) when CMAKE_CXX_COMPILER_ID is not a cache entry.
   # Homebrew llvm also keeps llvm-cov matched to the compiler that instrumented
-  # the binaries. Codecov upload stays Linux/lcov-only.
+  # the binaries. Codecov upload stays Linux/lcov-only. CPU backend only.
   # ---------------------------------------------------------------------------
   coverage:
     name: Coverage / ${{ matrix.os }}
@@ -258,17 +317,19 @@ jobs:
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
-          -DLOGGING_BACKEND=LOGURU
-          -DLOGGING_ENABLE_BENCHMARK=OFF
-          -DLOGGING_ENABLE_COVERAGE=ON
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=OFF
+          -DMEMORY_ENABLE_COVERAGE=ON
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
         run: >
           cmake -S . -B build
-          -DLOGGING_BACKEND=LOGURU
-          -DLOGGING_ENABLE_BENCHMARK=OFF
-          -DLOGGING_ENABLE_COVERAGE=ON
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=OFF
+          -DMEMORY_ENABLE_COVERAGE=ON
 
       - name: Build (Linux/macOS)
         if: matrix.os != 'windows-latest'
