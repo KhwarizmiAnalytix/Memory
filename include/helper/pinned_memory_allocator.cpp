@@ -33,8 +33,19 @@
 #include "gpu/device_guard.h"
 #endif
 
+#if MEMORY_HAS_PROFILER
+#include "gpu/caching_allocator_profiler_report.h"
+#endif
+
 namespace memory::cpu
 {
+#if (MEMORY_HAS_CUDA || MEMORY_HAS_HIP) && MEMORY_HAS_PROFILER
+// profiler::device_enum has no dedicated "pinned host" value (CPU=0, CUDA=1,
+// HIP=2, PrivateUse1=3); pinned buffers are host-resident, so they report as
+// CPU, same as PyTorch's CachingHostAllocator.
+constexpr int16_t kPinnedDeviceType = 0;
+#endif
+
 struct pinned_memory_allocator::Impl
 {
     explicit Impl(int device, std::size_t limit) : device_(device), limit_(limit)
@@ -199,6 +210,14 @@ struct pinned_memory_allocator::Impl
         return true;
     }
 
+#if MEMORY_HAS_PROFILER
+    void report_event(void* ptr, std::int64_t nbytes) noexcept
+    {
+        gpu::report_caching_allocator_event(
+            ptr, nbytes, stats_.bytes_allocated, stats_.bytes_reserved, device_, kPinnedDeviceType);
+    }
+#endif
+
     void cache(block& b) noexcept
     {
         b.status          = state::cached;
@@ -285,6 +304,14 @@ struct pinned_memory_allocator::Impl
             if (result == cudaErrorMemoryAllocation)
             {
                 ++stats_.num_ooms;
+#if MEMORY_HAS_PROFILER
+                gpu::report_caching_allocator_oom(
+                    static_cast<std::int64_t>(bytes),
+                    stats_.bytes_allocated,
+                    stats_.bytes_reserved,
+                    device_,
+                    kPinnedDeviceType);
+#endif
                 throw std::bad_alloc();
             }
             gpu::throw_on_cuda_error(result, "cudaHostAlloc");
@@ -316,6 +343,9 @@ struct pinned_memory_allocator::Impl
         b->next      = nullptr;
         stats_.bytes_allocated += b->capacity;
         stats_.bytes_requested += bytes;
+#if MEMORY_HAS_PROFILER
+        report_event(b->ptr, static_cast<std::int64_t>(b->capacity));
+#endif
         return b->ptr;
     }
 
@@ -331,6 +361,9 @@ struct pinned_memory_allocator::Impl
         stats_.bytes_allocated -= b.capacity;
         stats_.bytes_requested -= b.requested;
         stats_.bytes_pending += b.capacity;
+#if MEMORY_HAS_PROFILER
+        report_event(ptr, -static_cast<std::int64_t>(b.capacity));
+#endif
         b.status = state::pending;
         b.next   = pending_;
         pending_ = &b;

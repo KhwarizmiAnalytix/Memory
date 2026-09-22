@@ -392,12 +392,13 @@ list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS ${MEMORY_COMPILE_DEFINITIONS})
 memory_setup_logging()
 if(NOT TARGET Logging::Logging)
   message(
-    FATAL_ERROR
-      "Memory requires Logging::Logging. memory_setup_logging() should have provided it."
+    FATAL_ERROR "Memory requires Logging::Logging. memory_setup_logging() should have provided it."
   )
 endif()
 list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
-list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>")
+list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS
+     "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>"
+)
 
 # Optional Profiler sibling — submodule-or-FetchContent when standalone; reuses the
 # host's Profiler host-overlay wiring when embedded in XSigma. Only wire link when
@@ -407,7 +408,9 @@ set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   set(MEMORY_HAS_PROFILER_BUILD 1)
   list(APPEND MEMORY_DEPENDENCY_LIBS Profiler::Profiler)
-  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "$<TARGET_PROPERTY:Profiler::Profiler,INTERFACE_INCLUDE_DIRECTORIES>")
+  list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS
+       "$<TARGET_PROPERTY:Profiler::Profiler,INTERFACE_INCLUDE_DIRECTORIES>"
+  )
 endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_PROFILER=${MEMORY_HAS_PROFILER_BUILD})
 
@@ -457,9 +460,7 @@ list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
   file(GLOB_RECURSE GPU_SOURCE_FILES "${_memory_src_root}/gpu/*.cpp")
-  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_src_root}/gpu/*.h"
-       "${_memory_src_root}/gpu/*.hxx"
-  )
+  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_src_root}/gpu/*.h" "${_memory_src_root}/gpu/*.hxx")
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
 endif()
@@ -490,11 +491,12 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   if(_profiler_src_dir AND EXISTS "${_profiler_src_dir}/include/common/device.h")
     set(_memory_profiler_shadowed_sources
         "${_memory_src_root}/helper/memory_allocator.cpp"
+        "${_memory_src_root}/helper/pinned_memory_allocator.cpp"
         "${_memory_src_root}/profiler/profiled_cpu_memory_reporter.cpp"
     )
     set_source_files_properties(
       ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES
-                                                        "${_profiler_src_dir}/include"
+                                                      "${_profiler_src_dir}/include"
     )
   endif()
 endif()
@@ -557,11 +559,9 @@ configure_file(
 # "helper/memory_allocator.h", generated "common/memory_export.h".
 target_include_directories(
   Memory
-  PUBLIC $<BUILD_INTERFACE:${_memory_src_root}>
-         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  PUBLIC $<BUILD_INTERFACE:${_memory_src_root}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Testing>
-         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Testing>
-         $<INSTALL_INTERFACE:include>
+         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Testing> $<INSTALL_INTERFACE:include>
   PRIVATE ${_memory_src_root}
 )
 

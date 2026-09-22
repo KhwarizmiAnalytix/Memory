@@ -1,9 +1,9 @@
 """
-Logging Build System Helper Modules
+Memory Build System Helper Modules
 
 Modular helper functions for Scripts/setup.py, split out for readability and
 reuse (mirrors the KhwarizmiAnalytix/XSigma Scripts/helpers/ package this
-standalone Logging repo is built alongside).
+standalone Memory repo is built alongside).
 
 Modules:
     - config: CMake configure-step invocation

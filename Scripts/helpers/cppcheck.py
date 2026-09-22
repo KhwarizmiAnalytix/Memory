@@ -8,9 +8,9 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
-# Source directories that make up the Logging library (mirrors CMakeLists.txt's
-# GLOB_RECURSE root minus Testing/ and ThirdParty/).
-_SOURCE_DIRS = ["common", "logger", "util"]
+# Source directory that makes up the Memory library (mirrors CMakeLists.txt's
+# GLOB_RECURSE root: include/, which nests common/, gpu/, helper/, profiler/).
+_SOURCE_DIRS = ["include"]
 
 
 @dataclass
