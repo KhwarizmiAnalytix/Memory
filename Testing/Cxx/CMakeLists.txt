@@ -6,6 +6,10 @@ include(MemoryDependencies)
 
 memory_setup_gtest()
 
+add_subdirectory(
+  "${CMAKE_CURRENT_SOURCE_DIR}/../PinnedRuntime" "${CMAKE_CURRENT_BINARY_DIR}/PinnedRuntime"
+)
+
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 
 set(TestFiles)
@@ -48,7 +52,7 @@ add_executable(MemoryCxxTests ${TestFiles})
 # vendor an identically-named relative header (common/device.h) and would otherwise shadow
 # Memory's own copy for quote-include resolution.
 set(_memory_test_include_dirs "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
-                               "${CMAKE_CURRENT_BINARY_DIR}/.."
+                              "${CMAKE_CURRENT_BINARY_DIR}/.."
 )
 
 # Homebrew (and other package managers) install headers straight under a shared prefix/include
@@ -189,7 +193,7 @@ if(MEMORY_ENABLE_BENCHMARK)
     add_executable(${target_name} "${_bench_source}")
     target_include_directories(
       ${target_name} PRIVATE "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
-                              "${CMAKE_CURRENT_BINARY_DIR}/.."
+                             "${CMAKE_CURRENT_BINARY_DIR}/.."
     )
     if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
       target_include_directories(${target_name} PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})

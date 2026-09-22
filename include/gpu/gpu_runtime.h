@@ -56,6 +56,9 @@ using cudaMemcpyKind = hipMemcpyKind;
 #define cudaGetDeviceCount hipGetDeviceCount
 #define cudaMalloc hipMalloc
 #define cudaFree hipFree
+#define cudaHostAlloc hipHostMalloc
+#define cudaFreeHost hipHostFree
+#define cudaHostAllocPortable hipHostMallocPortable
 #define cudaMemcpy hipMemcpy
 #define cudaMemcpyAsync hipMemcpyAsync
 #define cudaEventCreateWithFlags hipEventCreateWithFlags
