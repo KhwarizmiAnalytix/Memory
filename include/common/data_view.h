@@ -43,7 +43,7 @@ struct data_view
         }
         size_t const remaining = size_ - offset;
         size_t const n         = count < remaining ? count : remaining;
-        return data_view(data_ + offset, n, type_, device_index_, stream_);
+        return data_view(data_ + offset, n, type_, device_index_, stream_, base_);
     }
 
     static DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE data_view borrow(
@@ -53,7 +53,7 @@ struct data_view
         int         device_index = 0,
         stream_t    stream       = nullptr) noexcept
     {
-        return data_view(data, size, type, device_index, stream);
+        return data_view(data, size, type, device_index, stream, data);
     }
 
     // Handle constness: a const view does not freeze the buffer (same as std::span<T>).
@@ -63,25 +63,44 @@ struct data_view
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() const { return data() + size_; }
 
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
+    /** Allocation's own base pointer, independent of any offset this view was sliced to. */
+    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* base() const { return base_; }
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
     MEMORY_FORCE_INLINE int                           device_index() const { return device_index_; }
     MEMORY_FORCE_INLINE device_enum                   device() const { return type_; }
     MEMORY_FORCE_INLINE stream_t                      stream() const { return stream_; }
 
+    /**
+     * @brief Record a cross-stream use of this view's underlying allocation.
+     *
+     * Forwards the allocation's own base pointer (not this view's, possibly
+     * offset, `data()`), since the CUDA/HIP caching allocator tracks live
+     * blocks by their exact base address. A sliced/windowed view passing its
+     * own interior pointer would fail that lookup (or, worse, silently miss
+     * the intended block) — `base_` is threaded through subview()/borrow() so
+     * it always names the allocation the caching allocator actually knows
+     * about, however many slices deep this view is.
+     */
     MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
     {
-        allocator_t::record_stream(data_, type_, device_index_, stream);
+        allocator_t::record_stream(base_, type_, device_index_, stream);
     }
 
 private:
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE data_view(
-        value_t* data, size_t size, device_enum type, int device_index, stream_t stream) noexcept
+        value_t*    data,
+        size_t      size,
+        device_enum type,
+        int         device_index,
+        stream_t    stream,
+        value_t*    base) noexcept
         : data_(data),
           size_(size),
           type_(type),
           device_index_(device_index),
           stream_(stream),
-          aligned_(is_ptr_aligned(data))
+          aligned_(is_ptr_aligned(data)),
+          base_(base)
     {
     }
 
@@ -97,5 +116,8 @@ private:
     int         device_index_{0};
     stream_t    stream_{nullptr};
     bool        aligned_{false};
+    // Allocation's own base pointer (== data_ptr::data()), independent of any
+    // offset this view was sliced to. nullptr for a default-constructed view.
+    value_t*    base_{nullptr};
 };
 }  // namespace memory

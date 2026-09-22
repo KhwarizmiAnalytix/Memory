@@ -128,7 +128,23 @@ struct data_ptr
         return *this;
     }
 
-    MEMORY_FORCE_INLINE ~data_ptr() { release_owned(); }
+    // Destructors are implicitly noexcept: release_owned() reaching the GPU
+    // caching allocator's deallocate()/insert_events_locked() can throw (an
+    // ownership-check failure, or a CUDA/HIP driver error surfaced while
+    // recording a cross-stream event), and an exception leaving an implicitly
+    // noexcept function calls std::terminate immediately -- not only during
+    // unwinding. There is no safe recovery from a driver error at this point,
+    // so the buffer is abandoned (leaked) rather than crashing the process.
+    MEMORY_FORCE_INLINE ~data_ptr()
+    {
+        try
+        {
+            release_owned();
+        }
+        catch (...)
+        {
+        }
+    }
 
     MEMORY_FORCE_INLINE data_view<value_t> view() const noexcept
     {
@@ -192,7 +208,8 @@ private:
 
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
-    : data_view(owner.data_, owner.size_, owner.type_, owner.device_index_, owner.stream_)
+    : data_view(
+          owner.data_, owner.size_, owner.type_, owner.device_index_, owner.stream_, owner.data_)
 {
 }
 

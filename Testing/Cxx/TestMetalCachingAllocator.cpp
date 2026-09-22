@@ -213,6 +213,33 @@ MEMORYTEST(MetalCachingAllocator, data_ptr_stores_stream)
     END_TEST();
 }
 
+// Regression: ~data_ptr() is implicitly noexcept, so an exception escaping
+// release_owned() used to call std::terminate immediately -- not just during
+// unwinding. Desyncing a data_ptr from the allocator's own bookkeeping (by
+// freeing its pointer out from under it through the raw allocator API) makes
+// release_owned()'s eventual allocator_t::free() throw "does not own the
+// provided pointer" from deep inside the caching allocator, exactly the kind
+// of GPU-boundary failure the finding describes. The test process surviving
+// past the closing brace (where ~data_ptr() runs) is the assertion.
+MEMORYTEST(MetalCachingAllocator, destructor_does_not_throw_on_desynced_free)
+{
+    using pointer_t = float*;
+    {
+        data_ptr<float> ptr(64, device_enum::METAL);
+        ASSERT_NE(nullptr, ptr.data());
+
+        pointer_t raw = ptr.data();
+        // Frees the underlying block directly, out from under `ptr`, which
+        // still believes it owns it (allocated_ == true): the block is now
+        // cached/free, not a live allocation. `ptr`'s destructor below will
+        // try to free the same pointer again.
+        allocator<float>::free(raw, device_enum::METAL);
+    }  // ~data_ptr() here: release_owned() -> allocator_t::free() throws
+       // "does not own the provided pointer" internally; the destructor must
+       // swallow it rather than std::terminate.
+    END_TEST();
+}
+
 MEMORYTEST(MetalCachingAllocator, mid_segment_handle_and_offset)
 {
     // Use the process-wide registry so metal::mtl_buffer_* resolve the same instance.

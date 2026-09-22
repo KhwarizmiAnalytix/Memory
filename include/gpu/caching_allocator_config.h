@@ -24,6 +24,7 @@
 // definition without pulling in driver headers.
 
 #include <cstddef>
+#include <limits>
 
 namespace memory::gpu::caching_config
 {
@@ -37,13 +38,27 @@ constexpr size_t kMinLargeAlloc = 10485760;  // 10 MiB
 constexpr size_t kLargeBuffer   = 20971520;  // 20 MiB
 constexpr size_t kRoundLarge    = 2097152;   // 2 MiB
 
+// Rounds `size` up to the next multiple of `unit` without wrapping. A `size`
+// within `unit - 1` of SIZE_MAX saturates to SIZE_MAX instead of overflowing
+// to a small value; callers treat SIZE_MAX as an unserviceable request, which
+// is the same outcome as reporting overflow explicitly (round_request_size(SIZE_MAX)
+// and segment_size_for(SIZE_MAX) used to both return 0 before this fix).
+inline size_t round_up_saturating(size_t size, size_t unit)
+{
+    if (size > std::numeric_limits<size_t>::max() - (unit - 1))
+    {
+        return std::numeric_limits<size_t>::max();
+    }
+    return unit * ((size + unit - 1) / unit);
+}
+
 inline size_t round_request_size(size_t size)
 {
     if (size < kMinBlockSize)
     {
         return kMinBlockSize;
     }
-    return kMinBlockSize * ((size + kMinBlockSize - 1) / kMinBlockSize);
+    return round_up_saturating(size, kMinBlockSize);
 }
 
 inline size_t segment_size_for(size_t size)
@@ -56,7 +71,7 @@ inline size_t segment_size_for(size_t size)
     {
         return kLargeBuffer;
     }
-    return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    return round_up_saturating(size, kRoundLarge);
 }
 
 }  // namespace memory::gpu::caching_config

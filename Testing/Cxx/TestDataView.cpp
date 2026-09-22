@@ -91,3 +91,43 @@ MEMORYTEST(DataView, borrow_wraps_foreign_buffer)
     EXPECT_EQ(4, view.data()[0]);
     END_TEST();
 }
+
+// Regression for the finding that a sliced/windowed view forwarded its own
+// (offset) data() to record_stream instead of the allocation's base pointer,
+// which the CUDA/HIP caching allocator tracks live blocks by. base() must
+// keep naming the original data_ptr allocation through any depth of slicing.
+MEMORYTEST(DataView, subview_base_is_original_allocation)
+{
+    data_ptr<int> owned(8, device_enum::CPU);
+
+    data_view<int> full(owned);
+    EXPECT_EQ(owned.data(), full.base());
+
+    data_view<int> slice = owned.view(2, 4);
+    EXPECT_EQ(owned.data() + 2, slice.data());
+    EXPECT_EQ(owned.data(), slice.base());
+
+    data_view<int> nested = slice.subview(1, 2);
+    EXPECT_EQ(owned.data() + 3, nested.data());
+    EXPECT_EQ(owned.data(), nested.base());
+    END_TEST();
+}
+
+MEMORYTEST(DataView, borrow_base_is_the_borrowed_pointer)
+{
+    int            raw[4] = {4, 5, 6, 7};
+    data_view<int> view   = data_view<int>::borrow(raw, 4, device_enum::CPU);
+    EXPECT_EQ(raw, view.base());
+
+    data_view<int> slice = view.subview(1, 2);
+    EXPECT_EQ(raw + 1, slice.data());
+    EXPECT_EQ(raw, slice.base());
+    END_TEST();
+}
+
+MEMORYTEST(DataView, default_constructed_has_null_base)
+{
+    data_view<int> view;
+    EXPECT_EQ(nullptr, view.base());
+    END_TEST();
+}

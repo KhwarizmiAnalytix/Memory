@@ -153,6 +153,48 @@ MEMORYTEST_F(GpuMemoryProfilerTest, record_memory_history_captures_alloc_free_an
     END_TEST();
 }
 
+// Regression for the finding that free_block_locked recorded the
+// free_completed trace entry's address *after* try_merge_locked, which can
+// reassign the freed block's own `ptr` to a merged neighbor's (earlier)
+// base address -- pairing the trace entry with the wrong pointer and
+// breaking alloc/free replay. Two adjacent same-size allocations packed
+// into one segment (as packs_small_allocations_into_one_segment establishes
+// for Metal) reproduce it: freeing the lower one first, then the higher one,
+// makes the higher block merge with its now-free lower neighbor, which is
+// exactly the "dst->ptr = src->ptr" relabeling path.
+MEMORYTEST_F(GpuMemoryProfilerTest, free_completed_trace_keeps_original_address_after_merge)
+{
+    caching_allocator alloc(0);
+    alloc.record_memory_history(true, 64);
+
+    void* low  = alloc.allocate(1024);
+    void* high = alloc.allocate(1024);
+    ASSERT_NE(nullptr, low);
+    ASSERT_NE(nullptr, high);
+    ASSERT_NE(low, high);
+
+    alloc.deallocate(low, 1024);   // low becomes a free neighbor of high
+    alloc.deallocate(high, 1024);  // merges with low: dst(=high)->ptr = src(=low)->ptr
+
+    gpu_memory_snapshot const snap = alloc.snapshot();
+    bool                      found_high_free_completed = false;
+    for (const gpu_memory_trace_entry& entry : snap.device_trace)
+    {
+        if (entry.action == gpu_memory_trace_action::free_completed && entry.address == high)
+        {
+            found_high_free_completed = true;
+        }
+        // The merge must never surface as a free_completed entry for `low`'s
+        // address representing `high`'s free.
+    }
+    EXPECT_TRUE(found_high_free_completed)
+        << "free_completed for the higher block must report its own address, "
+           "not the lower neighbor's address it merged into";
+
+    alloc.record_memory_history(false);
+    END_TEST();
+}
+
 MEMORYTEST_F(GpuMemoryProfilerTest, history_ring_drops_oldest)
 {
     caching_allocator alloc(0);

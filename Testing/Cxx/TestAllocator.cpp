@@ -23,6 +23,7 @@
 // TestMetalBufferAllocator.cpp.
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -90,6 +91,31 @@ MEMORYTEST(Allocator, AllocateHugeSizeThrowsBadAlloc)
     // Larger than any real system can satisfy -- forces the underlying
     // backend to return nullptr, which allocate() converts to bad_alloc.
     EXPECT_THROW(alloc_t::allocate(static_cast<size_t>(-1) / 2, device_enum::CPU), std::bad_alloc);
+    END_TEST();
+}
+
+// Regression: allocate()/copy() used to compute `n * scalar_size` unchecked,
+// so an oversized element count could wrap to a small byte count that then
+// underallocates instead of failing. checked_byte_count() must now catch the
+// overflow before it reaches the backend.
+MEMORYTEST(Allocator, AllocateOverflowingElementCountThrowsOverflowError)
+{
+    using alloc_t = allocator<double>;
+    // count * sizeof(double) overflows size_t (sizeof(double) == 8).
+    EXPECT_THROW(
+        alloc_t::allocate(std::numeric_limits<size_t>::max() / 2, device_enum::CPU),
+        std::overflow_error);
+    END_TEST();
+}
+
+MEMORYTEST(Allocator, CopyOverflowingElementCountThrowsOverflowError)
+{
+    using alloc_t = allocator<double>;
+    double        from      = 0.0;
+    double        to        = 0.0;
+    EXPECT_THROW(
+        alloc_t::copy(&from, std::numeric_limits<size_t>::max() / 2, &to),
+        std::overflow_error);
     END_TEST();
 }
 

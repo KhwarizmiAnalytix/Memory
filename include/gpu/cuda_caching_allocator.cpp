@@ -274,6 +274,13 @@ struct cache_block
     std::set<cudaStream_t> stream_uses;
     void*                  segment_base{nullptr};
     bool                   vm_backed{false};
+    // Set when cudaEventRecord fails for one of this block's recorded
+    // cross-stream uses partway through insert_events_locked(): the streams
+    // after the failure never got an event, so their pending work cannot be
+    // proven complete. A quarantined block is permanently withheld from the
+    // free pools even once its (partial) event_count reaches zero, rather
+    // than being reused while a use we couldn't track might still be live.
+    bool                   quarantined{false};
     // Segment creation order; equal-size free blocks recycle FIFO (upstream
     // registration_counter). Search keys keep the -1 default so lower_bound
     // finds the oldest matching block.
@@ -427,7 +434,12 @@ struct cuda_caching_allocator::Impl
 
         // The stream hint maps to recordStream semantics: freeing after use on a
         // stream other than the allocation stream counts as a cross-stream use.
-        if (stream != nullptr && stream != block->stream)
+        // nullptr is CUDA/HIP's own spelling of the default stream, a real
+        // stream identity distinct from any non-default allocation stream, so
+        // it must not be treated as "no hint" here — a block allocated on a
+        // non-default stream and freed after use on the default stream is a
+        // genuine cross-stream use that needs event-deferred reclamation.
+        if (stream != block->stream)
         {
             block->stream_uses.insert(stream);
         }
@@ -458,7 +470,11 @@ struct cuda_caching_allocator::Impl
 
     void record_stream(void* ptr, cudaStream_t stream)
     {
-        if (ptr == nullptr || stream == nullptr)
+        // stream == nullptr denotes the default stream (a valid, distinct
+        // stream identity), not "no stream to record" — only a null ptr
+        // makes this a no-op. See the deallocate() comment on the same
+        // default-stream/no-hint distinction.
+        if (ptr == nullptr)
         {
             return;
         }
@@ -557,9 +573,16 @@ struct cuda_caching_allocator::Impl
         }
     }
 
+    // Includes pending_reserved_bytes_: budget reserved by other threads that
+    // have already passed this check and dropped the lock to call cudaMalloc,
+    // but have not yet updated stats_.bytes_reserved with the driver result.
+    // Without it, N threads can each observe headroom for `alloc_size` and all
+    // proceed to the driver, jointly reserving up to N * alloc_size over the
+    // cap before any of them account for the others.
     bool reserved_would_exceed_locked(size_t alloc_size) const
     {
-        return stats_.bytes_reserved.load(std::memory_order_relaxed) + alloc_size >
+        return stats_.bytes_reserved.load(std::memory_order_relaxed) + pending_reserved_bytes_ +
+                   alloc_size >
                allowed_memory_maximum_;
     }
 
@@ -738,10 +761,18 @@ private:
         // Metadata is allocated before the driver call so a throwing new cannot
         // leak a successfully mapped segment.
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool);
+        // Reserve this request's budget, and snapshot expandable_segments_,
+        // under the lock before dropping it: reserved_would_exceed_locked()
+        // on a concurrent thread must see this allocation as already spoken
+        // for, and expandable_segments_ must not be read concurrently with
+        // set_expandable_segments()'s write to it.
+        pending_reserved_bytes_ += alloc_size;
+        bool const  expandable = expandable_segments_;
         lock.unlock();
         cudaError_t err = cudaSuccess;
-        raw_segment raw = malloc_segment(device_, alloc_size, &err, expandable_segments_);
+        raw_segment raw = malloc_segment(device_, alloc_size, &err, expandable);
         lock.lock();
+        pending_reserved_bytes_ -= alloc_size;
         if (raw.ptr == nullptr)
         {
             if (err != cudaSuccess && err != cudaErrorMemoryAllocation)
@@ -816,6 +847,13 @@ private:
     void free_block_locked(cache_block* block)
     {
         size_t const freed_size = block->size;
+        // Capture the address actually being freed before merging can move
+        // it: a merge with a preceding free block reassigns block->ptr to
+        // that neighbor's (earlier) base address (see try_merge_locked's
+        // src_is_prev branch), so recording block->ptr *after* merging would
+        // pair this free_completed trace entry with the wrong address and
+        // break alloc/free event pairing for anything replaying the trace.
+        void* const freed_ptr = block->ptr;
         try_merge_locked(block, block->prev);
         try_merge_locked(block, block->next);
 
@@ -825,7 +863,7 @@ private:
         bytes_cached_ += freed_size;
         peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
         record_trace_locked(
-            gpu_memory_trace_action::free_completed, block->ptr, freed_size, block->stream);
+            gpu_memory_trace_action::free_completed, freed_ptr, freed_size, block->stream);
     }
 
     void erase_from_pool_locked(block_pool& pool, cache_block* block)
@@ -908,11 +946,26 @@ private:
         }
         catch (...)
         {
-            // Events already queued will recycle the block when they complete;
-            // with nothing recorded, return it to its pool immediately.
             if (block->event_count == 0)
             {
+                // Nothing recorded at all: no stream in `streams` has a
+                // tracked completion, so nothing was left unproven. Return
+                // the block to its pool immediately, matching the no-uses
+                // free path.
                 free_block_locked(block);
+            }
+            else
+            {
+                // Some streams recorded successfully before the failure; the
+                // remaining ones in `streams` never got an event and their
+                // completion cannot be proven. Reusing this block once only
+                // the recorded events finish would let a still-pending use on
+                // an unrecorded stream race a new allocation into the same
+                // memory. Quarantine it instead: the already-queued events
+                // still recycle normally, but block->quarantined stops
+                // free_block_locked from being reached for it, so the memory
+                // is leaked rather than handed out unproven-safe.
+                block->quarantined = true;
             }
             throw;
         }
@@ -958,7 +1011,12 @@ private:
                     recycle_event_locked(event);
                     queue.pop_front();
                     block->event_count--;
-                    if (block->event_count == 0)
+                    // A quarantined block (see insert_events_locked) is never
+                    // returned to a free pool: its untracked streams' uses
+                    // were never proven complete, so it stays permanently
+                    // withheld (and its cache_block leaked) rather than
+                    // becoming reusable on the strength of a partial count.
+                    if (block->event_count == 0 && !block->quarantined)
                     {
                         free_block_locked(block);
                     }
@@ -995,7 +1053,7 @@ private:
                 throw_on_cuda_error(cudaEventSynchronize(entry.first), "cudaEventSynchronize");
                 recycle_event_locked(entry.first);
                 entry.second->event_count--;
-                if (entry.second->event_count == 0)
+                if (entry.second->event_count == 0 && !entry.second->quarantined)
                 {
                     free_block_locked(entry.second);
                 }
@@ -1163,6 +1221,9 @@ private:
     size_t allowed_memory_maximum_{std::numeric_limits<size_t>::max()};
     size_t bytes_cached_{0};
     size_t peak_bytes_cached_{0};
+    // Budget reserved for in-flight alloc_segment_unlocked() driver calls, not
+    // yet reflected in stats_.bytes_reserved. See reserved_would_exceed_locked().
+    size_t pending_reserved_bytes_{0};
 
     // Recursive, matching upstream: free-memory callbacks run under the lock and
     // may re-enter this allocator to free memory.

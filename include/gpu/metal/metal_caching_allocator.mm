@@ -645,13 +645,19 @@ private:
     void free_block_locked(cache_block* block)
     {
         size_t const freed_size = block->size;
+        // Capture the address actually being freed before merging can move
+        // it: a merge with a preceding free block reassigns block->ptr to
+        // that neighbor's (earlier) base address (see try_merge_locked's
+        // dst->prev == src branch), so recording block->ptr *after* merging
+        // would pair this free_completed trace entry with the wrong address.
+        void* const freed_ptr = block->ptr;
         try_merge_locked(block, block->prev);
         try_merge_locked(block, block->next);
 
         block->pool->blocks.insert(block);
         bytes_cached_ += freed_size;
         peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
-        record_trace_locked(gpu_memory_trace_action::free_completed, block->ptr, freed_size);
+        record_trace_locked(gpu_memory_trace_action::free_completed, freed_ptr, freed_size);
     }
 
     void try_merge_locked(cache_block* dst, cache_block* src)

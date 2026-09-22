@@ -23,7 +23,8 @@
 #include <cstdint>      // for uintptr_t
 #include <cstring>      // for memcpy
 #include <exception>    // for bad_alloc
-#include <stdexcept>    // for invalid_argument
+#include <limits>       // for numeric_limits
+#include <stdexcept>    // for invalid_argument, overflow_error
 #include <string>       // for runtime_error messages
 #include <type_traits>  // for is_same_v
 
@@ -72,6 +73,25 @@ constexpr bool has_gpu_support()
 #else
     return false;
 #endif
+}
+
+/**
+ * @brief `count * elem_size` with overflow checked, throwing std::overflow_error
+ *        instead of silently wrapping.
+ *
+ * `allocate()`/`copy()` previously computed `n * scalar_size` unchecked, so an
+ * oversized `n` could wrap to a small byte count that then succeeds and
+ * underallocates. This guards every element-count-to-byte-count conversion on
+ * the allocation and copy paths.
+ */
+MEMORY_FORCE_INLINE constexpr std::size_t checked_byte_count(
+    std::size_t count, std::size_t elem_size)
+{
+    if (elem_size != 0 && count > std::numeric_limits<std::size_t>::max() / elem_size)
+    {
+        throw std::overflow_error("memory::allocator: element count * element size overflows size_t");
+    }
+    return count * elem_size;
 }
 
 constexpr std::size_t optimal_alignment(device_enum device_type)
@@ -137,13 +157,14 @@ public:
             return nullptr;
         }
 
-        pointer ptr = nullptr;
+        pointer         ptr    = nullptr;
+        size_type const nbytes = checked_byte_count(n, scalar_size);
 
         if (type == device_enum::CPU)
         {
             (void)stream;
-            ptr = static_cast<pointer>(
-                memory::cpu::memory_allocator::allocate(n * scalar_size, alignment));
+            ptr =
+                static_cast<pointer>(memory::cpu::memory_allocator::allocate(nbytes, alignment));
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
@@ -157,7 +178,7 @@ public:
             }
 #endif
             ptr = static_cast<pointer>(
-                gpu::caching_allocator_for_device(device_index).allocate(n * scalar_size, stream));
+                gpu::caching_allocator_for_device(device_index).allocate(nbytes, stream));
         }
 #endif
         else
@@ -287,6 +308,14 @@ public:
      *
      * No-op for CPU and Metal. Matches PyTorch recordStream: the block is not
      * reused until @p stream completes.
+     *
+     * @p stream == nullptr is CUDA/HIP's own spelling for the default stream,
+     * not "no stream" — it must still be forwarded. A block allocated on a
+     * non-default stream and then used on the default stream is a real
+     * cross-stream use; short-circuiting here on a null stream used to drop
+     * that use silently. `cuda_caching_allocator::record_stream` already
+     * compares against the block's own allocation stream and no-ops when they
+     * match, so forwarding unconditionally is safe for the same-stream case.
     */
     MEMORY_FORCE_INLINE static void record_stream(
         pointer     ptr,  // cppcheck-suppress constParameterPointer
@@ -294,7 +323,7 @@ public:
         int         device_index = 0,
         stream_t    stream       = nullptr)  // cppcheck-suppress constParameterPointer
     {
-        if (ptr == nullptr || stream == nullptr)
+        if (ptr == nullptr)
         {
             return;
         }
@@ -306,6 +335,7 @@ public:
 #else
         (void)type;
         (void)device_index;
+        (void)stream;
 #endif
     }
 
@@ -327,7 +357,7 @@ public:
             return;
         }
 
-        const auto nbytes = n * scalar_size;
+        const auto nbytes = checked_byte_count(n, scalar_size);
 
         if (from_type == device_enum::CPU && to_type == device_enum::CPU)
         {
@@ -393,6 +423,26 @@ public:
             {
                 throw std::runtime_error(
                     "GPU memory copy failed: " + std::string(cudaGetErrorString(result)));
+            }
+            // An async copy (stream != nullptr, cudaMemcpy{,Peer}Async above)
+            // has not necessarily completed when this call returns: it only
+            // enqueued work on `stream`. Neither endpoint's caching allocator
+            // otherwise learns that `stream` touches this memory, so a GPU
+            // block freed right after this call could be reused (and
+            // overwritten) by a new allocation before the copy actually
+            // finishes. Recording the use on both GPU endpoints defers their
+            // reclamation until `stream` catches up, the same protection
+            // record_stream() gives an explicit kernel launch.
+            if (stream != nullptr)
+            {
+                if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
+                {
+                    record_stream(const_cast<pointer>(from), from_type, from_index, stream);
+                }
+                if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
+                {
+                    record_stream(to, to_type, to_index, stream);
+                }
             }
             return;
         }

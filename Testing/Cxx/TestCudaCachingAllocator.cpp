@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <new>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -590,6 +591,63 @@ MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
 }
 
 /**
+ * @brief nullptr is CUDA/HIP's own spelling of the default stream, not "no
+ *        stream" -- a block allocated on a non-default stream and then used
+ *        (record_stream) or freed on the default stream (stream == nullptr)
+ *        must still be tracked as a cross-stream use and withheld until that
+ *        default-stream work completes. Regression for the finding that
+ *        `stream == nullptr` used to short-circuit record_stream/deallocate
+ *        before this cross-stream use was ever recorded.
+ */
+MEMORYTEST_F(CudaCachingAllocator, default_stream_use_is_tracked_as_cross_stream)
+{
+    cuda_caching_allocator allocator(0);
+
+    cudaStream_t alloc_stream = nullptr;
+    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&alloc_stream));
+
+    // Keep the default stream genuinely busy, exactly as
+    // defers_reuse_until_recorded_stream_completes does for an explicit
+    // stream, so the event recorded on it cannot resolve immediately.
+    std::atomic<bool> release_default_stream{false};
+    ASSERT_EQ(
+        cudaSuccess,
+        cudaLaunchHostFunc(
+            /*default stream*/ nullptr, block_stream_until_released, &release_default_stream));
+    (void)cudaStreamQuery(nullptr);
+
+    // Same reasoning as the explicit-stream test above: pick a size whose
+    // segment_size_for() result equals the request itself so no unrelated
+    // leftover block is cached alongside the one under test.
+    size_t const segment_size = 10 * 1024 * 1024;
+
+    void* ptr = allocator.allocate(segment_size, alloc_stream);
+    ASSERT_NE(nullptr, ptr);
+
+    // Use on the default stream (stream == nullptr), then free on the
+    // allocation stream: this must be recorded as a cross-stream use even
+    // though the "use" stream argument is nullptr.
+    allocator.record_stream(ptr, nullptr);
+    allocator.deallocate(ptr, segment_size, alloc_stream);
+
+    void* ptr2 = allocator.allocate(segment_size, alloc_stream);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
+    allocator.deallocate(ptr2, segment_size, alloc_stream);
+
+    release_default_stream.store(true, std::memory_order_release);
+    ASSERT_EQ(cudaSuccess, cudaStreamSynchronize(nullptr));
+    void* ptr3 = allocator.allocate(segment_size, alloc_stream);
+    ASSERT_NE(nullptr, ptr3);
+    EXPECT_EQ(ptr, ptr3);
+
+    allocator.deallocate(ptr3, segment_size, alloc_stream);
+    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
+
+    LOGGING_LOG_INFO("CUDA caching allocator default-stream cross-tracking test passed");
+}
+
+/**
  * @brief empty_cache releases cached segments so they can be re-cudaMalloc'd
  */
 MEMORYTEST_F(CudaCachingAllocator, empty_cache_releases_cached_segments)
@@ -898,6 +956,85 @@ MEMORYTEST_F(CudaCachingAllocator, expandable_segments_default_off)
     allocator.deallocate(ptr_vm, 2048);
     allocator.set_expandable_segments(false);
     EXPECT_FALSE(allocator.expandable_segments());
+}
+
+/**
+ * @brief set_memory_fraction's cap must hold under concurrent allocate()
+ *        calls, not just single-threaded ones.
+ *
+ * Regression for the finding that reserved_would_exceed_locked() was checked
+ * before alloc_segment_unlocked() drops the lock for the driver cudaMalloc
+ * call, without reserving that request's budget first: N threads could each
+ * observe headroom for one more segment, all pass the check, and only then
+ * (after the driver call) update stats_.bytes_reserved -- jointly reserving
+ * up to N segments over the cap before any of them accounted for the others.
+ * pending_reserved_bytes_ closes that window by reserving budget under the
+ * lock before it is dropped.
+ */
+MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fraction_budget)
+{
+    cuda_caching_allocator allocator(0);
+
+    size_t const total = allocator.device_total_memory();
+    ASSERT_GT(total, 0U);
+
+    // A request in [kMinLargeAlloc, ...) rounds up to a 2 MiB multiple of
+    // itself exactly (see caching_allocator_config.h), so each accepted
+    // allocate() reserves exactly one kSegmentSize segment.
+    size_t const kSegmentSize     = 20 * 1024 * 1024;
+    constexpr int kBudgetSegments = 2;
+    constexpr int kThreads        = 8;
+
+    double const fraction = static_cast<double>(kSegmentSize) *
+                             (static_cast<double>(kBudgetSegments) + 0.5) /
+                             static_cast<double>(total);
+    ASSERT_GT(fraction, 0.0);
+    ASSERT_LE(fraction, 1.0) << "device does not have enough free memory for this test's budget";
+    allocator.set_memory_fraction(fraction);
+
+    std::vector<std::thread> threads;
+    std::atomic<int>         succeeded{0};
+    std::atomic<int>         failed{0};
+    std::vector<void*>       ptrs(kThreads, nullptr);
+
+    for (int i = 0; i < kThreads; ++i)
+    {
+        threads.emplace_back(
+            [&, i]()
+            {
+                try
+                {
+                    ptrs[i] = allocator.allocate(kSegmentSize);
+                    succeeded.fetch_add(1, std::memory_order_relaxed);
+                }
+                catch (const std::bad_alloc&)
+                {
+                    failed.fetch_add(1, std::memory_order_relaxed);
+                }
+            });
+    }
+    for (auto& thread : threads)
+    {
+        thread.join();
+    }
+
+    // At most kBudgetSegments requests can fit under the fraction cap; the
+    // rest must fail cleanly rather than all succeeding and overshooting it.
+    EXPECT_LE(succeeded.load(), kBudgetSegments);
+    EXPECT_GT(failed.load(), 0) << "budget was too generous for this thread count to prove "
+                                    "the race is closed -- tighten kBudgetSegments/kThreads";
+    EXPECT_LE(allocator.stats().bytes_reserved.load(), kSegmentSize * kBudgetSegments);
+
+    for (void* ptr : ptrs)
+    {
+        if (ptr != nullptr)
+        {
+            allocator.deallocate(ptr, kSegmentSize);
+        }
+    }
+    allocator.set_memory_fraction(1.0);
+
+    LOGGING_LOG_INFO("CUDA caching allocator concurrent memory-fraction budget test passed");
 }
 
 MEMORYTEST_F(CudaCachingAllocator, same_size_alloc_free_churn)

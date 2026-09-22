@@ -23,6 +23,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "common/device.h"
@@ -308,8 +309,7 @@ public:
      */
     pointer allocate(size_type count, stream_type stream = nullptr)
     {
-        size_t bytes         = count * sizeof(T);
-        size_t aligned_bytes = ((bytes + alignment - 1) / alignment) * alignment;
+        size_t aligned_bytes = aligned_byte_count(count);
         void*  ptr           = allocator_.allocate(aligned_bytes, stream);
         return static_cast<pointer>(ptr);
     }
@@ -322,9 +322,7 @@ public:
      */
     void deallocate(pointer ptr, size_type count, stream_type stream = nullptr)
     {
-        size_t bytes         = count * sizeof(T);
-        size_t aligned_bytes = ((bytes + alignment - 1) / alignment) * alignment;
-        allocator_.deallocate(ptr, aligned_bytes, stream);
+        allocator_.deallocate(ptr, aligned_byte_count(count), stream);
     }
 
     /**
@@ -348,6 +346,27 @@ public:
     int device() const { return allocator_.device(); }
 
 private:
+    // count * sizeof(T), then rounded up to `alignment`, both checked against
+    // overflow: an oversized `count` must fail loudly (std::overflow_error)
+    // rather than wrap to a small byte count that then underallocates.
+    static size_t aligned_byte_count(size_type count)
+    {
+        if (scalar_size != 0 && count > std::numeric_limits<size_type>::max() / scalar_size)
+        {
+            throw std::overflow_error(
+                "cuda_caching_allocator_template: element count * element size overflows "
+                "size_t");
+        }
+        size_t const bytes = count * scalar_size;
+        if (bytes > std::numeric_limits<size_type>::max() - (alignment_bytes - 1))
+        {
+            throw std::overflow_error(
+                "cuda_caching_allocator_template: byte count overflows size_t when rounded "
+                "up to alignment");
+        }
+        return ((bytes + alignment_bytes - 1) / alignment_bytes) * alignment_bytes;
+    }
+
     cuda_caching_allocator allocator_;
 };
 
