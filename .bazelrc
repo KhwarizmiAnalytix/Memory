@@ -20,3 +20,10 @@ build:windows --cxxopt=/std:c++20 --host_cxxopt=/std:c++20
 # Backend selection examples:
 #   bazel build //:Logging --define=logging_backend=spdlog
 #   bazel build //:Logging --define=logging_backend=glog
+
+# Profiler is off by default under Bazel: ThirdParty/profiler.BUILD still targets
+# Profiler's pre-include/ source layout and does not yet wire its kineto/ittapi
+# dependencies, so @profiler//:Profiler does not build. CMake keeps
+# MEMORY_ENABLE_PROFILER=ON. Re-enable with --define=memory_enable_profiler=true
+# once the overlay is ported.
+build --define=memory_enable_profiler=false

@@ -9,6 +9,7 @@ _MEMORY_TEST_SRCS = glob(
         "TestGPU*.cpp",
         "TestCuda*.cpp",
         "TestHip*.cpp",
+        "TestMetal*.cpp",
     ],
 ) + select({
     "//bazel:enable_cuda": glob(
@@ -36,6 +37,7 @@ _MEMORY_TEST_SRCS = glob(
         [
             "TestGpu*.cpp",
             "TestGPU*.cpp",
+            "TestMetal*.cpp",
         ],
         allow_empty = True,
     ),
@@ -49,10 +51,12 @@ cc_test(
     srcs = _MEMORY_TEST_SRCS,
     copts = memory_copts(),
     defines = memory_defines() + [
+        "MEMORY_HAS_GTEST=1",
+        "MEMORY_GOOGLE_TEST",
+        "XSIGMA_HAS_GTEST=1",
         "XSIGMA_GOOGLE_TEST",
         "USE_GTEST",
         "_VARIADIC_MAX=10",
-        "MEMORY_HAS_GTEST=1",
     ] + select({
         "//bazel:enable_cuda": ["XSIGMA_HAS_CUDA=1"],
         "//conditions:default": ["XSIGMA_HAS_CUDA=0"],
@@ -63,8 +67,8 @@ cc_test(
     includes = ["."],
     linkopts = memory_linkopts(),
     deps = [
-        "//Library/Memory:Memory",
-        "//Library/Memory/Testing:memoryTest_header",
+        "//:Memory",
+        "//Testing:memoryTest_header",
         "@com_google_googletest//:gtest",
         "@com_google_googletest//:gtest_main",
     ],
@@ -77,8 +81,7 @@ cc_binary(
     defines = memory_defines(),
     linkopts = memory_linkopts(),
     deps = [
-        "//Library/Memory:Memory",
-        "//Library/Core:Core",
+        "//:Memory",
         "@com_google_benchmark//:benchmark",
         "@com_google_benchmark//:benchmark_main",
     ],

@@ -3,5 +3,7 @@ exports_files([
     "fmt.BUILD",
     "mimalloc.BUILD",
     "logging.BUILD",
+    "loguru.BUILD",
+    "magic_enum.BUILD",
     "profiler.BUILD",
 ])

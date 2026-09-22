@@ -1,5 +1,5 @@
-# Standalone Memory library (KhwarizmiAnalytix/Memory). Include root is the repo root;
-# public headers are under include/ (e.g. "include/allocator.h", "include/common/data_ptr.h").
+# Standalone Memory library (KhwarizmiAnalytix/Memory). Public headers live under
+# include/, which is also the include root (e.g. "allocator.h", "common/data_ptr.h").
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
 
@@ -68,7 +68,7 @@ cc_library(
         "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
     }),
-    includes = ["."],
+    includes = ["include"],
     deps = ["@logging//:Logging"] + select({
         "//bazel:disable_profiler": [],
         "//conditions:default": ["@profiler//:Profiler"],
@@ -102,7 +102,7 @@ cc_library(
         "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
     }),
-    includes = ["."],
+    includes = ["include"],
     linkopts = memory_linkopts() + select({
         "@platforms//os:windows": [],
         "@platforms//os:macos": [],

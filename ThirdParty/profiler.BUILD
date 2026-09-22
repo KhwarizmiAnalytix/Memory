@@ -55,14 +55,14 @@ copy_file(
 cc_library(
     name = "profiler_metal_objcxx",
     srcs = select({
-        "//bazel:enable_metal": [":metal_gpu_probe_objcxx"],
+        "@//bazel:enable_metal": [":metal_gpu_probe_objcxx"],
         "//conditions:default": [],
     }),
     hdrs = [
         ":profiler_hdrs",
     ] + glob(["Profiler/native/**/*.h", "Profiler/native/**/*.hxx"], exclude = ["Testing/**"], allow_empty = True),
     copts = profiler_copts() + select({
-        "//bazel:enable_metal": [
+        "@//bazel:enable_metal": [
             "-x",
             "objective-c++",
             "-fobjc-arc",
@@ -113,7 +113,7 @@ cc_library(
         "//bazel:enable_hip": ["@local_config_hip//:hip"],
         "//conditions:default": [],
     }) + select({
-        "//bazel:enable_metal": [":profiler_metal_objcxx"],
+        "@//bazel:enable_metal": [":profiler_metal_objcxx"],
         "//conditions:default": [],
     }),
     # native/core/profiler_factory.h's registered profilers (host_tracer_factory,

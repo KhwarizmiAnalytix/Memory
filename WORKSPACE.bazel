@@ -59,6 +59,21 @@ local_repository(
 # Git submodule ThirdParty/Logging. Overlay BUILD so we do not edit the
 # vendored tree, using the same local-repository-with-overlay technique
 # XSigma itself uses for its own ThirdParty/logging.BUILD.
+
+# Logging's own nested submodules for its default LOGURU backend and
+# magic_enum support (mirrors ThirdParty/Logging/WORKSPACE.bazel).
+new_local_repository(
+    name = "loguru",
+    path = "ThirdParty/Logging/ThirdParty/loguru",
+    build_file = "//ThirdParty:loguru.BUILD",
+)
+
+new_local_repository(
+    name = "magic_enum",
+    path = "ThirdParty/Logging/ThirdParty/magic_enum",
+    build_file = "//ThirdParty:magic_enum.BUILD",
+)
+
 load("//bazel:logging_repository.bzl", "local_logging_repository")
 
 local_logging_repository(

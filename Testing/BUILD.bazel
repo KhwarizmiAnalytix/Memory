@@ -2,16 +2,9 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "memoryTest_header",
-    hdrs = [
-        "MemoryTest.h",
-        "MemoryTest.h.in",
-    ],
-    includes = [
-        ".",
-        "../..",
-    ],
-    deps = [
-        "//Library/Memory:Memory",
-        "//Library/Core:Core",
-    ],
+    hdrs = ["MemoryTest.h"],
+    # MemoryTest.h textually includes the .in template (not a valid hdrs extension).
+    textual_hdrs = ["MemoryTest.h.in"],
+    includes = ["."],
+    deps = ["//:Memory"],
 )
