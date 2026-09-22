@@ -38,11 +38,42 @@ borrow. Sized ctors take `device_index` + stream; `assign_async` records dest
 and expression sources. Metal + CMake/Bazel tests green on macOS.
 
 **Still open.** CUDA/HIP runtime verification (no `TestHip*.cpp`); CUDA graphs
-/ MemPool; pinned host cache; AllocConf knobs; OOM snapshot / alloc history;
+/ MemPool; AllocConf knobs; OOM snapshot / alloc history;
 `cudaMallocAsync` backend; views do not refcount owners; Metal `record_stream`
 is a no-op (device 0, no fp64); tensor defaults still GPU 0 / default stream;
 `empty_cache` is not re-exported from Vectorization. Do not call `empty_cache`
 on the allocate/free hot path.
+
+## Pinned host transfers (CUDA/HIP)
+
+`common/pinned_buffer.h` provides move-only, 64-byte-aligned pinned host storage.
+Its transfer helpers register stream use automatically; destruction delays reuse
+until the recorded work completes. For example, with a device allocation and
+stream belonging to device 0:
+
+```cpp
+#include "common/pinned_buffer.h"
+
+memory::pinned_buffer<float> host(count, /*device=*/0);
+// Fill host.data()[0..count) on the CPU.
+host.copy_to_device_async(device_pointer, stream);
+// Synchronize stream before modifying host data or releasing the device endpoint.
+// Destroy host before destroying stream; its destructor records completion events.
+```
+
+`copy_from_device_async` supports the reverse direction. Wait for completion
+before reading the result on the CPU. External asynchronous operations must call
+`host.record_stream(stream)` before destruction. Null denotes the default stream.
+The caller manages device-buffer lifetime and dependencies between streams.
+
+The raw byte API is `memory::cpu::pinned_memory_allocator` in
+`helper/pinned_memory_allocator.h`. The shared per-device pool is available via
+`pinned_allocator_for_device(device)`. It caches up to 64 MiB of reusable blocks
+by default; `set_max_cached_bytes`, `poll`, `empty_cache`, and `stats` expose cache
+control and live/cached/pending/reserved accounting. Live and pending buffers are
+outside the reusable-cache limit. Runtime failures quarantine unsafe buffers.
+Metal and CPU-only builds report `supported() == false` and reject nonzero pinned
+allocations; Metal consumers should use shared Metal buffers.
 
 ## Layout
 

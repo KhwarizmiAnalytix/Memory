@@ -67,6 +67,8 @@ using cudaMemcpyKind = hipMemcpyKind;
 #define cudaEventSynchronize hipEventSynchronize
 #define cudaEventDestroy hipEventDestroy
 #define cudaStreamCreate hipStreamCreate
+#define cudaStreamCreateWithFlags hipStreamCreateWithFlags
+#define cudaStreamNonBlocking hipStreamNonBlocking
 #define cudaStreamDestroy hipStreamDestroy
 #define cudaStreamSynchronize hipStreamSynchronize
 #define cudaStreamQuery hipStreamQuery

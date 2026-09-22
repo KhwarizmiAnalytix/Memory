@@ -10,7 +10,7 @@ cache (expandable segments, mutex dropped around malloc, process-wide
 `empty_cache` / stats / fraction); tensor device_index + stream;
 `assign_async` records expression sources. Tensor copy always clones.
 
-**Open:** CUDA/HIP runtime tests; graphs/MemPool; pinned host cache; AllocConf;
+**Open:** CUDA/HIP runtime tests; graphs/MemPool; AllocConf;
 OOM stack capture; `cudaMallocAsync`; view does not refcount owner; Metal async /
 device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization.
 
@@ -31,6 +31,10 @@ allocation paths:
   Stores `device_index_` and `stream_`. `view()` returns a `data_view`.
 - `data_view<T>` (`common/data_view.h`) — non-owning window over a `data_ptr`
   (or `borrow()` for foreign memory). Does not keep the owner alive.
+- `pinned_buffer<T>` (`common/pinned_buffer.h`) — move-only pinned host buffer
+  for CUDA/HIP transfers, backed by `cpu::pinned_memory_allocator`. Registered
+  streams must outlive buffer destruction; recycling waits for their completion.
+  Unsupported on CPU-only/Metal builds. Separate pinned-memory stats/cache limit.
 - GPU allocations (CUDA, HIP, or Metal — compile-time exclusive) go through
   `gpu/caching_allocator.h` → `gpu::caching_allocator_for_device(device_index)`:
   - CUDA/HIP: `cuda_caching_allocator` — PyTorch-style segment cache with

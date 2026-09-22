@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <new>
 #include <stdexcept>
 #include <thread>
@@ -53,17 +54,115 @@ bool cuda_device_available()
     return err == cudaSuccess && device_count > 0;
 }
 
-// cudaStreamAddCallback/cudaLaunchHostFunc target: blocks the stream it is
-// enqueued on until `*static_cast<std::atomic<bool>*>(user_data)` is set,
-// so a test can deterministically keep a stream "busy" without a real
-// kernel (this .cpp is compiled by the host compiler, not nvcc).
-void CUDART_CB block_stream_until_released(void* user_data)
+class test_stream
 {
-    auto* release_flag = static_cast<std::atomic<bool>*>(user_data);
-    while (!release_flag->load(std::memory_order_acquire))
+public:
+    test_stream()
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        throw_on_cuda_error(
+            cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
     }
+    ~test_stream() { (void)cudaStreamDestroy(stream); }
+    test_stream(const test_stream&)            = delete;
+    test_stream& operator=(const test_stream&) = delete;
+    cudaStream_t stream{nullptr};
+};
+
+// Release and drain on assertion/exception exits as well as normal completion.
+// The callback's own deadline breaks a circular wait if a regression introduces
+// a synchronizing driver operation while the stream is deliberately blocked.
+class stream_blocker
+{
+public:
+    explicit stream_blocker(cudaStream_t stream) : stream_(stream) {}
+    ~stream_blocker() { (void)release(); }
+    stream_blocker(const stream_blocker&)            = delete;
+    stream_blocker& operator=(const stream_blocker&) = delete;
+
+    cudaError_t start()
+    {
+        // The callback retains its flags even if stream synchronization reports
+        // an asynchronous error before cleanup can establish completion.
+        auto       context = std::make_unique<std::shared_ptr<callback_state>>(state_);
+        const auto result  = cudaLaunchHostFunc(stream_, wait, context.get());
+        active_            = result == cudaSuccess;
+        if (active_)
+            (void)context.release();
+        return result;
+    }
+    cudaError_t release()
+    {
+        state_->released.store(true, std::memory_order_release);
+        if (!active_)
+            return cudaSuccess;
+        const auto result = cudaStreamSynchronize(stream_);
+        if (result == cudaSuccess)
+            active_ = false;
+        return result;
+    }
+    bool timed_out() const { return state_->timed_out.load(std::memory_order_acquire); }
+
+private:
+    struct callback_state
+    {
+        std::atomic<bool> released{false};
+        std::atomic<bool> timed_out{false};
+    };
+    static void CUDART_CB wait(void* data)
+    {
+        const std::unique_ptr<std::shared_ptr<callback_state>> context(
+            static_cast<std::shared_ptr<callback_state>*>(data));
+        auto&      self     = **context;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!self.released.load(std::memory_order_acquire))
+        {
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                self.timed_out.store(true, std::memory_order_release);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    cudaStream_t                    stream_;
+    bool                            active_{false};
+    std::shared_ptr<callback_state> state_{std::make_shared<callback_state>()};
+};
+
+void check_deferred_stream_reuse(cudaStream_t use_stream)
+{
+    test_stream            allocation;
+    cuda_caching_allocator allocator(0);
+    // Exactly one segment per request, without split remainders. Preallocate
+    // BOTH segments before blocking: cudaMalloc/hipMalloc may synchronize the
+    // device and would otherwise wait for the callback that this thread releases.
+    constexpr size_t segment_size = 10 * 1024 * 1024;
+    void*            ptr          = allocator.allocate(segment_size, allocation.stream);
+    void*            spare        = allocator.allocate(segment_size, allocation.stream);
+    ASSERT_NE(nullptr, ptr);
+    ASSERT_NE(nullptr, spare);
+    allocator.deallocate(spare, segment_size, allocation.stream);
+
+    stream_blocker blocker(use_stream);
+    ASSERT_EQ(cudaSuccess, blocker.start());
+    // Force submission on runtimes that batch stream work (e.g. WDDM).
+    (void)cudaStreamQuery(use_stream);
+    allocator.record_stream(ptr, use_stream);
+    allocator.deallocate(ptr, segment_size, allocation.stream);
+
+    void* ptr2 = allocator.allocate(segment_size, allocation.stream);
+    EXPECT_EQ(spare, ptr2);
+    EXPECT_NE(ptr, ptr2);
+    EXPECT_EQ(2U, allocator.stats().driver_allocations.load());
+
+    ASSERT_EQ(cudaSuccess, blocker.release());
+    ASSERT_FALSE(blocker.timed_out()) << "A synchronizing operation blocked the test thread";
+    // Keep ptr2 live so only the formerly pending allocation can satisfy reuse.
+    void* ptr3 = allocator.allocate(segment_size, allocation.stream);
+    EXPECT_EQ(ptr, ptr3);
+    EXPECT_EQ(2U, allocator.stats().driver_allocations.load());
+    allocator.deallocate(ptr2, segment_size, allocation.stream);
+    allocator.deallocate(ptr3, segment_size, allocation.stream);
 }
 }  // namespace
 
@@ -529,65 +628,8 @@ MEMORYTEST_F(CudaCachingAllocator, never_reuses_blocks_across_streams)
  */
 MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
 {
-    cuda_caching_allocator allocator(0);
-
-    cudaStream_t alloc_stream = nullptr;
-    cudaStream_t use_stream   = nullptr;
-    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&alloc_stream));
-    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&use_stream));
-
-    // Keep use_stream genuinely busy so the event the allocator records on it
-    // (via record_stream/deallocate below) cannot complete until released --
-    // without this, use_stream is idle and the event resolves immediately,
-    // making the deferred-reuse behavior this test targets unobservable.
-    std::atomic<bool> release_use_stream{false};
-    ASSERT_EQ(
-        cudaSuccess,
-        cudaLaunchHostFunc(use_stream, block_stream_until_released, &release_use_stream));
-    // WDDM batches queued stream work rather than submitting it immediately;
-    // querying the stream forces the driver to flush the batch so the host
-    // function actually starts running instead of sitting unsubmitted.
-    (void)cudaStreamQuery(use_stream);
-
-    // Pick a request whose segment_size_for() result equals the request
-    // itself, so alloc_found_block_locked's should_split() sees a zero
-    // remainder and caches nothing extra. 10 MiB hits the >= kMinLargeAlloc
-    // branch of segment_size_for(), which rounds up to a 2 MiB multiple --
-    // 10 MiB is already one, so segment_size_for(10 MiB) == 10 MiB exactly.
-    // (A smaller request, e.g. 1024 bytes or even one exact small/large
-    // buffer size below this threshold, rounds up to a bigger segment and
-    // should_split() then immediately caches the leftover remainder as its
-    // own free block -- independent of the deferred block below -- so a
-    // second same-size request would reuse that leftover space instead of
-    // exercising the deferral this test targets.)
-    size_t const segment_size = 10 * 1024 * 1024;
-
-    void* ptr = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr);
-
-    allocator.record_stream(ptr, use_stream);
-    allocator.deallocate(ptr, segment_size, alloc_stream);
-
-    // The block is withheld pending the use_stream event; a same-stream request
-    // must not see it (and there is nothing else cached), so a new segment appears
-    void* ptr2 = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr2);
-    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
-    allocator.deallocate(ptr2, segment_size, alloc_stream);
-
-    // Release use_stream and wait for its pending work (and the allocator's
-    // recorded event) to actually complete before expecting reclaim.
-    release_use_stream.store(true, std::memory_order_release);
-    ASSERT_EQ(cudaSuccess, cudaStreamSynchronize(use_stream));
-    void* ptr3 = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr3);
-    EXPECT_EQ(ptr, ptr3);
-
-    allocator.deallocate(ptr3, segment_size, alloc_stream);
-    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
-    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(use_stream));
-
-    LOGGING_LOG_INFO("CUDA caching allocator record_stream deferral test passed");
+    test_stream use;
+    check_deferred_stream_reuse(use.stream);
 }
 
 /**
@@ -601,50 +643,7 @@ MEMORYTEST_F(CudaCachingAllocator, defers_reuse_until_recorded_stream_completes)
  */
 MEMORYTEST_F(CudaCachingAllocator, default_stream_use_is_tracked_as_cross_stream)
 {
-    cuda_caching_allocator allocator(0);
-
-    cudaStream_t alloc_stream = nullptr;
-    ASSERT_EQ(cudaSuccess, cudaStreamCreate(&alloc_stream));
-
-    // Keep the default stream genuinely busy, exactly as
-    // defers_reuse_until_recorded_stream_completes does for an explicit
-    // stream, so the event recorded on it cannot resolve immediately.
-    std::atomic<bool> release_default_stream{false};
-    ASSERT_EQ(
-        cudaSuccess,
-        cudaLaunchHostFunc(
-            /*default stream*/ nullptr, block_stream_until_released, &release_default_stream));
-    (void)cudaStreamQuery(nullptr);
-
-    // Same reasoning as the explicit-stream test above: pick a size whose
-    // segment_size_for() result equals the request itself so no unrelated
-    // leftover block is cached alongside the one under test.
-    size_t const segment_size = 10 * 1024 * 1024;
-
-    void* ptr = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr);
-
-    // Use on the default stream (stream == nullptr), then free on the
-    // allocation stream: this must be recorded as a cross-stream use even
-    // though the "use" stream argument is nullptr.
-    allocator.record_stream(ptr, nullptr);
-    allocator.deallocate(ptr, segment_size, alloc_stream);
-
-    void* ptr2 = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr2);
-    EXPECT_EQ(2, allocator.stats().driver_allocations.load());
-    allocator.deallocate(ptr2, segment_size, alloc_stream);
-
-    release_default_stream.store(true, std::memory_order_release);
-    ASSERT_EQ(cudaSuccess, cudaStreamSynchronize(nullptr));
-    void* ptr3 = allocator.allocate(segment_size, alloc_stream);
-    ASSERT_NE(nullptr, ptr3);
-    EXPECT_EQ(ptr, ptr3);
-
-    allocator.deallocate(ptr3, segment_size, alloc_stream);
-    EXPECT_EQ(cudaSuccess, cudaStreamDestroy(alloc_stream));
-
-    LOGGING_LOG_INFO("CUDA caching allocator default-stream cross-tracking test passed");
+    check_deferred_stream_reuse(nullptr);
 }
 
 /**

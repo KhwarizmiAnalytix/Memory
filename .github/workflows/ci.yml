@@ -91,7 +91,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --verbose --output-on-failure
 
   # ---------------------------------------------------------------------------
   # Linux HIP: builds and runs the Memory test suite against a real ROCm
@@ -123,7 +123,7 @@ jobs:
         run: cmake --build build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --verbose --output-on-failure
 
   # ---------------------------------------------------------------------------
   # macOS CPU: AppleClang, Release. Metal is the GPU backend on this
