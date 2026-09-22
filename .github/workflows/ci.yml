@@ -66,9 +66,13 @@ jobs:
   # Linux CUDA: builds and runs the Memory test suite against a real CUDA
   # device. Requires a self-hosted runner with the CUDA toolkit and an
   # NVIDIA GPU (labels: self-hosted, linux, gpu, cuda).
+  # Skipped unless the repository variable MEMORY_GPU_RUNNERS is 'true': with
+  # no matching runner registered the job would sit queued indefinitely and
+  # keep the whole CI run from completing.
   # ---------------------------------------------------------------------------
   linux-cuda:
     name: Linux GPU / CUDA
+    if: vars.MEMORY_GPU_RUNNERS == 'true'
     runs-on: [self-hosted, linux, gpu, cuda]
     timeout-minutes: 30
     steps:
@@ -97,10 +101,12 @@ jobs:
   # Linux HIP: builds and runs the Memory test suite against a real ROCm
   # device. HIP is Unix-only in this project (see Cmake/hip.cmake). Requires
   # a self-hosted runner with ROCm/hipcc and an AMD GPU
-  # (labels: self-hosted, linux, gpu, rocm).
+  # (labels: self-hosted, linux, gpu, rocm). Gated on MEMORY_GPU_RUNNERS like
+  # linux-cuda above.
   # ---------------------------------------------------------------------------
   linux-hip:
     name: Linux GPU / HIP
+    if: vars.MEMORY_GPU_RUNNERS == 'true'
     runs-on: [self-hosted, linux, gpu, rocm]
     timeout-minutes: 30
     steps:
