@@ -7,14 +7,12 @@ source_folder = "."
 output_format = "html-and-json"
 coverage_report_dir = "coverage_report"
 # Without this, coverage-tool's discover_modules() treats every immediate
-# source subdirectory (logging/) as its own "module", each
-# expected to have its own lib<module>.* + <module>CxxTests binary (XSigma's
-# per-module Library/<Name> convention). Logging builds one flat
-# libLogging.* + LoggingCxxTests, so on the Clang/LLVM coverage path this
-# silently produced "Library not found for module X, skipping" for every
-# subdirectory and an empty report. The GCC/lcov backend ignores `modules`
-# entirely (whole-build-dir capture), which is why CI (gcc) never caught this.
-modules = ["Logging"]
+# source subdirectory as its own "module", each expected to have its own
+# lib<module>.* + <module>CxxTests binary (XSigma's per-module convention).
+# Memory builds one flat libMemory.* + MemoryCxxTests. The GCC/lcov backend
+# ignores `modules` (whole-build-dir capture); the Clang/LLVM path (macOS CI)
+# uses it to find the library and test executable.
+modules = ["Memory"]
 
 [coverage.exclude]
 patterns = [
