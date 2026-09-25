@@ -32,7 +32,7 @@
 #error MEMORY requires MSVC++ 15.0 (Visual Studio 2017) or newer for C++17 support
 #endif
 
-#if !defined(__clang__) && defined(__GNUC__) && \
+#if !defined(__clang__) && defined(__GNUC__) &&                                                    \
     (__GNUC__ < 7 || (__GNUC__ == 7 && __GNUC_MINOR__ < 1))
 #error MEMORY requires GCC 7.1 or newer for C++17 support
 #endif
@@ -85,7 +85,7 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 // ============================================================================
 // Branch prediction hints
 // ============================================================================
-#if __cplusplus >= 202002L && MEMORY_HAVE_CPP_ATTRIBUTE(likely) && \
+#if __cplusplus >= 202002L && MEMORY_HAVE_CPP_ATTRIBUTE(likely) &&                                 \
     MEMORY_HAVE_CPP_ATTRIBUTE(unlikely)
 #define MEMORY_LIKELY(expr) (expr) [[likely]]
 #define MEMORY_UNLIKELY(expr) (expr) [[unlikely]]
@@ -144,25 +144,28 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 // ============================================================================
 // Deleted special members
 // ============================================================================
-#define MEMORY_DELETE_CLASS(type)            \
-    type()                         = delete; \
-    type(const type&)              = delete; \
-    type& operator=(const type& a) = delete; \
-    type(type&&)                   = delete; \
-    type& operator=(type&&)        = delete; \
+// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
+#define MEMORY_DELETE_CLASS(type)                                                                  \
+    type()                         = delete;                                                       \
+    type(const type&)              = delete;                                                       \
+    type& operator=(const type& a) = delete;                                                       \
+    type(type&&)                   = delete;                                                       \
+    type& operator=(type&&)        = delete;                                                       \
     ~type()                        = delete;
 
-#define MEMORY_DELETE_COPY_AND_MOVE(type)    \
-private:                                     \
-    type(const type&)              = delete; \
-    type& operator=(const type& a) = delete; \
-    type(type&&)                   = delete; \
-    type& operator=(type&&)        = delete; \
-                                             \
+// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
+#define MEMORY_DELETE_COPY_AND_MOVE(type)                                                          \
+private:                                                                                           \
+    type(const type&)              = delete;                                                       \
+    type& operator=(const type& a) = delete;                                                       \
+    type(type&&)                   = delete;                                                       \
+    type& operator=(type&&)        = delete;                                                       \
+                                                                                                   \
 public:
 
-#define MEMORY_DELETE_COPY(type)             \
-    type(const type&)              = delete; \
+// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
+#define MEMORY_DELETE_COPY(type)                                                                   \
+    type(const type&)              = delete;                                                       \
     type& operator=(const type& a) = delete;
 
 // ============================================================================
