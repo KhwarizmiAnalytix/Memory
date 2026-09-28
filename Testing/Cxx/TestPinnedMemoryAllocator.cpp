@@ -41,6 +41,19 @@ MEMORYTEST(PinnedMemory, empty_and_overflow)
     EXPECT_THROW(pinned_memory_allocator(-1), std::invalid_argument);
 }
 
+MEMORYTEST(PinnedMemory, max_backing_bytes_defaults_to_unlimited)
+{
+    pinned_memory_allocator allocator;
+    EXPECT_EQ(allocator.max_backing_bytes(), 0U);  // 0 = unlimited
+}
+
+MEMORYTEST(PinnedMemory, set_and_get_max_backing_bytes)
+{
+    pinned_memory_allocator allocator;
+    allocator.set_max_backing_bytes(4 * 1024 * 1024);
+    EXPECT_EQ(allocator.max_backing_bytes(), 4 * 1024 * 1024U);
+}
+
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
 class PinnedMemoryRuntime : public ::testing::Test
@@ -66,6 +79,28 @@ MEMORYTEST_F(PinnedMemoryRuntime, reuse_alignment_and_limits)
     EXPECT_TRUE(allocator.deallocate(second));
     EXPECT_FALSE(allocator.deallocate(second));
     allocator.set_max_cached_bytes(0);
+    EXPECT_EQ(0U, allocator.stats().bytes_reserved);
+}
+
+MEMORYTEST_F(PinnedMemoryRuntime, backing_budget_oom)
+{
+    // Set a very tight backing budget (1 byte) and confirm allocation throws.
+    pinned_memory_allocator allocator;
+    allocator.set_max_backing_bytes(1);
+    EXPECT_EQ(allocator.max_backing_bytes(), 1U);
+    EXPECT_THROW(allocator.allocate(64), std::bad_alloc);
+}
+
+MEMORYTEST_F(PinnedMemoryRuntime, backing_budget_allows_within_limit)
+{
+    pinned_memory_allocator allocator;
+    // Set limit to exactly 64 KB.
+    const size_t kLimit = 64 * 1024;
+    allocator.set_max_backing_bytes(kLimit);
+    void* p = allocator.allocate(1024);
+    EXPECT_NE(nullptr, p);
+    EXPECT_TRUE(allocator.deallocate(p));
+    allocator.set_max_cached_bytes(0);  // flush cache
     EXPECT_EQ(0U, allocator.stats().bytes_reserved);
 }
 

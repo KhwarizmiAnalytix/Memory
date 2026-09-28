@@ -20,6 +20,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include "common/memory_export.h"
+#include "profiler/bounded_trace_ring.h"
 
 namespace memory::gpu
 {
@@ -52,14 +54,23 @@ enum class gpu_memory_trace_action
     snapshot
 };
 
+// Schema version: bump when field layout changes to allow offline readers to
+// detect incompatible recordings.
+inline constexpr uint32_t kTraceEntrySchemaVersion = 2;
+
 struct MEMORY_VISIBILITY gpu_memory_trace_entry
 {
+    uint32_t                schema_version{kTraceEntrySchemaVersion};
     gpu_memory_trace_action action{gpu_memory_trace_action::alloc};
-    void*                   address{nullptr};
-    size_t                  size{0};
+    void*                   address{nullptr};       // block address (allocation base)
+    size_t                  size{0};                // block capacity (rounded)
+    size_t                  requested_size{0};      // caller-requested bytes
     size_t                  total_allocated{0};
     size_t                  total_reserved{0};
     int64_t                 stream{0};
+    uint64_t                alloc_id{0};            // storage_identity::alloc_id; 0 = not tracked
+    uint64_t                sequence_num{0};        // monotonic per-ring sequence number
+    int64_t                 timestamp_ns{0};        // nanoseconds since epoch (best-effort)
 };
 
 struct MEMORY_VISIBILITY gpu_memory_block_info
@@ -97,9 +108,26 @@ struct MEMORY_VISIBILITY gpu_memory_snapshot
     std::vector<gpu_memory_trace_entry>   device_trace;
 };
 
+// Returns nanoseconds since epoch using the steady clock (best-effort; may
+// wrap after ~292 years of uptime, which is acceptable for trace purposes).
+inline int64_t trace_timestamp_ns() noexcept
+{
+    return static_cast<int64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
+
 /**
- * @brief Bounded alloc/free/OOM ring, equivalent of CUDACachingAllocator's
- * recordHistory buffer. Callers must serialize (allocator mutex).
+ * @brief Bounded alloc/free/OOM ring backed by a preallocated buffer.
+ *
+ * Replaces the previous std::deque-based implementation: record() no longer
+ * allocates heap memory, so it cannot fail or throw inside the allocator lock.
+ * Callers must serialize (hold the allocator mutex).
+ *
+ * Extended record() overload accepts the new trace entry fields (alloc_id,
+ * requested_size).  The old signature is preserved for callers that don't yet
+ * have those values.
  */
 class gpu_memory_history
 {
@@ -107,23 +135,51 @@ public:
     void set_enabled(bool enabled, size_t max_entries)
     {
         enabled_ = enabled;
-        if (max_entries != 0)
+        if (max_entries != 0 && max_entries != ring_.capacity())
         {
-            max_entries_ = max_entries;
+            ring_.resize(max_entries);
         }
         if (!enabled_)
         {
-            entries_.clear();
-            return;
-        }
-        while (entries_.size() > max_entries_)
-        {
-            entries_.pop_front();
+            ring_.clear();
+            seq_ = 0;
         }
     }
 
-    bool enabled() const { return enabled_; }
+    bool   enabled()      const noexcept { return enabled_; }
+    size_t entries_lost() const noexcept { return ring_.entries_lost(); }
 
+    // Full record with all extended fields.
+    void record(
+        gpu_memory_trace_action action,
+        void*                   address,
+        size_t                  size,
+        size_t                  requested_size,
+        size_t                  total_allocated,
+        size_t                  total_reserved,
+        int64_t                 stream,
+        uint64_t                alloc_id = 0)
+    {
+        if (!enabled_)
+        {
+            return;
+        }
+        gpu_memory_trace_entry e;
+        e.action          = action;
+        e.address         = address;
+        e.size            = size;
+        e.requested_size  = requested_size;
+        e.total_allocated = total_allocated;
+        e.total_reserved  = total_reserved;
+        e.stream          = stream;
+        e.alloc_id        = alloc_id;
+        e.sequence_num    = seq_++;
+        e.timestamp_ns    = trace_timestamp_ns();
+        ring_.push(e);
+    }
+
+    // Legacy overload for callers that do not yet supply requested_size /
+    // alloc_id.  Forwards to the full overload with zeroed extended fields.
     void record(
         gpu_memory_trace_action action,
         void*                   address,
@@ -132,33 +188,16 @@ public:
         size_t                  total_reserved,
         int64_t                 stream)
     {
-        if (!enabled_)
-        {
-            return;
-        }
-        if (entries_.size() >= max_entries_)
-        {
-            entries_.pop_front();
-        }
-        gpu_memory_trace_entry entry;
-        entry.action          = action;
-        entry.address         = address;
-        entry.size            = size;
-        entry.total_allocated = total_allocated;
-        entry.total_reserved  = total_reserved;
-        entry.stream          = stream;
-        entries_.push_back(entry);
+        record(action, address, size, /*requested_size=*/0, total_allocated, total_reserved,
+               stream, /*alloc_id=*/0);
     }
 
-    std::vector<gpu_memory_trace_entry> copy() const
-    {
-        return {entries_.begin(), entries_.end()};
-    }
+    std::vector<gpu_memory_trace_entry> copy() const { return ring_.copy(); }
 
 private:
-    bool                               enabled_{false};
-    size_t                             max_entries_{kDefaultMemoryHistoryEntries};
-    std::deque<gpu_memory_trace_entry> entries_;
+    bool                                         enabled_{false};
+    uint64_t                                     seq_{0};
+    bounded_trace_ring<gpu_memory_trace_entry>   ring_{kDefaultMemoryHistoryEntries};
 };
 
 template <typename Stream>

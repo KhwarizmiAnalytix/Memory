@@ -55,7 +55,8 @@ struct pinned_memory_allocator::Impl
     }
 
     int                 device_;
-    std::size_t         limit_;
+    std::size_t         limit_;          // reusable-cache cap
+    std::size_t         backing_limit_{0};  // total driver-committed cap (0 = unlimited)
     mutable std::mutex  mutex_;
     pinned_memory_stats stats_;
 
@@ -66,7 +67,7 @@ struct pinned_memory_allocator::Impl
         cudaEvent_t  event;
         bool         used;
     };
-    enum class state
+    enum class state : std::uint8_t
     {
         live,
         pending,
@@ -291,6 +292,26 @@ struct pinned_memory_allocator::Impl
         else
         {
             ++stats_.cache_misses;
+            // Total backing budget check (backing_limit_ == 0 → unlimited).
+            // Compute needed = capacity + alignment - 1 with overflow protection.
+            // Use subtraction-side guard: if needed_extra > backing_limit_ we
+            // already exceed, so skip the subtraction (which would underflow).
+            size_t const needed_extra = capacity + (alignment > 1 ? alignment - 1 : 0);
+            auto exceeds_budget = [&]() -> bool {
+                return backing_limit_ != 0 &&
+                       (needed_extra > backing_limit_ ||
+                        stats_.bytes_reserved > backing_limit_ - needed_extra);
+            };
+            if (exceeds_budget())
+            {
+                // Release ready cache to make room and recheck.
+                trim(0);
+                if (exceeds_budget())
+                {
+                    ++stats_.num_ooms;
+                    throw std::bad_alloc();
+                }
+            }
             auto owned = std::make_unique<block>();
             auto result =
                 cudaHostAlloc(&owned->raw, capacity + alignment - 1, cudaHostAllocPortable);
@@ -502,6 +523,16 @@ std::size_t pinned_memory_allocator::max_cached_bytes() const
 {
     std::scoped_lock lock(impl_->mutex_);
     return impl_->limit_;
+}
+void pinned_memory_allocator::set_max_backing_bytes(std::size_t bytes)
+{
+    std::scoped_lock lock(impl_->mutex_);
+    impl_->backing_limit_ = bytes;
+}
+std::size_t pinned_memory_allocator::max_backing_bytes() const
+{
+    std::scoped_lock lock(impl_->mutex_);
+    return impl_->backing_limit_;
 }
 pinned_memory_stats pinned_memory_allocator::stats() const
 {

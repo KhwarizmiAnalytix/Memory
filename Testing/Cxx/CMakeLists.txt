@@ -14,7 +14,7 @@ add_subdirectory(
   "${CMAKE_CURRENT_BINARY_DIR}/CudaCachingAllocator"
 )
 
-file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
+file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 
 set(TestFiles)
 foreach(_test_source IN ITEMS ${test_sources})

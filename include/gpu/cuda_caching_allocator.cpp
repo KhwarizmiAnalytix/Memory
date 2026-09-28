@@ -119,7 +119,7 @@ inline bool try_cu_vm_alloc(int device, size_t size, raw_segment& out)
         (void)cuMemAddressFree(addr, padded);
         return false;
     }
-    out.ptr       = reinterpret_cast<void*>(addr);
+    out.ptr       = reinterpret_cast<void*>(addr);  // NOLINT(performance-no-int-to-ptr): CUDA VM API
     out.size      = padded;
     out.vm        = true;
     out.cu_handle = handle;
@@ -799,11 +799,19 @@ private:
                 Impl&                                   self;
                 std::unique_lock<std::recursive_mutex>& lock;
                 size_t                                   amount;
-                ~pending_reservation_guard()
+                ~pending_reservation_guard() noexcept
                 {
                     if (!lock.owns_lock())
                     {
-                        lock.lock();
+                        try
+                        {
+                            lock.lock();
+                        }
+                        catch (...)  // NOLINT(bugprone-empty-catch)
+                        {
+                            // Suppress lock failure during cleanup; the only path
+                            // here is exception unwinding, and we cannot propagate.
+                        }
                     }
                     self.pending_reserved_bytes_ -= amount;
                 }
@@ -1204,48 +1212,58 @@ private:
         }
     }
 
-    void release_all_blocks_noexcept() noexcept
+    void release_all_blocks_noexcept() noexcept  // NOLINT(bugprone-exception-escape)
     {
         device_guard const guard(device_, std::nothrow);
 
         // A segment's base pointer is its first block; collect each segment once
         // (split blocks share their segment with neighbors) and each block once
         // (a block with pending events appears once per queued event). Ordered
-        // sets keep teardown deterministic.
+        // sets keep teardown deterministic. Set construction/insertion can throw
+        // on allocation failure, so we wrap in try-catch for the noexcept contract.
         std::set<void*>        segment_ptrs;
         std::set<cache_block*> all_blocks;
-        auto                   collect = [&](cache_block* block)
-        {
-            all_blocks.insert(block);
-            cache_block* head = block;
-            while (head->prev != nullptr)
-            {
-                head = head->prev;
-            }
-            segment_ptrs.insert(head->ptr);
-        };
 
-        for (block_pool* pool : {&small_blocks_, &large_blocks_})
+        try
         {
-            for (cache_block* block : pool->blocks)
+            auto collect = [&](cache_block* block)
             {
-                collect(block);
-            }
-            pool->blocks.clear();
-        }
-        for (auto& entry : allocated_blocks_)
-        {
-            collect(entry.second);
-        }
-        allocated_blocks_.clear();
-        for (auto& entry : cuda_events_)
-        {
-            for (auto& queued : entry.second)
+                all_blocks.insert(block);
+                cache_block* head = block;
+                while (head->prev != nullptr)
+                {
+                    head = head->prev;
+                }
+                segment_ptrs.insert(head->ptr);
+            };
+
+            for (block_pool* pool : {&small_blocks_, &large_blocks_})
             {
-                cudaEventDestroy(queued.first);
-                collect(queued.second);
+                for (cache_block* block : pool->blocks)
+                {
+                    collect(block);
+                }
+                pool->blocks.clear();
+            }
+            for (auto& entry : allocated_blocks_)
+            {
+                collect(entry.second);
+            }
+            allocated_blocks_.clear();
+            for (auto& entry : cuda_events_)
+            {
+                for (auto& queued : entry.second)
+                {
+                    cudaEventDestroy(queued.first);
+                    collect(queued.second);
+                }
             }
         }
+        catch (...)  // NOLINT(bugprone-empty-catch)
+        {
+            // Allocation failure during set ops; continue anyway to clean up.
+        }
+
         cuda_events_.clear();
         for (cudaEvent_t event : event_pool_)
         {

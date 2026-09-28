@@ -534,9 +534,12 @@ class MemoryFlags:
                 self.__value["cxxstd"] = std_version
                 print_status(f"Setting C++ standard to C++{std_version}", "INFO")
             elif arg in self.__key:
-                if arg in ("gtest", "benchmark", "cache", "profiler", "mimalloc"):
+                if arg in ("gtest", "cache", "profiler", "mimalloc"):
                     # CMake default ON: providing the token turns it OFF.
                     self.__value[arg] = self.OFF
+                elif arg == "benchmark":
+                    # Benchmark: enable when explicitly requested.
+                    self.__value[arg] = self.ON
                 elif arg == "lto":
                     self.__value["lto"] = "auto"
                     self.builder_suffix += "_lto_auto"

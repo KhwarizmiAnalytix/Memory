@@ -107,7 +107,15 @@ public:
     MEMORY_API void empty_cache();
     /// Limits reusable bytes only; live and pending transfers may exceed the cap.
     MEMORY_API void set_max_cached_bytes(std::size_t bytes);
-    MEMORY_API std::size_t         max_cached_bytes() const;
+    MEMORY_API std::size_t max_cached_bytes() const;
+
+    /// Total backing budget: live + cached + pending bytes combined.
+    /// Allocate() throws std::bad_alloc when this limit would be exceeded.
+    /// 0 means unlimited (the default).  Separate from set_max_cached_bytes
+    /// which only limits the reusable-cache portion.
+    MEMORY_API void        set_max_backing_bytes(std::size_t bytes);
+    MEMORY_API std::size_t max_backing_bytes() const;
+
     MEMORY_API pinned_memory_stats stats() const;
     MEMORY_API int                 device() const noexcept;
 

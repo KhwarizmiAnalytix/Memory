@@ -28,6 +28,7 @@
 #include <string>       // for runtime_error messages
 #include <type_traits>  // for is_same_v
 
+#include "common/copy_token.h"         // for copy_token
 #include "common/device.h"            // for device_enum
 #include "common/memory_macros.h"     // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
@@ -389,15 +390,10 @@ public:
                 (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
                 from_index != to_index)
             {
-                result = (stream != nullptr)
-                             ? cudaMemcpyPeerAsync(
-                                   to,
-                                   to_index,
-                                   from,
-                                   from_index,
-                                   nbytes,
-                                   static_cast<cudaStream_t>(stream))
-                             : cudaMemcpyPeer(to, to_index, from, from_index, nbytes);
+                result = cudaMemcpyPeerAsync(
+                    to, to_index, from, from_index, nbytes,
+                    stream != nullptr ? static_cast<cudaStream_t>(stream)
+                                      : static_cast<cudaStream_t>(nullptr));
             }
             else
             {
@@ -429,10 +425,12 @@ public:
                                           ? to_index
                                           : from_index;
                 gpu::device_guard const guard(gpu_index);
-                result = (stream != nullptr)
-                             ? cudaMemcpyAsync(
-                                   to, from, nbytes, copy_kind, static_cast<cudaStream_t>(stream))
-                             : cudaMemcpy(to, from, nbytes, copy_kind);
+                // Always use the async form so enqueuing is non-blocking.
+                // stream == nullptr means the legacy default CUDA stream (0).
+                result = cudaMemcpyAsync(
+                    to, from, nbytes, copy_kind,
+                    stream != nullptr ? static_cast<cudaStream_t>(stream)
+                                      : static_cast<cudaStream_t>(nullptr));
             }
             if (result != cudaSuccess)
             {
@@ -474,6 +472,49 @@ public:
 #endif
 
         throw std::invalid_argument("Unsupported device combination for memory copy");
+    }
+
+    // --- Explicit sync / async copy helpers (Order 3) ---
+
+    // copy_sync: blocking cross-device copy. Never returns until the transfer
+    // is complete.  Equivalent to copy(..., stream=nullptr).
+    MEMORY_FORCE_INLINE static void copy_sync(
+        const_pointer from,
+        size_type     n,
+        pointer       to,
+        device_enum   from_type  = device_enum::CPU,
+        device_enum   to_type    = device_enum::CPU,
+        int           from_index = 0,
+        int           to_index   = 0)
+    {
+        copy(from, n, to, from_type, to_type, from_index, to_index, nullptr);
+    }
+
+    // copy_async: enqueue a non-blocking copy on @p stream and return a
+    // copy_token.  Both GPU endpoints have record_stream called before the
+    // token is returned so the caching allocator defers their reuse until the
+    // stream catches up, regardless of whether the caller holds the token.
+    // For pageable CPU endpoints the caller must wait() the token before
+    // accessing the host buffer again.
+    MEMORY_FORCE_INLINE static copy_token copy_async(
+        const_pointer from,
+        size_type     n,
+        pointer       to,
+        stream_t      stream,
+        device_enum   from_type  = device_enum::CPU,
+        device_enum   to_type    = device_enum::CPU,
+        int           from_index = 0,
+        int           to_index   = 0)
+    {
+        copy(from, n, to, from_type, to_type, from_index, to_index, stream);
+        // Build a context that identifies which device/stream to wait on.
+        device_enum gpu_dev = (is_active_gpu_device(to_type) ? to_type : from_type);
+        int         gpu_idx = (is_active_gpu_device(to_type) ? to_index : from_index);
+        execution_context ctx;
+        ctx.device_type  = gpu_dev;
+        ctx.device_index = gpu_idx;
+        ctx.stream       = stream;
+        return copy_token(ctx);
     }
 
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)

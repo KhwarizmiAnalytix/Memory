@@ -144,6 +144,36 @@ public:
     MEMORY_API bool resolve_live_allocation(
         void const* ptr, void** handle_out, size_t* offset_out) const;
 
+    // --- Metal command-buffer completion tracking (Order 5) ---
+    //
+    // For v1, record_stream is a documented no-op because Metal Vectorization
+    // dispatch is synchronous.  These hooks provide the plumbing for async
+    // dispatch when command-buffer completion tracking is available.
+    //
+    // Usage (Objective-C++ caller):
+    //   id<MTLCommandBuffer> cmd = ...;
+    //   allocator.register_command_buffer((__bridge void*)cmd);
+    //   // ... encode kernel work, enqueue ...
+    //   [cmd addCompletedHandler:^(id<MTLCommandBuffer> c) {
+    //       allocator.mark_completion((__bridge void*)c);
+    //   }];
+    //   [cmd commit];
+    //
+    // @p command_buffer_token is an opaque __bridge void* of id<MTLCommandBuffer>.
+    // All allocations whose record_stream() was called since the last
+    // register_command_buffer() are associated with the in-flight buffer.
+    // mark_completion() moves them to the reusable pool.
+    //
+    // Thread-safety: both calls are serialized by the allocator mutex.
+
+    // Register a command buffer about to be committed.  Subsequent
+    // record_stream() calls are attributed to this buffer.
+    MEMORY_API void register_command_buffer(void* command_buffer_token);
+
+    // Called from the MTLCommandBuffer completion handler: marks all blocks
+    // associated with @p command_buffer_token as reusable.
+    MEMORY_API void mark_completion(void* command_buffer_token);
+
     metal_caching_allocator(const metal_caching_allocator&)                       = delete;
     metal_caching_allocator&            operator=(const metal_caching_allocator&) = delete;
     MEMORY_API                          metal_caching_allocator(metal_caching_allocator&&) noexcept;

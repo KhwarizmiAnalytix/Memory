@@ -98,6 +98,11 @@ struct cache_block
     cache_block*  prev{nullptr};
     cache_block*  next{nullptr};
     int64_t       registration_counter{-1};
+    // Command-buffer tokens that must complete before this block can be
+    // recycled.  Each record_stream() call appends one token if not already
+    // present; mark_completion() removes it.  The block is recycled once all
+    // tokens are cleared and allocated == false.
+    std::vector<void*> completion_tokens;
 };
 
 struct cache_block_comparator
@@ -225,13 +230,71 @@ struct metal_caching_allocator::Impl
         report_event_locked(ptr, -static_cast<int64_t>(block->size));
 #endif
 
-        free_block_locked(block);
-        trim_cache_locked();
+        if (!block->completion_tokens.empty())
+        {
+            // The block is already indexed in pending_completion_ for each
+            // token added by record_stream().  mark_completion() will free
+            // it once every token has signalled and allocated == false.
+        }
+        else
+        {
+            free_block_locked(block);
+            trim_cache_locked();
+        }
     }
 
-    void record_stream(void* /*ptr*/, void* /*stream*/)
+    void record_stream(void* ptr, void* stream)
     {
-        // No-op: Metal dispatch is synchronous (waitUntilCompleted); no deferred reuse.
+        if (ptr == nullptr || stream == nullptr)
+        {
+            return;
+        }
+        std::scoped_lock const lock(mutex_);
+        auto                   it = allocated_blocks_.find(ptr);
+        if (it == allocated_blocks_.end())
+        {
+            return;
+        }
+        // Track every command buffer that uses this block.  Append only if not
+        // already present so we don't double-count the same command buffer.
+        auto& tokens = it->second->completion_tokens;
+        if (std::find(tokens.begin(), tokens.end(), stream) == tokens.end())
+        {
+            tokens.push_back(stream);
+            pending_completion_[stream].push_back(it->second);
+        }
+    }
+
+    void register_command_buffer(void* token)
+    {
+        if (token == nullptr) return;
+        std::scoped_lock const lock(mutex_);
+        // Ensure an entry exists; blocks added via record_stream later are
+        // indexed under this token.
+        pending_completion_.emplace(token, std::vector<cache_block*>{});
+    }
+
+    void mark_completion(void* token)
+    {
+        if (token == nullptr) return;
+        std::scoped_lock const lock(mutex_);
+        auto it = pending_completion_.find(token);
+        if (it == pending_completion_.end())
+        {
+            return;
+        }
+        for (cache_block* block : it->second)
+        {
+            auto& tokens = block->completion_tokens;
+            tokens.erase(std::remove(tokens.begin(), tokens.end(), token), tokens.end());
+            // Free only when the block has been deallocated and every recorded
+            // command buffer has signalled completion.
+            if (!block->allocated && tokens.empty())
+            {
+                free_block_locked(block);
+            }
+        }
+        pending_completion_.erase(it);
     }
 
     void add_free_memory_callback(metal_caching_allocator::free_memory_callback callback)
@@ -783,6 +846,17 @@ private:
         }
         allocated_blocks_.clear();
 
+        // Collect blocks deferred for command-buffer completion; their memory
+        // belongs to this allocator even if the command buffers never signalled.
+        for (auto& entry : pending_completion_)
+        {
+            for (cache_block* block : entry.second)
+            {
+                collect(block);
+            }
+        }
+        pending_completion_.clear();
+
         for (cache_block* block : all_blocks)
         {
             block->buffer = nil;
@@ -809,6 +883,8 @@ private:
     unified_cache_stats                                        stats_;
     gpu_memory_history                                         history_;
     std::vector<id<MTLHeap>>                                   heaps_;
+    // Command-buffer completion tracking (Order 5): token → deferred blocks.
+    std::unordered_map<void*, std::vector<cache_block*>>       pending_completion_;
 };
 
 metal_caching_allocator::metal_caching_allocator(int device, size_t max_cached_bytes)
@@ -911,6 +987,16 @@ bool metal_caching_allocator::resolve_live_allocation(
     void const* ptr, void** handle_out, size_t* offset_out) const
 {
     return impl_->resolve_live_allocation(ptr, handle_out, offset_out);
+}
+
+void metal_caching_allocator::register_command_buffer(void* command_buffer_token)
+{
+    impl_->register_command_buffer(command_buffer_token);
+}
+
+void metal_caching_allocator::mark_completion(void* command_buffer_token)
+{
+    impl_->mark_completion(command_buffer_token);
 }
 
 metal_caching_allocator& metal_caching_allocator_for_device(int device_index)
