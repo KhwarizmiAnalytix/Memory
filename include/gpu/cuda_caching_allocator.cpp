@@ -946,25 +946,26 @@ private:
         }
         catch (...)
         {
-            if (block->event_count == 0)
+            if (block->event_count == 0 && streams.empty())
             {
-                // Nothing recorded at all: no stream in `streams` has a
-                // tracked completion, so nothing was left unproven. Return
-                // the block to its pool immediately, matching the no-uses
+                // streams was already empty before the loop (no uses on any
+                // stream), so no work was in flight and no completion needed
+                // proving. Return the block to its pool, matching the no-uses
                 // free path.
                 free_block_locked(block);
             }
             else
             {
-                // Some streams recorded successfully before the failure; the
-                // remaining ones in `streams` never got an event and their
-                // completion cannot be proven. Reusing this block once only
-                // the recorded events finish would let a still-pending use on
-                // an unrecorded stream race a new allocation into the same
-                // memory. Quarantine it instead: the already-queued events
-                // still recycle normally, but block->quarantined stops
-                // free_block_locked from being reached for it, so the memory
-                // is leaked rather than handed out unproven-safe.
+                // Either some events were recorded before the failure (partial
+                // coverage: remaining streams in `streams` have unproven
+                // in-flight work) or no events were recorded at all but
+                // `streams` was non-empty (the swap moved real uses out of
+                // block->stream_uses before any event succeeded, so those
+                // streams' completion is unproven). In both cases, reusing the
+                // block would race a new allocation into memory still in use.
+                // Quarantine: already-queued events still recycle normally, but
+                // block->quarantined prevents free_block_locked from handing
+                // this memory out again.
                 block->quarantined = true;
             }
             throw;

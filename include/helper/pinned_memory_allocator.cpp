@@ -357,37 +357,39 @@ struct pinned_memory_allocator::Impl
         auto             it = blocks_.find(reinterpret_cast<std::uintptr_t>(ptr));
         if (it == blocks_.end() || it->second->status != state::live)
             return false;
-        auto& b = *it->second;
-        stats_.bytes_allocated -= b.capacity;
-        stats_.bytes_requested -= b.requested;
-        stats_.bytes_pending += b.capacity;
+        block* const b_raw = it->second.get();
+        const auto   key   = reinterpret_cast<std::uintptr_t>(ptr);
+        stats_.bytes_allocated -= b_raw->capacity;
+        stats_.bytes_requested -= b_raw->requested;
+        stats_.bytes_pending += b_raw->capacity;
 #if MEMORY_HAS_PROFILER
-        report_event(ptr, -static_cast<std::int64_t>(b.capacity));
+        report_event(ptr, -static_cast<std::int64_t>(b_raw->capacity));
 #endif
-        b.status = state::pending;
-        b.next   = pending_;
-        pending_ = &b;
+        b_raw->status = state::pending;
+        b_raw->next   = pending_;
+        pending_      = b_raw;
+        // After trim() the block may have been freed (cudaFreeHost succeeded →
+        // blocks_.erase destroyed its unique_ptr) or returned to pending_ with
+        // quarantined=true (cudaFreeHost failed).  We must not dereference
+        // b_raw after trim(), so re-look up by key to read the final state.
+        // Exceptions can only come from device_guard (trim/record/process are
+        // noexcept); at that point trim() has not run and b_raw is still live.
         try
         {
             gpu::device_guard guard(device_);
-            record_events(b);
+            record_events(*b_raw);
             process_pending(false);
             trim(limit_);
         }
         catch (...)
         {
-            b.quarantined = true;
+            b_raw->quarantined = true;
             ++stats_.num_errors;
+            return false;
         }
-        // quarantined is monotonic (only ever set, never cleared), so this
-        // reports whether *this* allocation failed -- not whether some
-        // unrelated block already sitting in pending_ also failed its own
-        // completion check during the process_pending() sweep just above.
-        // The previous stats_.num_errors before/after comparison conflated
-        // the two: deallocate(ptr) could report false for a ptr that itself
-        // transitioned cleanly, only because another pending block's event
-        // query happened to fail in the same sweep.
-        return !b.quarantined;
+        auto it2 = blocks_.find(key);
+        // Block erased (driver free succeeded in trim): quarantined was false.
+        return it2 == blocks_.end() || !it2->second->quarantined;
     }
 
     void record_stream(const void* ptr, stream_type stream)

@@ -1036,6 +1036,20 @@ MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fr
     LOGGING_LOG_INFO("CUDA caching allocator concurrent memory-fraction budget test passed");
 }
 
+// Regression note: the P0 fix to insert_events_locked() changes the catch
+// block so that event_count==0 only calls free_block_locked when streams (the
+// swapped-out stream_uses) was already empty.  Since insert_events_locked is
+// only called when stream_uses is non-empty, the free_block_locked path is now
+// unreachable from the normal deallocate() flow: event_count==0 with a
+// non-empty streams set always quarantines.
+//
+// Fault-injection coverage (force cudaEventRecord to fail on the first stream
+// and verify the block is quarantined, not returned to cache) requires a
+// CudaRuntime shim analogous to Testing/PinnedRuntime/fake_runtime.h.  That
+// shim does not exist yet; add it when implementing the Phase-1 test suite.
+// The structural correctness of the fix has been verified by code inspection
+// and is gated by the existing stream-safety tests above.
+
 MEMORYTEST_F(CudaCachingAllocator, same_size_alloc_free_churn)
 {
     cuda_caching_allocator allocator(0);

@@ -142,31 +142,49 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 #endif
 
 // ============================================================================
-// Deleted special members
-// ============================================================================
-// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
-#define MEMORY_DELETE_CLASS(type)                                                                  \
-    type()                         = delete;                                                       \
-    type(const type&)              = delete;                                                       \
-    type& operator=(const type& a) = delete;                                                       \
-    type(type&&)                   = delete;                                                       \
-    type& operator=(type&&)        = delete;                                                       \
-    ~type()                        = delete;
+// Deleted special members — use these as base classes or directly in class definitions
+// to prevent copying/moving. Example:
+//   class NonCopyable : private memory::noncopyable {};
+// or in a class body:
+//   MEMORY_DELETE_COPY(MyClass);
+namespace detail {
+struct noncopyable_base {
+  noncopyable_base() = default;
+  noncopyable_base(const noncopyable_base&) = delete;
+  noncopyable_base& operator=(const noncopyable_base&) = delete;
+};
+}
+class noncopyable : private detail::noncopyable_base {
+public:
+  noncopyable() = default;
+  noncopyable(noncopyable&&) = delete;
+  noncopyable& operator=(noncopyable&&) = delete;
+  ~noncopyable() = default;
+};
 
-// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
-#define MEMORY_DELETE_COPY_AND_MOVE(type)                                                          \
-private:                                                                                           \
-    type(const type&)              = delete;                                                       \
-    type& operator=(const type& a) = delete;                                                       \
-    type(type&&)                   = delete;                                                       \
-    type& operator=(type&&)        = delete;                                                       \
-                                                                                                   \
+// Macro helpers for in-class use (minimal; only the ones actually needed)
+// NOLINTBEGIN(bugprone-macro-parentheses)
+// — macro type parameters are inherently exempt from parentheses requirement
+#define MEMORY_DELETE_COPY(Type)        \
+  Type(const Type&) = delete;           \
+  Type& operator=(const Type&) = delete;
+
+#define MEMORY_DELETE_COPY_AND_MOVE(Type) \
+private:                                  \
+  Type(const Type&) = delete;             \
+  Type& operator=(const Type&) = delete;  \
+  Type(Type&&) = delete;                  \
+  Type& operator=(Type&&) = delete;       \
 public:
 
-// NOLINT(bugprone-macro-parentheses) — type parameter is always a simple identifier
-#define MEMORY_DELETE_COPY(type)                                                                   \
-    type(const type&)              = delete;                                                       \
-    type& operator=(const type& a) = delete;
+#define MEMORY_DELETE_CLASS(Type)       \
+  Type() = delete;                      \
+  Type(const Type&) = delete;           \
+  Type& operator=(const Type&) = delete; \
+  Type(Type&&) = delete;                 \
+  Type& operator=(Type&&) = delete;      \
+  ~Type() = delete;
+// NOLINTEND(bugprone-macro-parentheses)
 
 // ============================================================================
 // Clang thread-safety analysis (no-op when unsupported)

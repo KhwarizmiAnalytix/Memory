@@ -115,6 +115,37 @@ TEST_F(PinnedRuntime, ZeroCacheLimitStillProtectsPendingTransfers)
     EXPECT_EQ(0U, pool.stats().bytes_reserved);
 }
 
+// Regression: deallocate() used to return !b.quarantined after calling
+// trim(), which erases b's map entry and destroys its backing block.
+// With a zero-cache limit and no pending streams, process_pending() moves b
+// to cached_ and trim(0) frees and erases it — then reading b.quarantined
+// is a heap-use-after-free caught by ASan.  The fix tracks the outcome in a
+// local flag set inside the catch block, before trim() can invalidate b.
+TEST_F(PinnedRuntime, ZeroCacheLimitWithImmediateCompletionDoesNotReadFreedBlock)
+{
+    pinned_memory_allocator pool(0, 0);
+    auto*                   ptr = pool.allocate(100);
+    // No stream recorded: complete() returns true immediately, so
+    // process_pending() moves the block to cache and trim(0) frees it.
+    EXPECT_TRUE(pool.deallocate(ptr));
+    EXPECT_EQ(1, rt::host_frees);
+    EXPECT_EQ(0U, pool.stats().bytes_reserved);
+    EXPECT_EQ(0U, pool.stats().bytes_cached);
+}
+
+// Same path with a just-completed stream: complete() succeeds on the first
+// query, same trim/erase sequence, same UAF risk in the original code.
+TEST_F(PinnedRuntime, ZeroCacheLimitWithJustCompletedStreamDoesNotReadFreedBlock)
+{
+    pinned_memory_allocator pool(0, 0);
+    auto*                   ptr = pool.allocate(100);
+    pool.record_stream(ptr, rt::stream(1));
+    // rt::ready[1] defaults to true, so complete() succeeds immediately.
+    EXPECT_TRUE(pool.deallocate(ptr));
+    EXPECT_EQ(1, rt::host_frees);
+    EXPECT_EQ(0U, pool.stats().bytes_reserved);
+}
+
 TEST_F(PinnedRuntime, EmptyCachePreservesLiveAllocations)
 {
     pinned_memory_allocator pool;
