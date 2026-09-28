@@ -570,16 +570,16 @@ MEMORYTEST_F(CudaCachingAllocator, splits_oversized_cached_blocks)
     // for this to exercise a same-segment split instead of a fresh cudaMalloc.
     // A 2 MiB request should split the cached 20 MiB segment, leaving an
     // 18 MiB remainder.
-    void* small = allocator.allocate(2 * 1024 * 1024);
-    ASSERT_NE(nullptr, small);
-    EXPECT_EQ(big, small);
+    void* small_alloc = allocator.allocate(2 * 1024 * 1024);
+    ASSERT_NE(nullptr, small_alloc);
+    EXPECT_EQ(big, small_alloc);
 
     auto stats = allocator.stats();
     EXPECT_EQ(1, stats.driver_allocations.load());  // no new cudaMalloc for the split
     EXPECT_EQ(2 * 1024 * 1024, stats.bytes_allocated.load());
     EXPECT_EQ(18 * 1024 * 1024, stats.inactive_split_bytes.load());
 
-    allocator.deallocate(small, 2 * 1024 * 1024);
+    allocator.deallocate(small_alloc, 2 * 1024 * 1024);
     // Merge restores the whole 20 MiB block; nothing split remains
     EXPECT_EQ(0, allocator.stats().inactive_split_bytes.load());
 
