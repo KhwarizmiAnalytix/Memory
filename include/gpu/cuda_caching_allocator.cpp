@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -51,9 +52,11 @@ namespace gpu
 namespace
 {
 
+using caching_config::add_saturating;
 using caching_config::kMinBlockSize;
 using caching_config::kSmallSize;
 using caching_config::round_request_size;
+using caching_config::round_up_saturating;
 using caching_config::segment_size_for;
 
 // Driver-backed segment (cudaMalloc/hipMalloc, or cuMemMap/hipMem* expandable).
@@ -88,7 +91,7 @@ inline bool try_cu_vm_alloc(int device, size_t size, raw_segment& out)
     {
         return false;
     }
-    size_t const padded = ((size + granularity - 1) / granularity) * granularity;
+    size_t const padded = round_up_saturating(size, granularity);
     CUdeviceptr  addr   = 0;
     if (cuMemAddressReserve(&addr, padded, granularity, 0, 0) != CUDA_SUCCESS)
     {
@@ -147,7 +150,7 @@ inline bool try_hip_vm_alloc(int device, size_t size, raw_segment& out)
     {
         return false;
     }
-    size_t const padded = ((size + granularity - 1) / granularity) * granularity;
+    size_t const padded = round_up_saturating(size, granularity);
     void*        addr   = nullptr;
     if (hipMemAddressReserve(&addr, padded, granularity, 0, 0) != hipSuccess)
     {
@@ -390,6 +393,15 @@ struct cuda_caching_allocator::Impl
                 // release every releasable cached segment) and retry once before
                 // failing, matching the upstream retry behavior.
                 release_cached_blocks_locked();
+                // alloc_segment_unlocked's own driver call drops the lock, so a
+                // concurrent set_memory_fraction() can shrink headroom between
+                // this function's earlier checks and this retry. Recheck before
+                // spending a second driver call so a stale "fits" decision
+                // cannot commit an over-budget segment.
+                if (reserved_would_exceed_locked(alloc_size))
+                {
+                    fail_oom_locked(size, stream);
+                }
                 block = alloc_segment_unlocked(lock, pool, stream, alloc_size, true);
                 if (block == nullptr)
                 {
@@ -527,7 +539,7 @@ struct cuda_caching_allocator::Impl
 
     void set_memory_fraction(double fraction)
     {
-        if (fraction <= 0.0 || fraction > 1.0)
+        if (std::isnan(fraction) || fraction <= 0.0 || fraction > 1.0)
         {
             throw std::invalid_argument("set_memory_fraction: fraction must be in (0, 1]");
         }
@@ -581,9 +593,10 @@ struct cuda_caching_allocator::Impl
     // cap before any of them account for the others.
     bool reserved_would_exceed_locked(size_t alloc_size) const
     {
-        return stats_.bytes_reserved.load(std::memory_order_relaxed) + pending_reserved_bytes_ +
-                   alloc_size >
-               allowed_memory_maximum_;
+        size_t const reserved = stats_.bytes_reserved.load(std::memory_order_relaxed);
+        size_t const total =
+            add_saturating(add_saturating(reserved, pending_reserved_bytes_), alloc_size);
+        return total > allowed_memory_maximum_;
     }
 
     void record_trace_locked(
@@ -761,18 +774,49 @@ private:
         // Metadata is allocated before the driver call so a throwing new cannot
         // leak a successfully mapped segment.
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool);
-        // Reserve this request's budget, and snapshot expandable_segments_,
-        // under the lock before dropping it: reserved_would_exceed_locked()
-        // on a concurrent thread must see this allocation as already spoken
-        // for, and expandable_segments_ must not be read concurrently with
-        // set_expandable_segments()'s write to it.
-        pending_reserved_bytes_ += alloc_size;
-        bool const expandable = expandable_segments_;
-        lock.unlock();
+
         cudaError_t err = cudaSuccess;
-        raw_segment raw = malloc_segment(device_, alloc_size, &err, expandable);
-        lock.lock();
-        pending_reserved_bytes_ -= alloc_size;
+        raw_segment raw;
+        {
+            // Reserve this request's budget, and snapshot expandable_segments_,
+            // under the lock before dropping it: reserved_would_exceed_locked()
+            // on a concurrent thread must see this allocation as already spoken
+            // for, and expandable_segments_ must not be read concurrently with
+            // set_expandable_segments()'s write to it.
+            pending_reserved_bytes_ += alloc_size;
+            bool const expandable = expandable_segments_;
+            lock.unlock();
+
+            // Rolls back this request's pending-budget reservation on every
+            // exit from this scope -- success, a driver-reported failure, or
+            // an exception thrown by malloc_segment itself (its device_guard's
+            // cudaGetDevice/cudaSetDevice can throw). Re-acquires `lock` first
+            // if it isn't already held: malloc_segment can throw before
+            // control returns here to relock manually, which used to skip the
+            // decrement entirely and leak reserved headroom permanently.
+            struct pending_reservation_guard
+            {
+                Impl&                                   self;
+                std::unique_lock<std::recursive_mutex>& lock;
+                size_t                                   amount;
+                ~pending_reservation_guard()
+                {
+                    if (!lock.owns_lock())
+                    {
+                        lock.lock();
+                    }
+                    self.pending_reserved_bytes_ -= amount;
+                }
+            } const pending_guard{*this, lock, alloc_size};
+
+            raw = malloc_segment(device_, alloc_size, &err, expandable);
+            // pending_guard's destructor fires at the end of this scope (or
+            // during unwind if malloc_segment threw), reacquiring `lock` and
+            // decrementing exactly once either way.
+        }
+        // `lock` is guaranteed held from here on: either malloc_segment
+        // returned normally and the guard reacquired it above, or an
+        // exception already propagated past this point during unwind.
         if (raw.ptr == nullptr)
         {
             if (err != cudaSuccess && err != cudaErrorMemoryAllocation)
@@ -932,20 +976,35 @@ private:
         device_guard const     guard(device_);
         std::set<cudaStream_t> streams;
         streams.swap(block->stream_uses);
+        // Tracks an event acquired from the pool but not yet confirmed queued
+        // into cuda_events_ (i.e. its cudaEventRecord has not yet succeeded).
+        // A failure between acquiring it and queuing it must recycle it here,
+        // or the underlying driver event object leaks: it would be neither in
+        // event_pool_ (available for reuse) nor cuda_events_ (destroyed at
+        // allocator teardown via the pool).
+        cudaEvent_t pending_event = nullptr;
         // Boundary/interop path: a CUDA error here must not orphan the block
         // between the pools and the event queues.
         try
         {
             for (cudaStream_t stream : streams)
             {
-                cudaEvent_t event = acquire_event_locked();
-                throw_on_cuda_error(cudaEventRecord(event, stream), "cudaEventRecord");
-                cuda_events_[stream].emplace_back(event, block);
+                pending_event = acquire_event_locked();
+                throw_on_cuda_error(cudaEventRecord(pending_event, stream), "cudaEventRecord");
+                cuda_events_[stream].emplace_back(pending_event, block);
                 block->event_count++;
+                pending_event = nullptr;  // ownership transferred to cuda_events_
             }
         }
         catch (...)
         {
+            if (pending_event != nullptr)
+            {
+                // A failed cudaEventRecord does not invalidate the event
+                // object itself (only this record attempt); recycle it for
+                // reuse rather than leaking the driver resource.
+                recycle_event_locked(pending_event);
+            }
             if (block->event_count == 0 && streams.empty())
             {
                 // streams was already empty before the loop (no uses on any

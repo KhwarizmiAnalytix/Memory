@@ -15,8 +15,8 @@ without hardware measurements.
 
 | Area | Current foundation | Next gap |
 |---|---|---|
-| CPU | Aligned mimalloc/TBB/platform allocation, optional NUMA/profiling | Scoped arenas, explicit placement, release-build alignment checks |
-| CUDA/HIP | Segment caches, splitting/coalescing, stream pools, event reuse, OOM retry | Failure-safe reuse and complete budget transactions |
+| CPU | Aligned mimalloc/TBB/platform allocation, optional NUMA/profiling, release-build alignment checks | Scoped arenas, explicit placement |
+| CUDA/HIP | Segment caches, splitting/coalescing, stream pools, event reuse, OOM retry, failure-safe reuse, complete budget transactions | Retained async storage, copy lifetime contracts |
 | Ownership | Unique deep-copy `data_ptr`; borrowed views preserve base through slices | Retained async storage and completion contracts |
 | Pinned host | Per-device size-class pool, deferred reuse, quarantine, transfer helpers | Immediate-trim bug, total backing budget, GPU endpoint retention |
 | Metal | Shared buffers/heaps and segment cache | Completion-driven reuse and heap capacity accounting |
@@ -26,7 +26,10 @@ The earlier element-count overflow, rounding-to-zero, slice-base tracking,
 default-stream tracking, and free-trace address bugs have source fixes and
 regression tests. Initial GPU allocation attempts now reserve in-flight bytes.
 `data_ptr` catches destruction errors. Pinned staging already exists and should
-be extended, not implemented again. These fixes leave the following gaps.
+be extended, not implemented again. As of 2026-09-28, items 3 and 6 below
+(budget-transaction completeness and backend/alignment validation) also have
+source fixes and regression tests, closing out Order 2's non-Metal scope.
+These fixes leave the following gaps.
 
 **Current findings, in priority order**
 
@@ -53,20 +56,40 @@ be extended, not implemented again. These fixes leave the following gaps.
    Since `insert_events_locked` is only called when `stream_uses` is non-empty,
    `streams` is never empty at the catch site: the free path is now effectively
    unreachable through the normal flow, which is the correct invariant.
-   Fault-injection coverage requires a CudaRuntime shim analogous to
-   `Testing/PinnedRuntime/fake_runtime.h` (does not exist yet); the note is
-   recorded in `TestCudaCachingAllocator.cpp` near the stream-safety tests.
+   Fault-injection coverage now lives in `Testing/CudaCachingAllocator/`
+   (a `fake_runtime.h` shim analogous to `Testing/PinnedRuntime/`'s, building
+   `gpu/cuda_caching_allocator.cpp` directly under HIP labels — the CUDA
+   driver-API expandable-VM path is out of scope to fake and doesn't compile
+   in under it): `PartialEventFailureOnSecondStreamQuarantinesBlock` and
+   `SingleStreamEventFailureQuarantinesNotFrees` in
+   `TestCudaCachingAllocatorRuntime.cpp`. Building this shim also surfaced a
+   related, previously undetected leak: when `cudaEventRecord` itself failed,
+   the just-acquired event object was orphaned (never returned to
+   `event_pool_` nor `cuda_events_`); fixed by recycling it in the catch
+   block instead of leaking the driver resource.
 
-3. **P1 — GPU budget accounting is not a complete transaction.**
+3. **P1 — GPU budget accounting is not a complete transaction: fixed 2026-09-28.**
    [`cuda_caching_allocator.cpp:378`](../include/gpu/cuda_caching_allocator.cpp#L378)
-   checks the initial attempt, but the retry at line 393 does not recheck after
-   concurrent requests may consume headroom. Lines 769–775 lack reservation
-   rollback if the unlocked driver helper's `device_guard` throws. The predicate
-   at line 584 can wrap unsigned addition. VM granularity rounding at lines
-   91/150 is unchecked, and actual mapped size may exceed the reserved request.
-   Use checked reserve/commit/rollback on every attempt, account actual backing,
-   and define limit changes during in-flight allocation. Reject nonfinite
-   fractions. Test retry interleavings and injected errors, not only success.
+   checks the initial attempt; the OOM-chain retry now rechecks
+   `reserved_would_exceed_locked()` before spending a second driver call, so a
+   concurrent `set_memory_fraction()` landing during the first attempt's own
+   dropped-lock `cudaMalloc()` can no longer let a stale "fits" decision
+   commit an over-budget segment. `alloc_segment_unlocked`'s pending-budget
+   reservation is now rolled back by a locally-scoped RAII guard that
+   reacquires the lock and decrements on every exit path — including a
+   throwing `device_guard` inside `malloc_segment`, which previously skipped
+   the decrement entirely and leaked reserved headroom permanently.
+   `reserved_would_exceed_locked`'s three-way addition and both VM-path
+   granularity roundings now use a saturating add/round helper
+   (`caching_allocator_config.h`'s new `add_saturating`, reusing the existing
+   `round_up_saturating`) instead of unchecked unsigned arithmetic.
+   `set_memory_fraction` now rejects NaN (previously passed both bound checks
+   silently, since IEEE754 comparisons against NaN are always false).
+   Regression tests: `RetryAfterDriverFailureRechecksShrunkenBudget` and
+   `SegmentAllocDeviceGuardThrowRollsBackPendingBudget` in the new
+   `Testing/CudaCachingAllocator/` shim (see item 2), `AddSaturatingNormalSumIsExact`
+   / `AddSaturatingOverflowSaturatesToMax` in `TestCachingAllocatorConfig.cpp`,
+   and `set_memory_fraction_rejects_nan` in `TestCudaCachingAllocator.cpp`.
 
 4. **P1 — copy lifetime protection is partial and follows submission.**
    [`allocator.h:417`](../include/allocator.h#L417) submits async work before
@@ -88,16 +111,87 @@ be extended, not implemented again. These fixes leave the following gaps.
    physical residency. `record_stream` remains a no-op at line 232, so async
    clients need command-buffer completion tracking before deferred reuse.
 
-6. **P1 — backend, alignment, and typed-storage contracts need validation.**
-   [`allocator.h:57`](../include/allocator.h#L57) accepts both CUDA/HIP labels in
-   either compiled runtime; GPU allocation at line 181 omits template alignment.
-   CPU alignment checking is debug-only in
-   [`memory_allocator.cpp:105`](../include/helper/memory_allocator.cpp#L105).
-   Reject backend mismatches and unsupported alignments; satisfy `alignof(T)`
-   or reject the request. Define the supported typed-object lifetime model, as
-   `pinned_buffer` already does.
+6. **P1 — backend and alignment contracts need validation: fixed 2026-09-28
+   for CUDA/HIP (Metal alignment and the typed-storage lifetime model remain
+   open).**
+   [`allocator.h:57`](../include/allocator.h#L57)'s `is_active_gpu_device` now
+   checks only the backend actually compiled in (`#if MEMORY_HAS_CUDA` /
+   `#elif MEMORY_HAS_HIP` / `#elif MEMORY_HAS_METAL`) instead of accepting
+   either CUDA or HIP whenever either is compiled — a CUDA-only build no
+   longer treats `device_enum::HIP` as active and silently dispatches into
+   the CUDA-backed cache. GPU allocation (was line 181) now rejects
+   (`std::invalid_argument`) a template `alignment` greater than the CUDA/HIP
+   segment cache's `kMinBlockSize` (512-byte) guarantee instead of silently
+   under-aligning; Metal alignment is unchanged (open — no Apple hardware to
+   validate against in this pass). CPU alignment checking
+   ([`memory_allocator.cpp:105`](../include/helper/memory_allocator.cpp#L105))
+   is promoted from `LOGGING_CHECK_DEBUG` to `LOGGING_CHECK`, so Release
+   builds validate it too. Regression tests: `IsActiveGpuDevice` (updated to
+   assert single-backend exclusivity), `AllocateWrongCompiledGpuLabelThrows`,
+   `AllocateGpuExcessiveAlignmentThrows` in `TestAllocator.cpp`; an
+   invalid-alignment case added to `MemoryPortTest.EdgeCases` in
+   `TestCPUMemory.cpp`. The typed-object lifetime model (matching
+   `pinned_buffer`'s) remains open.
 
-7. **P2 — frequent operations incur avoidable work.** GPU registry lookup takes
+7. **P0 — rare, timing-dependent host memory corruption under repeated
+   allocator construction/destruction churn: newly found 2026-09-28, root
+   cause not yet isolated.** Discovered while building Order 0's baseline
+   benchmark (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`): a real-hardware
+   run cycling many short-lived `cuda_caching_allocator` instances through
+   thousands of real `cudaMalloc`/`cudaFree` round trips (`empty_cache()` +
+   `allocate()` + `deallocate()` per iteration across several sizes, then
+   transitioning into a fresh allocator instance for a different benchmark)
+   segfaults roughly 30–40% of full-suite runs (`--benchmark_repetitions=10`,
+   default min-time). The crash site moves between different benchmark-function
+   transitions across runs — consistent with a genuine race rather than a
+   fixed logic error at one line.
+
+   **Confirmed pre-existing, not introduced by today's Order 2 fixes**: built
+   the same benchmark against both the current (post-fix) and the pre-session
+   `include/gpu/cuda_caching_allocator.cpp` (via `git show HEAD:...`) in an
+   isolated, single-configuration Release build; both crashed at a similar
+   rate (2/5 and 2/3 runs respectively, in separate trials). Today's Order 2
+   changes are exonerated, but the bug remains open and real.
+
+   **Diagnosis attempted, inconclusive**: a minimal standalone repro calling
+   the same public API sequence directly (no Google Benchmark harness) at
+   4–10x the iteration volume never crashed, so the trigger is not pure call
+   volume — it appears tied to something specific in Google Benchmark's own
+   iteration/timing harness (exact mechanism unknown). AddressSanitizer would
+   be the natural next step, but this toolchain (Clang 22 + `clang-cl`-style
+   Windows target + multiple DLLs) hit two separate blockers: an internal
+   Clang codegen crash compiling `TestCudaCachingAllocator.cpp` under
+   `-fsanitize=address -gcodeview`, and — once routed around that via a
+   direct, non-CMake compile — a `bad-free` abort during CRT/DLL static
+   initialization *before `main()` runs*, reproducing identically regardless
+   of which allocator code was linked. That is an ASan/Windows-multi-DLL
+   toolchain artifact, not evidence about the real bug; it means ASan is not
+   currently usable for this diagnosis on this machine. A Linux build (ASan +
+   shared libraries is far more reliable there) or a Windows debugger
+   (`cdb`/WinDBG, not installed on this machine) attached at the fault would
+   be the next step.
+
+   **Mitigation applied, not a fix**: `BenchmarkCudaCachingAllocator.cpp`'s
+   four cases now cap iterations explicitly (`->Iterations(200)` for the
+   real-driver-call-heavy cold path, `->Iterations(5000)` for the others)
+   instead of letting Benchmark's own convergence pick counts, which had been
+   reaching the hundreds of thousands for the cheap warm-path cases. 20/20
+   repeated full-suite runs were clean after bounding; the recorded baseline
+   (`Docs/cuda_baseline_2026-09-28.json`) was captured under this bounded
+   configuration. This reduces exposure; it does not establish the iteration
+   count is safe at unbounded scale, and does not rule out the same class of
+   corruption being reachable through a legitimate caller (e.g. a
+   memory-pressure-driven repeated-trim loop) outside a benchmark context.
+
+   **Reproduction**: `python Scripts/setup.py build.test.cuda` with
+   `MEMORY_ENABLE_BENCHMARK=ON`, then repeatedly run
+   `bin/benchmark_memory_cudacachingallocator.exe --benchmark_min_time=0.05s --benchmark_repetitions=10`
+   (no `->Iterations()` cap) a handful of times — expect roughly 1 in 3 runs
+   to crash. Needs a dedicated follow-up session with working crash-dump
+   tooling; do not attempt a speculative fix without reproducing under a
+   debugger or working sanitizer first.
+
+8. **P2 — frequent operations incur avoidable work.** GPU registry lookup takes
    a global mutex; basic stats scan free blocks under the device lock
    (`cuda_caching_allocator.cpp:696,1392`). Event polling has no per-call work
    bound. Trace recording uses a dynamically allocating deque under that lock
@@ -155,9 +249,9 @@ minus allocated is not by itself a fragmentation metric.
 
 | Order | Work package | Acceptance gate |
 |---|---|---|
-| 0 | Baseline representative workloads and effective configuration | Reproducible latency, end-to-end time, peak backing, copies, synchronization |
-| 1 | **[In progress]** Pinned UAF and GPU event-failure fixes; exception-safe state transitions | ASan regression passes; first/partial event failures never recycle unsafe memory; errors observable — *both P0 source fixes landed 2026-09-28; pinned shim suite (17/17); GPU fault-injection shim pending* |
-| 2 | Complete budget transactions and allocation validation | Retry/concurrency/fault tests respect budget; rollback on every failure; overflow/NaN/backend/alignment validation |
+| 0 | **[Done 2026-09-28, surfaced finding 7]** Baseline representative workloads and effective configuration | Reproducible latency, end-to-end time, peak backing, copies, synchronization — *CUDA caching-allocator benchmarks added (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`: cold/warm alloc-free, fixed/changing sizes, 1/4/16 streams); run on this machine's GPU, see `Docs/cuda_baseline_2026-09-28.json`; building this benchmark surfaced finding 7 (P0, open) — iterations bounded as a mitigation, baseline recorded under that bounded config* |
+| 1 | **[Done 2026-09-28]** Pinned UAF and GPU event-failure fixes; exception-safe state transitions | ASan regression passes; first/partial event failures never recycle unsafe memory; errors observable — *both P0 source fixes landed 2026-09-28; pinned shim suite (17/17); GPU fault-injection shim added (`Testing/CudaCachingAllocator/`), 4/4 tests pass, also caught and fixed an event-object leak on record failure* |
+| 2 | **[Done 2026-09-28, Metal excluded]** Complete budget transactions and allocation validation | Retry/concurrency/fault tests respect budget; rollback on every failure; overflow/NaN/backend/alignment validation — *see findings 3 and 6 above; Metal heap/alignment validation deferred to Order 4/a future pass (no Apple hardware here)* |
 | 3 | Storage identity, retained views, explicit contexts and copy API | Sliced/adopted/multi-stream endpoints survive completion; dependencies explicit; compatibility preserved |
 | 4 | Cheap counters, bounded diagnostics, Metal backing accounting | O(1) basic stats; accounting invariants; no telemetry-caused allocation failure; stable IDs and trace loss counts |
 | 5 | CPU arenas, GPU workspaces, bounded staging, Metal completion tracking | End-to-end benefit with bounded memory and no premature reset/reuse |

@@ -9,6 +9,10 @@ memory_setup_gtest()
 add_subdirectory(
   "${CMAKE_CURRENT_SOURCE_DIR}/../PinnedRuntime" "${CMAKE_CURRENT_BINARY_DIR}/PinnedRuntime"
 )
+add_subdirectory(
+  "${CMAKE_CURRENT_SOURCE_DIR}/../CudaCachingAllocator"
+  "${CMAKE_CURRENT_BINARY_DIR}/CudaCachingAllocator"
+)
 
 file(GLOB_RECURSE test_sources LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
 

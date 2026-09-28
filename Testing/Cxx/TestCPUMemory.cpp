@@ -78,6 +78,10 @@ MEMORYTEST(MemoryPortTest, EdgeCases)
     // Test zero-size allocation: LOGGING_CHECK rejects it via logging::exception.
     EXPECT_THROW({ cpu::memory_allocator::allocate(0, 64); }, logging::exception);
 
+    // Test invalid (non-power-of-2) alignment: release-visible LOGGING_CHECK
+    // rejects it via logging::exception in both Debug and Release builds.
+    EXPECT_THROW({ cpu::memory_allocator::allocate(64, 3); }, logging::exception);
+
     LOGGING_LOG_INFO("Memory port edge cases tests completed successfully");
 }
 

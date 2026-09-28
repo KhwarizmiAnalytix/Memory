@@ -102,7 +102,11 @@ void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
         "cpu allocate() called with negative or zero size: {}",
         nbytes);
 
-    LOGGING_CHECK_DEBUG(
+    // Release-visible: is_valid_alignment is a noexcept, branch-free power-of-2
+    // test, negligible next to the heap call below it. A bad alignment passed
+    // to mimalloc/TBB/_aligned_malloc/posix_memalign can misbehave differently
+    // per backend, so this is not a debug-only concern.
+    LOGGING_CHECK(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,

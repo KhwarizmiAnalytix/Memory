@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -939,6 +940,19 @@ MEMORYTEST_F(CudaCachingAllocator, process_wide_api_matches_pytorch)
     LOGGING_LOG_INFO("process-wide GPU cache API test passed");
 }
 
+// fraction <= 0.0 || fraction > 1.0 lets NaN through silently (IEEE754
+// comparisons against NaN are always false); set_memory_fraction must reject
+// it explicitly rather than installing a NaN budget cap.
+MEMORYTEST_F(CudaCachingAllocator, set_memory_fraction_rejects_nan)
+{
+    using alloc_t = allocator<float>;
+    EXPECT_THROW(
+        alloc_t::set_memory_fraction(std::numeric_limits<double>::quiet_NaN(), 0),
+        std::invalid_argument);
+    // Leave the allocator in a known-good state for subsequent tests.
+    alloc_t::set_memory_fraction(1.0, 0);
+}
+
 MEMORYTEST_F(CudaCachingAllocator, expandable_segments_default_off)
 {
     cuda_caching_allocator allocator(0);
@@ -1043,12 +1057,13 @@ MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fr
 // unreachable from the normal deallocate() flow: event_count==0 with a
 // non-empty streams set always quarantines.
 //
-// Fault-injection coverage (force cudaEventRecord to fail on the first stream
-// and verify the block is quarantined, not returned to cache) requires a
-// CudaRuntime shim analogous to Testing/PinnedRuntime/fake_runtime.h.  That
-// shim does not exist yet; add it when implementing the Phase-1 test suite.
-// The structural correctness of the fix has been verified by code inspection
-// and is gated by the existing stream-safety tests above.
+// Fault-injection coverage (force cudaEventRecord to fail on a stream and
+// verify the block is quarantined, not returned to cache) now lives in
+// Testing/CudaCachingAllocator/TestCudaCachingAllocatorRuntime.cpp, built
+// against a CudaRuntime shim analogous to Testing/PinnedRuntime/fake_runtime.h
+// (MemoryCudaCachingAllocatorRuntimeTests): see
+// PartialEventFailureOnSecondStreamQuarantinesBlock and
+// SingleStreamEventFailureQuarantinesNotFrees.
 
 MEMORYTEST_F(CudaCachingAllocator, same_size_alloc_free_churn)
 {

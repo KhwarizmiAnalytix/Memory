@@ -82,3 +82,19 @@ MEMORYTEST(CachingAllocatorConfig, RoundUpSaturatingExactMultipleIsUnchanged)
     EXPECT_EQ(512U, round_up_saturating(1U, 512U));
     END_TEST();
 }
+
+MEMORYTEST(CachingAllocatorConfig, AddSaturatingNormalSumIsExact)
+{
+    EXPECT_EQ(30U, add_saturating(10U, 20U));
+    EXPECT_EQ(10U, add_saturating(10U, 0U));
+    END_TEST();
+}
+
+MEMORYTEST(CachingAllocatorConfig, AddSaturatingOverflowSaturatesToMax)
+{
+    constexpr size_t kMax = std::numeric_limits<size_t>::max();
+    EXPECT_EQ(kMax, add_saturating(kMax - 5U, 10U));
+    EXPECT_EQ(kMax, add_saturating(kMax, 1U));
+    EXPECT_EQ(kMax, add_saturating(kMax, kMax));
+    END_TEST();
+}

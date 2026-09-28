@@ -41,6 +41,7 @@
 #endif
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/caching_allocator_config.h"  // for caching_config::kMinBlockSize
 #include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 #endif
@@ -56,8 +57,10 @@ constexpr bool is_gpu_device(device_enum device_type)
 /** True when @p device_type is served by the compiled GPU caching allocator. */
 constexpr bool is_active_gpu_device(device_enum device_type)
 {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-    return device_type == device_enum::CUDA || device_type == device_enum::HIP;
+#if MEMORY_HAS_CUDA
+    return device_type == device_enum::CUDA;
+#elif MEMORY_HAS_HIP
+    return device_type == device_enum::HIP;
 #elif MEMORY_HAS_METAL
     return device_type == device_enum::METAL;
 #else
@@ -175,6 +178,18 @@ public:
                 throw std::invalid_argument(
                     "Metal backend does not support double precision (no fp64 on Apple "
                     "GPU hardware); use device_enum::CPU for double tensors.");
+            }
+#endif
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+            // The CUDA/HIP segment cache rounds every block to a kMinBlockSize
+            // multiple and does not thread a caller alignment through block
+            // splitting/reuse; it cannot guarantee more than that. Reject
+            // requests it cannot satisfy rather than silently under-aligning.
+            if constexpr (alignment > gpu::caching_config::kMinBlockSize)
+            {
+                throw std::invalid_argument(
+                    "allocator<T, alignment>: CUDA/HIP caching allocator guarantees at most "
+                    "kMinBlockSize-byte alignment; requested alignment exceeds it");
             }
 #endif
             ptr = static_cast<pointer>(

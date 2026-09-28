@@ -52,6 +52,18 @@ inline size_t round_up_saturating(size_t size, size_t unit)
     return unit * ((size + unit - 1) / unit);
 }
 
+// Adds a + b saturating at SIZE_MAX instead of wrapping. Mirrors
+// round_up_saturating's saturate-rather-than-wrap contract for budget
+// accounting predicates that sum several already-large quantities.
+inline size_t add_saturating(size_t a, size_t b)
+{
+    if (a > std::numeric_limits<size_t>::max() - b)
+    {
+        return std::numeric_limits<size_t>::max();
+    }
+    return a + b;
+}
+
 inline size_t round_request_size(size_t size)
 {
     if (size < kMinBlockSize)

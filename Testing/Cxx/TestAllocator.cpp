@@ -118,6 +118,21 @@ MEMORYTEST(Allocator, CopyOverflowingElementCountThrowsOverflowError)
     END_TEST();
 }
 
+// The CUDA/HIP segment cache guarantees at most kMinBlockSize-byte alignment
+// (blocks are rounded/split on that unit); a caller requesting more must be
+// rejected rather than silently under-aligned.
+MEMORYTEST(Allocator, AllocateGpuExcessiveAlignmentThrows)
+{
+#if MEMORY_HAS_CUDA
+    using over_aligned_t = allocator<float, 4096>;
+    EXPECT_THROW(over_aligned_t::allocate(4, device_enum::CUDA), std::invalid_argument);
+#elif MEMORY_HAS_HIP
+    using over_aligned_t = allocator<float, 4096>;
+    EXPECT_THROW(over_aligned_t::allocate(4, device_enum::HIP), std::invalid_argument);
+#endif
+    END_TEST();
+}
+
 MEMORYTEST(Allocator, AllocateUnsupportedDeviceThrows)
 {
     using alloc_t = allocator<float>;
@@ -275,10 +290,17 @@ MEMORYTEST(Allocator, HasGpuSupport)
     END_TEST();
 }
 
+// CUDA and HIP are compile-time exclusive (only one of MEMORY_HAS_CUDA /
+// MEMORY_HAS_HIP is ever 1); is_active_gpu_device must accept only the
+// backend actually compiled in, not both labels whenever either is on.
 MEMORYTEST(Allocator, IsActiveGpuDevice)
 {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#if MEMORY_HAS_CUDA
     EXPECT_TRUE(is_active_gpu_device(device_enum::CUDA));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::HIP));
+    EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
+#elif MEMORY_HAS_HIP
+    EXPECT_FALSE(is_active_gpu_device(device_enum::CUDA));
     EXPECT_TRUE(is_active_gpu_device(device_enum::HIP));
     EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
 #elif MEMORY_HAS_METAL
@@ -291,6 +313,19 @@ MEMORYTEST(Allocator, IsActiveGpuDevice)
     EXPECT_FALSE(is_active_gpu_device(device_enum::METAL));
 #endif
     EXPECT_FALSE(is_active_gpu_device(device_enum::CPU));
+    END_TEST();
+}
+
+// Requesting the GPU label for a backend that isn't the one compiled in must
+// be rejected, not silently dispatched into the compiled allocator.
+MEMORYTEST(Allocator, AllocateWrongCompiledGpuLabelThrows)
+{
+    using alloc_t = allocator<float>;
+#if MEMORY_HAS_CUDA
+    EXPECT_THROW(alloc_t::allocate(4, device_enum::HIP), std::invalid_argument);
+#elif MEMORY_HAS_HIP
+    EXPECT_THROW(alloc_t::allocate(4, device_enum::CUDA), std::invalid_argument);
+#endif
     END_TEST();
 }
 
