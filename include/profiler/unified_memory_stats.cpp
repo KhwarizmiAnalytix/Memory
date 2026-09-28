@@ -127,7 +127,7 @@ double unified_cache_stats::cache_hit_rate() const noexcept
     size_t const hits   = cache_hits.load(std::memory_order_relaxed);
     size_t const misses = cache_misses.load(std::memory_order_relaxed);
     size_t const total  = hits + misses;
-    return total > 0 ? static_cast<double>(hits) / total : 0.0;
+    return total > 0 ? static_cast<double>(hits) / static_cast<double>(total) : 0.0;
 }
 
 double unified_cache_stats::cache_efficiency_percent() const noexcept
@@ -139,7 +139,7 @@ double unified_cache_stats::cache_efficiency_percent() const noexcept
     {
         return 0.0;
     }
-    return (static_cast<double>(hits) / total) * 100.0;
+    return (static_cast<double>(hits) / static_cast<double>(total)) * 100.0;
 }
 
 double unified_cache_stats::driver_call_reduction() const noexcept
@@ -152,7 +152,7 @@ double unified_cache_stats::driver_call_reduction() const noexcept
     {
         return 1.0;
     }
-    return static_cast<double>(hits + driver_calls_free) / driver_calls;
+    return static_cast<double>(hits + driver_calls_free) / static_cast<double>(driver_calls);
 }
 
 }  // namespace memory

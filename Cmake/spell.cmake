@@ -64,7 +64,7 @@ else()
   # *entry* during os.walk; `*ThirdParty*` also matches full paths if codespell
   # is pointed at a ThirdParty file or the walk starts inside that tree.
   set(_spell_skip
-      ".git,.augment,.github,.vscode,build,Build,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,*3rdparty*"
+      ".git,.augment,.github,.vscode,.mypy_cache,build,Build,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,*3rdparty*"
   )
   list(APPEND _spell_args "--skip=${_spell_skip}")
 
