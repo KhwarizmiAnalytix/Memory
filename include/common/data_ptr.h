@@ -36,14 +36,13 @@ struct data_ptr
     // Allocate from execution context (preferred API)
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
         : size_(size), type_(ctx.device_type), device_index_(ctx.device_index),
-          stream_(ctx.stream), allocated_(false), aligned_(true)
+          stream_(ctx.stream), aligned_(true)
     {
         if (size == 0)
         {
             return;
         }
-        data_      = allocator_t::allocate(size, ctx);
-        allocated_ = true;
+        data_ = allocator_t::allocate(size, ctx);
     }
 
     // Allocate from separate device/stream parameters (backward compatible)
@@ -104,7 +103,7 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
         : data_(rhs.data_), size_(rhs.size_), type_(rhs.type_), device_index_(rhs.device_index_),
-          stream_(rhs.stream_), allocated_(rhs.allocated_), aligned_(rhs.aligned_)
+          stream_(rhs.stream_), aligned_(rhs.aligned_)
     {
         rhs.clear_handle();
     }
@@ -121,7 +120,6 @@ struct data_ptr
         type_         = rhs.type_;
         device_index_ = rhs.device_index_;
         stream_       = rhs.stream_;
-        allocated_    = rhs.allocated_;
         aligned_      = rhs.aligned_;
         rhs.clear_handle();
         return *this;
@@ -177,11 +175,10 @@ struct data_ptr
 private:
     MEMORY_FORCE_INLINE void release_owned()
     {
-        if (allocated_ && data_ != nullptr)
+        if (data_ != nullptr)
         {
             allocator_t::free(data_, type_, device_index_, 0, stream_);
-            data_      = nullptr;
-            allocated_ = false;
+            data_ = nullptr;
         }
     }
 
@@ -192,7 +189,6 @@ private:
         type_         = device_enum::CPU;
         device_index_ = 0;
         stream_       = nullptr;
-        allocated_    = false;
         aligned_      = false;
     }
 
@@ -201,7 +197,6 @@ private:
     device_enum type_{device_enum::CPU};
     int         device_index_{0};
     stream_t    stream_{nullptr};
-    bool        allocated_{false};
     bool        aligned_{false};
 };
 
