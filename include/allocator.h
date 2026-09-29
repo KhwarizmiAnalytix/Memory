@@ -30,6 +30,7 @@
 
 #include "common/copy_token.h"         // for copy_token
 #include "common/device.h"            // for device_enum
+#include "common/execution_context.h" // for execution_context
 #include "common/memory_macros.h"     // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
@@ -151,7 +152,15 @@ public:
     static constexpr size_type alignment_mask = alignment_size - 1;
 
     /**
-     * @brief Allocate memory on the specified device
+     * @brief Allocate memory from execution context (preferred API)
+     */
+    MEMORY_FORCE_INLINE static pointer allocate(size_type n, execution_context ctx)
+    {
+        return allocate(n, ctx.device_type, ctx.device_index, ctx.stream);
+    }
+
+    /**
+     * @brief Allocate memory on the specified device (backward compatible)
      */
     MEMORY_FORCE_INLINE static pointer allocate(
         size_type   n,

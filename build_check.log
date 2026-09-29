@@ -1,0 +1,686 @@
+﻿[INFO] Starting build configuration for Windows
+================= Windows platform =================
+[INFO] Selecting GPU backend: cuda
+[WARNING] SPELL CHECKING ENABLED: Automatic spelling corrections will be applied during build!
+[WARNING] Ensure you have committed your changes before building with this option.
+[INFO] Build directory: C:\dev\build_ninja
+[INFO] Building project...
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+[SUCCESS] Build completed successfully
+[INFO] Starting static code analysis with cppcheck...
+[SUCCESS] Found cppcheck: Cppcheck 2.22.0
+UpdateCTestConfiguration  from :C:/dev/build_ninja/DartConfiguration.tcl
+Parse Config file:C:/dev/build_ninja/DartConfiguration.tcl
+Test project C:/dev/build_ninja
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: MemoryCxxTests
+
+1: Test command: C:\dev\build_ninja\bin\MemoryCxxTests.exe
+1: Working Directory: C:/dev/build_ninja/bin
+1: Test timeout computed to be: 120
+1: Running main() from C:/dev/Memory/ThirdParty/googletest/googletest/src/gtest_main.cc
+1: [==========] Running 191 tests from 23 test suites.
+1: [----------] Global test environment set-up.
+1: [----------] 22 tests from Allocator
+1: [ RUN      ] Allocator.AllocateZeroElementsReturnsNullptr
+1: [       OK ] Allocator.AllocateZeroElementsReturnsNullptr (0 ms)
+1: [ RUN      ] Allocator.AllocateAndFreeCpu
+1: [       OK ] Allocator.AllocateAndFreeCpu (0 ms)
+1: [ RUN      ] Allocator.AllocateDefaultsToCpuDevice
+1: [       OK ] Allocator.AllocateDefaultsToCpuDevice (0 ms)
+1: [ RUN      ] Allocator.FreeNullptrIsNoOp
+1: [       OK ] Allocator.FreeNullptrIsNoOp (0 ms)
+1: [ RUN      ] Allocator.AllocateHugeSizeThrowsBadAlloc
+1: [       OK ] Allocator.AllocateHugeSizeThrowsBadAlloc (0 ms)
+1: [ RUN      ] Allocator.AllocateOverflowingElementCountThrowsOverflowError
+1: [       OK ] Allocator.AllocateOverflowingElementCountThrowsOverflowError (0 ms)
+1: [ RUN      ] Allocator.CopyOverflowingElementCountThrowsOverflowError
+1: [       OK ] Allocator.CopyOverflowingElementCountThrowsOverflowError (0 ms)
+1: [ RUN      ] Allocator.AllocateGpuExcessiveAlignmentThrows
+1: [       OK ] Allocator.AllocateGpuExcessiveAlignmentThrows (0 ms)
+1: [ RUN      ] Allocator.AllocateUnsupportedDeviceThrows
+1: [       OK ] Allocator.AllocateUnsupportedDeviceThrows (0 ms)
+1: [ RUN      ] Allocator.FreeUnsupportedDeviceThrows
+1: [       OK ] Allocator.FreeUnsupportedDeviceThrows (0 ms)
+1: [ RUN      ] Allocator.CopyCpuToCpu
+1: [       OK ] Allocator.CopyCpuToCpu (0 ms)
+1: [ RUN      ] Allocator.CopyWithNullptrOrZeroCountIsNoOp
+1: [       OK ] Allocator.CopyWithNullptrOrZeroCountIsNoOp (0 ms)
+1: [ RUN      ] Allocator.FirstAlignedAlreadyAligned
+1: [       OK ] Allocator.FirstAlignedAlreadyAligned (0 ms)
+1: [ RUN      ] Allocator.FirstAlignedClampedToSize
+1: [       OK ] Allocator.FirstAlignedClampedToSize (0 ms)
+1: [ RUN      ] Allocator.FirstAlignedScalarMisalignedPointerReturnsSize
+1: [       OK ] Allocator.FirstAlignedScalarMisalignedPointerReturnsSize (0 ms)
+1: [ RUN      ] Allocator.LastAligned
+1: [       OK ] Allocator.LastAligned (0 ms)
+1: [ RUN      ] Allocator.ScalarAndAlignmentConstants
+1: [       OK ] Allocator.ScalarAndAlignmentConstants (0 ms)
+1: [ RUN      ] Allocator.OptimalAlignment
+1: [       OK ] Allocator.OptimalAlignment (0 ms)
+1: [ RUN      ] Allocator.IsGpuDevice
+1: [       OK ] Allocator.IsGpuDevice (0 ms)
+1: [ RUN      ] Allocator.HasGpuSupport
+1: [       OK ] Allocator.HasGpuSupport (0 ms)
+1: [ RUN      ] Allocator.IsActiveGpuDevice
+1: [       OK ] Allocator.IsActiveGpuDevice (0 ms)
+1: [ RUN      ] Allocator.AllocateWrongCompiledGpuLabelThrows
+1: [       OK ] Allocator.AllocateWrongCompiledGpuLabelThrows (0 ms)
+1: [----------] 22 tests from Allocator (0 ms total)
+1: 
+1: [----------] 7 tests from DataPtr
+1: [ RUN      ] DataPtr.stores_device_index_and_device
+1: [       OK ] DataPtr.stores_device_index_and_device (0 ms)
+1: [ RUN      ] DataPtr.copy_assign_releases_previous_storage
+1: [       OK ] DataPtr.copy_assign_releases_previous_storage (0 ms)
+1: [ RUN      ] DataPtr.move_assign_releases_previous_storage
+1: [       OK ] DataPtr.move_assign_releases_previous_storage (0 ms)
+1: [ RUN      ] DataPtr.default_stream_is_null
+1: [       OK ] DataPtr.default_stream_is_null (0 ms)
+1: [ RUN      ] DataPtr.stores_and_moves_stream
+1: [       OK ] DataPtr.stores_and_moves_stream (0 ms)
+1: [ RUN      ] DataPtr.copy_clones_storage
+1: [       OK ] DataPtr.copy_clones_storage (0 ms)
+1: [ RUN      ] DataPtr.clones_from_view
+1: [       OK ] DataPtr.clones_from_view (0 ms)
+1: [----------] 7 tests from DataPtr (0 ms total)
+1: 
+1: [----------] 6 tests from BoundedTraceRing
+1: [ RUN      ] BoundedTraceRing.default_is_empty
+1: [       OK ] BoundedTraceRing.default_is_empty (0 ms)
+1: [ RUN      ] BoundedTraceRing.push_and_copy
+1: [       OK ] BoundedTraceRing.push_and_copy (0 ms)
+1: [ RUN      ] BoundedTraceRing.overflow_wraps_and_counts_lost
+1: [       OK ] BoundedTraceRing.overflow_wraps_and_counts_lost (0 ms)
+1: [ RUN      ] BoundedTraceRing.clear_resets_state
+1: [       OK ] BoundedTraceRing.clear_resets_state (0 ms)
+1: [ RUN      ] BoundedTraceRing.resize_preserves_recent_entries
+1: [       OK ] BoundedTraceRing.resize_preserves_recent_entries (0 ms)
+1: [ RUN      ] BoundedTraceRing.zero_capacity_counts_lost
+1: [       OK ] BoundedTraceRing.zero_capacity_counts_lost (0 ms)
+1: [----------] 6 tests from BoundedTraceRing (0 ms total)
+1: 
+1: [----------] 4 tests from GpuMemoryHistory
+1: [ RUN      ] GpuMemoryHistory.disabled_records_nothing
+1: [       OK ] GpuMemoryHistory.disabled_records_nothing (1 ms)
+1: [ RUN      ] GpuMemoryHistory.enabled_records_with_new_fields
+1: [       OK ] GpuMemoryHistory.enabled_records_with_new_fields (1 ms)
+1: [ RUN      ] GpuMemoryHistory.sequence_numbers_are_monotonic
+1: [       OK ] GpuMemoryHistory.sequence_numbers_are_monotonic (1 ms)
+1: [ RUN      ] GpuMemoryHistory.legacy_record_overload_sets_zero_requested_size
+1: [       OK ] GpuMemoryHistory.legacy_record_overload_sets_zero_requested_size (1 ms)
+1: [----------] 4 tests from GpuMemoryHistory (4 ms total)
+1: 
+1: [----------] 12 tests from MemoryPortTest
+1: [ RUN      ] MemoryPortTest.BasicMemoryOperations
+1: 2026-09-29 21:35:09.028 (   0.006s) [808F61D6D8E36356]      TestCPUMemory.cpp:39    INFO| Testing memory port basic operations...
+1: 2026-09-29 21:35:09.028 (   0.006s) [808F61D6D8E36356]      TestCPUMemory.cpp:47    INFO| Memory port basic operations tests completed successfully
+1: [       OK ] MemoryPortTest.BasicMemoryOperations (0 ms)
+1: [ RUN      ] MemoryPortTest.AlignmentRequirements
+1: 2026-09-29 21:35:09.028 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:53    INFO| Testing memory port alignment requirements...
+1: 2026-09-29 21:35:09.028 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:67    INFO| Memory port alignment requirements tests completed successfully
+1: [       OK ] MemoryPortTest.AlignmentRequirements (0 ms)
+1: [ RUN      ] MemoryPortTest.EdgeCases
+1: 2026-09-29 21:35:09.028 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:73    INFO| Testing memory port edge cases...
+1: 2026-09-29 21:35:09.028 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:84    INFO| Memory port edge cases tests completed successfully
+1: [       OK ] MemoryPortTest.EdgeCases (0 ms)
+1: [ RUN      ] MemoryPortTest.UsableSize
+1: 2026-09-29 21:35:09.028 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:90    INFO| Testing memory port usable_size...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:105   INFO| Memory port usable_size tests completed successfully
+1: [       OK ] MemoryPortTest.UsableSize (0 ms)
+1: [ RUN      ] MemoryPortTest.ZeroInitialization
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:111   INFO| Testing memory port zero-initialized allocation...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:126   INFO| Memory port zero-initialized allocation tests completed successfully
+1: [       OK ] MemoryPortTest.ZeroInitialization (0 ms)
+1: [ RUN      ] MemoryPortTest.PatternInitialization
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:132   INFO| Testing memory port pattern-initialized allocation...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:149   INFO| Memory port pattern-initialized allocation tests completed successfully
+1: [       OK ] MemoryPortTest.PatternInitialization (0 ms)
+1: [ RUN      ] MemoryPortTest.HugeAllocationReturnsNullptr
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:157   INFO| Testing memory port huge allocation failure...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:162   INFO| Memory port huge allocation failure tests completed successfully
+1: [       OK ] MemoryPortTest.HugeAllocationReturnsNullptr (0 ms)
+1: [ RUN      ] MemoryPortTest.IsValidAlignment
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:168   INFO| Testing memory port is_valid_alignment...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:177   INFO| Memory port is_valid_alignment tests completed successfully
+1: [       OK ] MemoryPortTest.IsValidAlignment (0 ms)
+1: [ RUN      ] MemoryPortTest.DefaultAlignment
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:183   INFO| Testing memory port default_alignment...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:189   INFO| Memory port default_alignment tests completed successfully
+1: [       OK ] MemoryPortTest.DefaultAlignment (0 ms)
+1: [ RUN      ] MemoryPortTest.BackendSpecificAllocateMi
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:197   INFO| Testing memory port allocate_mi/free_mi...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:208   INFO| Memory port allocate_mi/free_mi tests completed successfully
+1: [       OK ] MemoryPortTest.BackendSpecificAllocateMi (0 ms)
+1: [ RUN      ] MemoryPortTest.BackendSpecificAllocateTbb
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:213   INFO| Testing memory port allocate_tbb/free_tbb...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:224   INFO| Memory port allocate_tbb/free_tbb tests completed successfully
+1: [       OK ] MemoryPortTest.BackendSpecificAllocateTbb (0 ms)
+1: [ RUN      ] MemoryPortTest.MimallocStatsAvailability
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:232   INFO| Testing memory port mimalloc statistics availability...
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:276   INFO| mimalloc statistics not compiled in (need MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS / --mimalloc_stats)
+1: 2026-09-29 21:35:09.029 (   0.007s) [808F61D6D8E36356]      TestCPUMemory.cpp:286   INFO| Memory port mimalloc statistics availability tests completed successfully
+1: [       OK ] MemoryPortTest.MimallocStatsAvailability (0 ms)
+1: [----------] 12 tests from MemoryPortTest (0 ms total)
+1: 
+1: [----------] 8 tests from CachingAllocatorConfig
+1: [ RUN      ] CachingAllocatorConfig.RoundRequestSizeBelowMinRoundsUpToMin
+1: [       OK ] CachingAllocatorConfig.RoundRequestSizeBelowMinRoundsUpToMin (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.RoundRequestSizeRoundsUpToMultiple
+1: [       OK ] CachingAllocatorConfig.RoundRequestSizeRoundsUpToMultiple (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.SegmentSizeForSizeClasses
+1: [       OK ] CachingAllocatorConfig.SegmentSizeForSizeClasses (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.RoundRequestSizeAtSizeMaxSaturates
+1: [       OK ] CachingAllocatorConfig.RoundRequestSizeAtSizeMaxSaturates (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.SegmentSizeForAtSizeMaxSaturates
+1: [       OK ] CachingAllocatorConfig.SegmentSizeForAtSizeMaxSaturates (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.RoundUpSaturatingExactMultipleIsUnchanged
+1: [       OK ] CachingAllocatorConfig.RoundUpSaturatingExactMultipleIsUnchanged (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.AddSaturatingNormalSumIsExact
+1: [       OK ] CachingAllocatorConfig.AddSaturatingNormalSumIsExact (0 ms)
+1: [ RUN      ] CachingAllocatorConfig.AddSaturatingOverflowSaturatesToMax
+1: [       OK ] CachingAllocatorConfig.AddSaturatingOverflowSaturatesToMax (0 ms)
+1: [----------] 8 tests from CachingAllocatorConfig (0 ms total)
+1: 
+1: [----------] 5 tests from CopyToken
+1: [ RUN      ] CopyToken.default_is_cpu_immediately_complete
+1: [       OK ] CopyToken.default_is_cpu_immediately_complete (0 ms)
+1: [ RUN      ] CopyToken.cpu_context_is_ready
+1: [       OK ] CopyToken.cpu_context_is_ready (0 ms)
+1: [ RUN      ] CopyToken.wait_on_cpu_is_noop
+1: [       OK ] CopyToken.wait_on_cpu_is_noop (0 ms)
+1: [ RUN      ] CopyToken.ctx_is_preserved
+1: [       OK ] CopyToken.ctx_is_preserved (0 ms)
+1: [ RUN      ] CopyToken.copy_and_move
+1: [       OK ] CopyToken.copy_and_move (0 ms)
+1: [----------] 5 tests from CopyToken (0 ms total)
+1: 
+1: [----------] 9 tests from CpuArena
+1: [ RUN      ] CpuArena.default_empty_allocates_lazily
+1: [       OK ] CpuArena.default_empty_allocates_lazily (0 ms)
+1: [ RUN      ] CpuArena.preallocated_backing
+1: [       OK ] CpuArena.preallocated_backing (0 ms)
+1: [ RUN      ] CpuArena.alloc_returns_non_null
+1: [       OK ] CpuArena.alloc_returns_non_null (0 ms)
+1: [ RUN      ] CpuArena.alloc_bytes_alignment
+1: [       OK ] CpuArena.alloc_bytes_alignment (0 ms)
+1: [ RUN      ] CpuArena.multiple_allocs_do_not_overlap
+1: [       OK ] CpuArena.multiple_allocs_do_not_overlap (0 ms)
+1: [ RUN      ] CpuArena.reset_reclaims_without_freeing_backing
+1: [       OK ] CpuArena.reset_reclaims_without_freeing_backing (0 ms)
+1: [ RUN      ] CpuArena.exhausted_throws_bad_alloc
+1: [       OK ] CpuArena.exhausted_throws_bad_alloc (0 ms)
+1: [ RUN      ] CpuArena.zero_byte_alloc_returns_null
+1: [       OK ] CpuArena.zero_byte_alloc_returns_null (0 ms)
+1: [ RUN      ] CpuArena.move_transfers_ownership
+1: [       OK ] CpuArena.move_transfers_ownership (0 ms)
+1: [----------] 9 tests from CpuArena (0 ms total)
+1: 
+1: [----------] 30 tests from CudaCachingAllocator
+1: [ RUN      ] CudaCachingAllocator.constructs_with_valid_parameters
+1: 2026-09-29 21:35:09.043 (   0.021s) [808F61D6D8E36356]TestCudaCachingAllocato:208   INFO| CUDA caching allocator construction test passed
+1: [       OK ] CudaCachingAllocator.constructs_with_valid_parameters (14 ms)
+1: [ RUN      ] CudaCachingAllocator.constructor_variations
+1: 2026-09-29 21:35:09.049 (   0.027s) [808F61D6D8E36356]TestCudaCachingAllocato:243   INFO| CUDA caching allocator constructor variations test passed
+1: [       OK ] CudaCachingAllocator.constructor_variations (5 ms)
+1: [ RUN      ] CudaCachingAllocator.allocates_and_deallocates_memory
+1: 2026-09-29 21:35:09.107 (   0.085s) [808F61D6D8E36356]TestCudaCachingAllocato:275   INFO| CUDA caching allocator allocation/deallocation test passed
+1: [       OK ] CudaCachingAllocator.allocates_and_deallocates_memory (58 ms)
+1: [ RUN      ] CudaCachingAllocator.manages_cache_correctly
+1: 2026-09-29 21:35:09.109 (   0.087s) [808F61D6D8E36356]TestCudaCachingAllocato:301   INFO| CUDA caching allocator cache management test passed
+1: [       OK ] CudaCachingAllocator.manages_cache_correctly (1 ms)
+1: [ RUN      ] CudaCachingAllocator.respects_cache_size_limits
+1: 2026-09-29 21:35:09.110 (   0.088s) [808F61D6D8E36356]TestCudaCachingAllocato:319   INFO| CUDA caching allocator cache size limits test passed
+1: [       OK ] CudaCachingAllocator.respects_cache_size_limits (1 ms)
+1: [ RUN      ] CudaCachingAllocator.provides_accurate_statistics
+1: 2026-09-29 21:35:09.111 (   0.089s) [808F61D6D8E36356]TestCudaCachingAllocato:346   INFO| CUDA caching allocator statistics test passed
+1: [       OK ] CudaCachingAllocator.provides_accurate_statistics (1 ms)
+1: [ RUN      ] CudaCachingAllocator.supports_move_semantics
+1: 2026-09-29 21:35:09.113 (   0.091s) [808F61D6D8E36356]TestCudaCachingAllocato:369   INFO| CUDA caching allocator move semantics test passed
+1: [       OK ] CudaCachingAllocator.supports_move_semantics (1 ms)
+1: [ RUN      ] CudaCachingAllocator.handles_errors_gracefully
+1: 2026-09-29 21:35:09.114 (   0.092s) [808F61D6D8E36356]TestCudaCachingAllocato:387   INFO| CUDA caching allocator error handling test passed
+1: [       OK ] CudaCachingAllocator.handles_errors_gracefully (1 ms)
+1: [ RUN      ] CudaCachingAllocator.rounds_requests_to_512_byte_multiples
+1: 2026-09-29 21:35:09.115 (   0.093s) [808F61D6D8E36356]TestCudaCachingAllocato:505   INFO| CUDA caching allocator size rounding test passed
+1: [       OK ] CudaCachingAllocator.rounds_requests_to_512_byte_multiples (1 ms)
+1: [ RUN      ] CudaCachingAllocator.packs_small_allocations_into_one_segment
+1: 2026-09-29 21:35:09.117 (   0.095s) [808F61D6D8E36356]TestCudaCachingAllocato:528   INFO| CUDA caching allocator small segment packing test passed
+1: [       OK ] CudaCachingAllocator.packs_small_allocations_into_one_segment (1 ms)
+1: [ RUN      ] CudaCachingAllocator.reuses_cached_blocks
+1: 2026-09-29 21:35:09.118 (   0.096s) [808F61D6D8E36356]TestCudaCachingAllocato:554   INFO| CUDA caching allocator cached block reuse test passed
+1: [       OK ] CudaCachingAllocator.reuses_cached_blocks (1 ms)
+1: [ RUN      ] CudaCachingAllocator.splits_oversized_cached_blocks
+1: 2026-09-29 21:35:09.120 (   0.098s) [808F61D6D8E36356]TestCudaCachingAllocato:587   INFO| CUDA caching allocator block split test passed
+1: [       OK ] CudaCachingAllocator.splits_oversized_cached_blocks (2 ms)
+1: [ RUN      ] CudaCachingAllocator.never_reuses_blocks_across_streams
+1: 2026-09-29 21:35:09.122 (   0.100s) [808F61D6D8E36356]TestCudaCachingAllocato:623   INFO| CUDA caching allocator per-stream pool test passed
+1: [       OK ] CudaCachingAllocator.never_reuses_blocks_across_streams (1 ms)
+1: [ RUN      ] CudaCachingAllocator.defers_reuse_until_recorded_stream_completes
+1: [       OK ] CudaCachingAllocator.defers_reuse_until_recorded_stream_completes (15 ms)
+1: [ RUN      ] CudaCachingAllocator.default_stream_use_is_tracked_as_cross_stream
+1: [       OK ] CudaCachingAllocator.default_stream_use_is_tracked_as_cross_stream (2 ms)
+1: [ RUN      ] CudaCachingAllocator.empty_cache_releases_cached_segments
+1: 2026-09-29 21:35:09.141 (   0.119s) [808F61D6D8E36356]TestCudaCachingAllocato:679   INFO| CUDA caching allocator empty_cache release test passed
+1: [       OK ] CudaCachingAllocator.empty_cache_releases_cached_segments (1 ms)
+1: [ RUN      ] CudaCachingAllocator.cache_cap_trims_on_deallocate
+1: 2026-09-29 21:35:09.143 (   0.121s) [808F61D6D8E36356]TestCudaCachingAllocato:704   INFO| CUDA caching allocator cache cap trim test passed
+1: [       OK ] CudaCachingAllocator.cache_cap_trims_on_deallocate (1 ms)
+1: [ RUN      ] CudaCachingAllocator.rounds_huge_allocations_to_2_mib_multiples
+1: 2026-09-29 21:35:09.144 (   0.122s) [808F61D6D8E36356]TestCudaCachingAllocato:729   INFO| CUDA caching allocator huge allocation rounding test passed
+1: [       OK ] CudaCachingAllocator.rounds_huge_allocations_to_2_mib_multiples (1 ms)
+1: [ RUN      ] CudaCachingAllocator.free_memory_callbacks_run_before_driver_fallback
+1: 2026-09-29 21:35:09.146 (   0.124s) [808F61D6D8E36356]TestCudaCachingAllocato:766   INFO| CUDA caching allocator free-memory callback test passed
+1: [       OK ] CudaCachingAllocator.free_memory_callbacks_run_before_driver_fallback (1 ms)
+1: [ RUN      ] CudaCachingAllocator.recycles_equal_size_segments_fifo
+1: 2026-09-29 21:35:09.148 (   0.126s) [808F61D6D8E36356]TestCudaCachingAllocato:800   INFO| CUDA caching allocator FIFO recycling test passed
+1: [       OK ] CudaCachingAllocator.recycles_equal_size_segments_fifo (2 ms)
+1: [ RUN      ] CudaCachingAllocator.counts_sync_all_streams_on_cache_release
+1: 2026-09-29 21:35:09.150 (   0.128s) [808F61D6D8E36356]TestCudaCachingAllocato:816   INFO| CUDA caching allocator sync-all-streams counter test passed
+1: [       OK ] CudaCachingAllocator.counts_sync_all_streams_on_cache_release (1 ms)
+1: [ RUN      ] CudaCachingAllocator.data_ptr_move_assign_returns_block_to_cache
+1: 2026-09-29 21:35:09.151 (   0.129s) [808F61D6D8E36356]TestCudaCachingAllocato:834   INFO| data_ptr move-assign returns GPU block to cache
+1: [       OK ] CudaCachingAllocator.data_ptr_move_assign_returns_block_to_cache (1 ms)
+1: [ RUN      ] CudaCachingAllocator.data_ptr_copy_assign_returns_block_to_cache
+1: 2026-09-29 21:35:09.151 (   0.129s) [808F61D6D8E36356]TestCudaCachingAllocato:850   INFO| data_ptr copy-assign returns GPU block to cache
+1: [       OK ] CudaCachingAllocator.data_ptr_copy_assign_returns_block_to_cache (0 ms)
+1: [ RUN      ] CudaCachingAllocator.data_ptr_uses_allocation_stream_pool
+1: 2026-09-29 21:35:09.151 (   0.129s) [808F61D6D8E36356]TestCudaCachingAllocato:882   INFO| data_ptr allocates and frees on the given CUDA stream
+1: [       OK ] CudaCachingAllocator.data_ptr_uses_allocation_stream_pool (0 ms)
+1: [ RUN      ] CudaCachingAllocator.report_caching_allocator_delta_does_not_crash
+1: 2026-09-29 21:35:09.151 (   0.129s) [808F61D6D8E36356]TestCudaCachingAllocato:913   INFO| CUDA caching allocator profiler-report helper test passed
+1: [       OK ] CudaCachingAllocator.report_caching_allocator_delta_does_not_crash (0 ms)
+1: [ RUN      ] CudaCachingAllocator.process_wide_api_matches_pytorch
+1: 2026-09-29 21:35:09.152 (   0.130s) [808F61D6D8E36356]TestCudaCachingAllocato:940   INFO| process-wide GPU cache API test passed
+1: [       OK ] CudaCachingAllocator.process_wide_api_matches_pytorch (0 ms)
+1: [ RUN      ] CudaCachingAllocator.set_memory_fraction_rejects_nan
+1: [       OK ] CudaCachingAllocator.set_memory_fraction_rejects_nan (0 ms)
+1: [ RUN      ] CudaCachingAllocator.expandable_segments_default_off
+1: [       OK ] CudaCachingAllocator.expandable_segments_default_off (1 ms)
+1: [ RUN      ] CudaCachingAllocator.concurrent_allocations_never_exceed_memory_fraction_budget
+1: 2026-09-29 21:35:09.155 (   0.133s) [808F61D6D8E36356]TestCudaCachingAllocato:1050  INFO| CUDA caching allocator concurrent memory-fraction budget test passed
+1: [       OK ] CudaCachingAllocator.concurrent_allocations_never_exceed_memory_fraction_budget (2 ms)
+1: [ RUN      ] CudaCachingAllocator.same_size_alloc_free_churn
+1: [       OK ] CudaCachingAllocator.same_size_alloc_free_churn (21 ms)
+1: [----------] 30 tests from CudaCachingAllocator (148 ms total)
+1: 
+1: [----------] 4 tests from CudaCachingAllocatorTemplate
+1: [ RUN      ] CudaCachingAllocatorTemplate.constructs_with_different_types
+1: 2026-09-29 21:35:09.180 (   0.159s) [808F61D6D8E36356]TestCudaCachingAllocato:405   INFO| CUDA caching allocator template construction test passed
+1: [       OK ] CudaCachingAllocatorTemplate.constructs_with_different_types (3 ms)
+1: [ RUN      ] CudaCachingAllocatorTemplate.allocates_typed_memory_safely
+1: 2026-09-29 21:35:09.183 (   0.161s) [808F61D6D8E36356]TestCudaCachingAllocato:427   INFO| CUDA caching allocator template typed allocation test passed
+1: [       OK ] CudaCachingAllocatorTemplate.allocates_typed_memory_safely (1 ms)
+1: [ RUN      ] CudaCachingAllocatorTemplate.respects_alignment_requirements
+1: 2026-09-29 21:35:09.184 (   0.162s) [808F61D6D8E36356]TestCudaCachingAllocato:447   INFO| CUDA caching allocator template alignment test passed
+1: [       OK ] CudaCachingAllocatorTemplate.respects_alignment_requirements (1 ms)
+1: [ RUN      ] CudaCachingAllocatorTemplate.provides_statistics_and_cache_control
+1: 2026-09-29 21:35:09.186 (   0.164s) [808F61D6D8E36356]TestCudaCachingAllocato:476   INFO| CUDA caching allocator template statistics test passed
+1: [       OK ] CudaCachingAllocatorTemplate.provides_statistics_and_cache_control (1 ms)
+1: [----------] 4 tests from CudaCachingAllocatorTemplate (8 ms total)
+1: 
+1: [----------] 8 tests from DataView
+1: [ RUN      ] DataView.views_data_ptr
+1: [       OK ] DataView.views_data_ptr (0 ms)
+1: [ RUN      ] DataView.copy_aliases_owner_buffer
+1: [       OK ] DataView.copy_aliases_owner_buffer (0 ms)
+1: [ RUN      ] DataView.subview_is_slice_of_data_ptr
+1: [       OK ] DataView.subview_is_slice_of_data_ptr (0 ms)
+1: [ RUN      ] DataView.destructor_does_not_free
+1: [       OK ] DataView.destructor_does_not_free (0 ms)
+1: [ RUN      ] DataView.borrow_wraps_foreign_buffer
+1: [       OK ] DataView.borrow_wraps_foreign_buffer (0 ms)
+1: [ RUN      ] DataView.subview_base_is_original_allocation
+1: [       OK ] DataView.subview_base_is_original_allocation (0 ms)
+1: [ RUN      ] DataView.borrow_base_is_the_borrowed_pointer
+1: [       OK ] DataView.borrow_base_is_the_borrowed_pointer (0 ms)
+1: [ RUN      ] DataView.default_constructed_has_null_base
+1: [       OK ] DataView.default_constructed_has_null_base (0 ms)
+1: [----------] 8 tests from DataView (0 ms total)
+1: 
+1: [----------] 6 tests from DeviceOption
+1: [ RUN      ] DeviceOption.ConstructWithInt16Index
+1: [       OK ] DeviceOption.ConstructWithInt16Index (0 ms)
+1: [ RUN      ] DeviceOption.ConstructWithIntIndex
+1: [       OK ] DeviceOption.ConstructWithIntIndex (0 ms)
+1: [ RUN      ] DeviceOption.EqualityOperator
+1: [       OK ] DeviceOption.EqualityOperator (0 ms)
+1: [ RUN      ] DeviceOption.AllDeviceEnumValues
+1: [       OK ] DeviceOption.AllDeviceEnumValues (0 ms)
+1: [ RUN      ] DeviceOption.StreamInsertionDeviceEnum
+1: [       OK ] DeviceOption.StreamInsertionDeviceEnum (0 ms)
+1: [ RUN      ] DeviceOption.StreamInsertionDeviceOption
+1: [       OK ] DeviceOption.StreamInsertionDeviceOption (0 ms)
+1: [----------] 6 tests from DeviceOption (0 ms total)
+1: 
+1: [----------] 7 tests from ExecutionContext
+1: [ RUN      ] ExecutionContext.default_is_cpu
+1: [       OK ] ExecutionContext.default_is_cpu (0 ms)
+1: [ RUN      ] ExecutionContext.cpu_factory
+1: [       OK ] ExecutionContext.cpu_factory (0 ms)
+1: [ RUN      ] ExecutionContext.cuda_factory
+1: [       OK ] ExecutionContext.cuda_factory (0 ms)
+1: [ RUN      ] ExecutionContext.hip_factory
+1: [       OK ] ExecutionContext.hip_factory (0 ms)
+1: [ RUN      ] ExecutionContext.metal_factory
+1: [       OK ] ExecutionContext.metal_factory (0 ms)
+1: [ RUN      ] ExecutionContext.equality
+1: [       OK ] ExecutionContext.equality (0 ms)
+1: [ RUN      ] ExecutionContext.cpu_is_not_equal_to_cuda
+1: [       OK ] ExecutionContext.cpu_is_not_equal_to_cuda (0 ms)
+1: [----------] 7 tests from ExecutionContext (0 ms total)
+1: 
+1: [----------] 7 tests from GpuMemoryProfilerTest
+1: [ RUN      ] GpuMemoryProfilerTest.snapshot_lists_live_allocation
+1: [       OK ] GpuMemoryProfilerTest.snapshot_lists_live_allocation (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.history_disabled_by_default
+1: [       OK ] GpuMemoryProfilerTest.history_disabled_by_default (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.record_memory_history_captures_alloc_free_and_segment
+1: [       OK ] GpuMemoryProfilerTest.record_memory_history_captures_alloc_free_and_segment (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.free_completed_trace_keeps_original_address_after_merge
+1: [       OK ] GpuMemoryProfilerTest.free_completed_trace_keeps_original_address_after_merge (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.history_ring_drops_oldest
+1: [       OK ] GpuMemoryProfilerTest.history_ring_drops_oldest (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.oom_from_memory_fraction_records_trace
+1: [       OK ] GpuMemoryProfilerTest.oom_from_memory_fraction_records_trace (1 ms)
+1: [ RUN      ] GpuMemoryProfilerTest.process_wide_helpers_round_trip
+1: [       OK ] GpuMemoryProfilerTest.process_wide_helpers_round_trip (0 ms)
+1: [----------] 7 tests from GpuMemoryProfilerTest (10 ms total)
+1: 
+1: [----------] 6 tests from GpuWorkspace
+1: [ RUN      ] GpuWorkspace.default_is_empty
+1: [       OK ] GpuWorkspace.default_is_empty (0 ms)
+1: [ RUN      ] GpuWorkspace.release_resets_cursor_without_freeing
+1: [       OK ] GpuWorkspace.release_resets_cursor_without_freeing (0 ms)
+1: [ RUN      ] GpuWorkspace.rebind_changes_context
+1: [       OK ] GpuWorkspace.rebind_changes_context (0 ms)
+1: [ RUN      ] GpuWorkspace.rebind_while_acquired_throws
+1: [       OK ] GpuWorkspace.rebind_while_acquired_throws (0 ms)
+1: [ RUN      ] GpuWorkspace.move_transfers_ownership
+1: [       OK ] GpuWorkspace.move_transfers_ownership (0 ms)
+1: [ RUN      ] GpuWorkspace.gpu_acquire_returns_non_null
+1: [       OK ] GpuWorkspace.gpu_acquire_returns_non_null (0 ms)
+1: [----------] 6 tests from GpuWorkspace (0 ms total)
+1: 
+1: [----------] 9 tests from Numa
+1: [ RUN      ] Numa.IsNUMAEnabledDoesNotThrow
+1: [       OK ] Numa.IsNUMAEnabledDoesNotThrow (0 ms)
+1: [ RUN      ] Numa.GetNumNUMANodes
+1: [       OK ] Numa.GetNumNUMANodes (0 ms)
+1: [ RUN      ] Numa.GetCurrentNUMANode
+1: [       OK ] Numa.GetCurrentNUMANode (0 ms)
+1: [ RUN      ] Numa.GetNUMANodeForAllocatedPointer
+1: [       OK ] Numa.GetNUMANodeForAllocatedPointer (0 ms)
+1: [ RUN      ] Numa.GetNUMANodeNullptr
+1: [       OK ] Numa.GetNUMANodeNullptr (0 ms)
+1: [ RUN      ] Numa.NUMABindNegativeNodeIsNoOp
+1: [       OK ] Numa.NUMABindNegativeNodeIsNoOp (0 ms)
+1: [ RUN      ] Numa.NUMABindNodeZero
+1: [       OK ] Numa.NUMABindNodeZero (0 ms)
+1: [ RUN      ] Numa.NUMAMoveNegativeNodeIsNoOp
+1: [       OK ] Numa.NUMAMoveNegativeNodeIsNoOp (0 ms)
+1: [ RUN      ] Numa.NUMAMoveNodeZero
+1: [       OK ] Numa.NUMAMoveNodeZero (0 ms)
+1: [----------] 9 tests from Numa (0 ms total)
+1: 
+1: [----------] 3 tests from PinnedMemory
+1: [ RUN      ] PinnedMemory.empty_and_overflow
+1: [       OK ] PinnedMemory.empty_and_overflow (0 ms)
+1: [ RUN      ] PinnedMemory.max_backing_bytes_defaults_to_unlimited
+1: [       OK ] PinnedMemory.max_backing_bytes_defaults_to_unlimited (0 ms)
+1: [ RUN      ] PinnedMemory.set_and_get_max_backing_bytes
+1: [       OK ] PinnedMemory.set_and_get_max_backing_bytes (0 ms)
+1: [----------] 3 tests from PinnedMemory (0 ms total)
+1: 
+1: [----------] 4 tests from PinnedMemoryRuntime
+1: [ RUN      ] PinnedMemoryRuntime.reuse_alignment_and_limits
+1: [       OK ] PinnedMemoryRuntime.reuse_alignment_and_limits (0 ms)
+1: [ RUN      ] PinnedMemoryRuntime.backing_budget_oom
+1: [       OK ] PinnedMemoryRuntime.backing_budget_oom (0 ms)
+1: [ RUN      ] PinnedMemoryRuntime.backing_budget_allows_within_limit
+1: [       OK ] PinnedMemoryRuntime.backing_budget_allows_within_limit (0 ms)
+1: [ RUN      ] PinnedMemoryRuntime.asynchronous_round_trip_and_move
+1: [       OK ] PinnedMemoryRuntime.asynchronous_round_trip_and_move (0 ms)
+1: [----------] 4 tests from PinnedMemoryRuntime (1 ms total)
+1: 
+1: [----------] 7 tests from ProfiledCPUMemoryReporterTest
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.record_allocation_zero_or_null_is_noop
+1: [       OK ] ProfiledCPUMemoryReporterTest.record_allocation_zero_or_null_is_noop (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.record_allocation_and_deallocation_update_totals
+1: [       OK ] ProfiledCPUMemoryReporterTest.record_allocation_and_deallocation_update_totals (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.record_deallocation_without_event_cleans_state
+1: [       OK ] ProfiledCPUMemoryReporterTest.record_deallocation_without_event_cleans_state (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.repeated_allocation_for_same_address_replaces_size
+1: [       OK ] ProfiledCPUMemoryReporterTest.repeated_allocation_for_same_address_replaces_size (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.record_deallocation_unknown_ptr_is_noop
+1: 2026-09-29 21:35:09.198 (   0.176s) [808F61D6D8E36356]profiled_cpu_memory_rep:105   WARN| CPU memory block of unknown size was allocated before profiling started; deallocation event is omitted
+1: [       OK ] ProfiledCPUMemoryReporterTest.record_deallocation_unknown_ptr_is_noop (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.record_out_of_memory_increments_counter
+1: [       OK ] ProfiledCPUMemoryReporterTest.record_out_of_memory_increments_counter (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporterTest.reset_clears_table_and_counters
+1: [       OK ] ProfiledCPUMemoryReporterTest.reset_clears_table_and_counters (0 ms)
+1: [----------] 7 tests from ProfiledCPUMemoryReporterTest (0 ms total)
+1: 
+1: [----------] 3 tests from ProfiledCPUMemoryReporter
+1: [ RUN      ] ProfiledCPUMemoryReporter.allocate_free_untracked_without_profiler_session
+1: [       OK ] ProfiledCPUMemoryReporter.allocate_free_untracked_without_profiler_session (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporter.huge_allocation_untracked_without_profiler_session
+1: [       OK ] ProfiledCPUMemoryReporter.huge_allocation_untracked_without_profiler_session (0 ms)
+1: [ RUN      ] ProfiledCPUMemoryReporter.allocate_mi_bypass_is_not_tracked
+1: [       OK ] ProfiledCPUMemoryReporter.allocate_mi_bypass_is_not_tracked (0 ms)
+1: [----------] 3 tests from ProfiledCPUMemoryReporter (0 ms total)
+1: 
+1: [----------] 11 tests from RetainedPtr
+1: [ RUN      ] RetainedPtr.default_is_null
+1: [       OK ] RetainedPtr.default_is_null (0 ms)
+1: [ RUN      ] RetainedPtr.adopt_single_owner
+1: [       OK ] RetainedPtr.adopt_single_owner (0 ms)
+1: [ RUN      ] RetainedPtr.adopt_null_yields_empty
+1: [       OK ] RetainedPtr.adopt_null_yields_empty (0 ms)
+1: [ RUN      ] RetainedPtr.copy_increments_ref_count
+1: [       OK ] RetainedPtr.copy_increments_ref_count (0 ms)
+1: [ RUN      ] RetainedPtr.move_transfers_ownership
+1: [       OK ] RetainedPtr.move_transfers_ownership (0 ms)
+1: [ RUN      ] RetainedPtr.last_owner_calls_deleter
+1: [       OK ] RetainedPtr.last_owner_calls_deleter (0 ms)
+1: [ RUN      ] RetainedPtr.slice_shares_control_block
+1: [       OK ] RetainedPtr.slice_shares_control_block (0 ms)
+1: [ RUN      ] RetainedPtr.slice_out_of_range_yields_empty
+1: [       OK ] RetainedPtr.slice_out_of_range_yields_empty (0 ms)
+1: [ RUN      ] RetainedPtr.deleter_called_after_last_slice_released
+1: [       OK ] RetainedPtr.deleter_called_after_last_slice_released (0 ms)
+1: [ RUN      ] RetainedPtr.ctx_is_preserved
+1: [       OK ] RetainedPtr.ctx_is_preserved (0 ms)
+1: [ RUN      ] RetainedPtr.assign_copy_and_move
+1: [       OK ] RetainedPtr.assign_copy_and_move (0 ms)
+1: [----------] 11 tests from RetainedPtr (0 ms total)
+1: 
+1: [----------] 6 tests from StorageIdentity
+1: [ RUN      ] StorageIdentity.default_is_invalid
+1: [       OK ] StorageIdentity.default_is_invalid (0 ms)
+1: [ RUN      ] StorageIdentity.next_id_is_nonzero
+1: [       OK ] StorageIdentity.next_id_is_nonzero (0 ms)
+1: [ RUN      ] StorageIdentity.next_id_is_unique
+1: [       OK ] StorageIdentity.next_id_is_unique (0 ms)
+1: [ RUN      ] StorageIdentity.next_id_is_monotonic
+1: [       OK ] StorageIdentity.next_id_is_monotonic (0 ms)
+1: [ RUN      ] StorageIdentity.valid_when_alloc_id_set
+1: [       OK ] StorageIdentity.valid_when_alloc_id_set (0 ms)
+1: [ RUN      ] StorageIdentity.equality
+1: [       OK ] StorageIdentity.equality (0 ms)
+1: [----------] 6 tests from StorageIdentity (0 ms total)
+1: 
+1: [----------] 7 tests from UnifiedCacheStats
+1: [ RUN      ] UnifiedCacheStats.CacheHitRateNoActivityIsZero
+1: [       OK ] UnifiedCacheStats.CacheHitRateNoActivityIsZero (0 ms)
+1: [ RUN      ] UnifiedCacheStats.CacheHitRateWithActivity
+1: [       OK ] UnifiedCacheStats.CacheHitRateWithActivity (0 ms)
+1: [ RUN      ] UnifiedCacheStats.DriverCallReductionNoDriverCallsIsOne
+1: [       OK ] UnifiedCacheStats.DriverCallReductionNoDriverCallsIsOne (0 ms)
+1: [ RUN      ] UnifiedCacheStats.DriverCallReductionWithActivity
+1: [       OK ] UnifiedCacheStats.DriverCallReductionWithActivity (0 ms)
+1: [ RUN      ] UnifiedCacheStats.CopyConstructorAndAssignment
+1: [       OK ] UnifiedCacheStats.CopyConstructorAndAssignment (0 ms)
+1: [ RUN      ] UnifiedCacheStats.ResetPeaksKeepsLiveCounters
+1: [       OK ] UnifiedCacheStats.ResetPeaksKeepsLiveCounters (0 ms)
+1: [ RUN      ] UnifiedCacheStats.Reset
+1: [       OK ] UnifiedCacheStats.Reset (0 ms)
+1: [----------] 7 tests from UnifiedCacheStats (0 ms total)
+1: 
+1: [----------] Global test environment tear-down
+1: [==========] 191 tests from 23 test suites ran. (174 ms total)
+1: [  PASSED  ] 191 tests.
+1/4 Test #1: MemoryCxxTests ...........................   Passed    0.21 sec
+test 2
+    Start 2: MemoryPinnedCudaRuntimeTests
+
+2: Test command: C:\dev\build_ninja\bin\MemoryPinnedCudaRuntimeTests.exe
+2: Working Directory: C:/dev/build_ninja/Testing/Cxx/PinnedRuntime
+2: Test timeout computed to be: 30
+2: Running main() from C:/dev/Memory/ThirdParty/googletest/googletest/src/gtest_main.cc
+2: [==========] Running 17 tests from 1 test suite.
+2: [----------] Global test environment set-up.
+2: [----------] 17 tests from PinnedRuntime
+2: [ RUN      ] PinnedRuntime.ReusesAlignedSizeClassesAndAccountsBacking
+2: [       OK ] PinnedRuntime.ReusesAlignedSizeClassesAndAccountsBacking (0 ms)
+2: [ RUN      ] PinnedRuntime.DefaultStreamDefersReuseWithoutBlocking
+2: [       OK ] PinnedRuntime.DefaultStreamDefersReuseWithoutBlocking (0 ms)
+2: [ RUN      ] PinnedRuntime.InteriorPointersWaitForAllStreamsAndRecycleEvents
+2: [       OK ] PinnedRuntime.InteriorPointersWaitForAllStreamsAndRecycleEvents (0 ms)
+2: [ RUN      ] PinnedRuntime.ZeroCacheLimitStillProtectsPendingTransfers
+2: [       OK ] PinnedRuntime.ZeroCacheLimitStillProtectsPendingTransfers (0 ms)
+2: [ RUN      ] PinnedRuntime.ZeroCacheLimitWithImmediateCompletionDoesNotReadFreedBlock
+2: [       OK ] PinnedRuntime.ZeroCacheLimitWithImmediateCompletionDoesNotReadFreedBlock (0 ms)
+2: [ RUN      ] PinnedRuntime.ZeroCacheLimitWithJustCompletedStreamDoesNotReadFreedBlock
+2: [       OK ] PinnedRuntime.ZeroCacheLimitWithJustCompletedStreamDoesNotReadFreedBlock (0 ms)
+2: [ RUN      ] PinnedRuntime.EmptyCachePreservesLiveAllocations
+2: [       OK ] PinnedRuntime.EmptyCachePreservesLiveAllocations (0 ms)
+2: [ RUN      ] PinnedRuntime.FailedEventRecordingQuarantinesBacking
+2: [       OK ] PinnedRuntime.FailedEventRecordingQuarantinesBacking (0 ms)
+2: [ RUN      ] PinnedRuntime.FailedEventQueryQuarantinesBacking
+2: [       OK ] PinnedRuntime.FailedEventQueryQuarantinesBacking (0 ms)
+2: [ RUN      ] PinnedRuntime.DeallocateReturnValueIsNotPolluted
+2: [       OK ] PinnedRuntime.DeallocateReturnValueIsNotPolluted (0 ms)
+2: [ RUN      ] PinnedRuntime.FailedDriverFreeIsNotRetried
+2: [       OK ] PinnedRuntime.FailedDriverFreeIsNotRetried (0 ms)
+2: [ RUN      ] PinnedRuntime.CopyValidatesBoundsAndRegistersBeforeSubmitting
+2: [       OK ] PinnedRuntime.CopyValidatesBoundsAndRegistersBeforeSubmitting (0 ms)
+2: [ RUN      ] PinnedRuntime.OomFlushesCacheRetriesAndReportsFailure
+2: [       OK ] PinnedRuntime.OomFlushesCacheRetriesAndReportsFailure (0 ms)
+2: [ RUN      ] PinnedRuntime.OverflowForeignPointersAndDeviceRestoration
+2: [       OK ] PinnedRuntime.OverflowForeignPointersAndDeviceRestoration (0 ms)
+2: [ RUN      ] PinnedRuntime.DestructionWaitsForLiveAndPendingRecordedUses
+2: [       OK ] PinnedRuntime.DestructionWaitsForLiveAndPendingRecordedUses (0 ms)
+2: [ RUN      ] PinnedRuntime.TypedBufferMovesAndDefersDestruction
+2: [       OK ] PinnedRuntime.TypedBufferMovesAndDefersDestruction (0 ms)
+2: [ RUN      ] PinnedRuntime.ConcurrentAllocationAndCrossThreadFree
+2: [       OK ] PinnedRuntime.ConcurrentAllocationAndCrossThreadFree (0 ms)
+2: [----------] 17 tests from PinnedRuntime (1 ms total)
+2: 
+2: [----------] Global test environment tear-down
+2: [==========] 17 tests from 1 test suite ran. (1 ms total)
+2: [  PASSED  ] 17 tests.
+2/4 Test #2: MemoryPinnedCudaRuntimeTests .............   Passed    0.01 sec
+test 3
+    Start 3: MemoryPinnedHipRuntimeTests
+
+3: Test command: C:\dev\build_ninja\bin\MemoryPinnedHipRuntimeTests.exe
+3: Working Directory: C:/dev/build_ninja/Testing/Cxx/PinnedRuntime
+3: Test timeout computed to be: 30
+3: Running main() from C:/dev/Memory/ThirdParty/googletest/googletest/src/gtest_main.cc
+3: [==========] Running 17 tests from 1 test suite.
+3: [----------] Global test environment set-up.
+3: [----------] 17 tests from PinnedRuntime
+3: [ RUN      ] PinnedRuntime.ReusesAlignedSizeClassesAndAccountsBacking
+3: [       OK ] PinnedRuntime.ReusesAlignedSizeClassesAndAccountsBacking (0 ms)
+3: [ RUN      ] PinnedRuntime.DefaultStreamDefersReuseWithoutBlocking
+3: [       OK ] PinnedRuntime.DefaultStreamDefersReuseWithoutBlocking (0 ms)
+3: [ RUN      ] PinnedRuntime.InteriorPointersWaitForAllStreamsAndRecycleEvents
+3: [       OK ] PinnedRuntime.InteriorPointersWaitForAllStreamsAndRecycleEvents (0 ms)
+3: [ RUN      ] PinnedRuntime.ZeroCacheLimitStillProtectsPendingTransfers
+3: [       OK ] PinnedRuntime.ZeroCacheLimitStillProtectsPendingTransfers (0 ms)
+3: [ RUN      ] PinnedRuntime.ZeroCacheLimitWithImmediateCompletionDoesNotReadFreedBlock
+3: [       OK ] PinnedRuntime.ZeroCacheLimitWithImmediateCompletionDoesNotReadFreedBlock (0 ms)
+3: [ RUN      ] PinnedRuntime.ZeroCacheLimitWithJustCompletedStreamDoesNotReadFreedBlock
+3: [       OK ] PinnedRuntime.ZeroCacheLimitWithJustCompletedStreamDoesNotReadFreedBlock (0 ms)
+3: [ RUN      ] PinnedRuntime.EmptyCachePreservesLiveAllocations
+3: [       OK ] PinnedRuntime.EmptyCachePreservesLiveAllocations (0 ms)
+3: [ RUN      ] PinnedRuntime.FailedEventRecordingQuarantinesBacking
+3: [       OK ] PinnedRuntime.FailedEventRecordingQuarantinesBacking (0 ms)
+3: [ RUN      ] PinnedRuntime.FailedEventQueryQuarantinesBacking
+3: [       OK ] PinnedRuntime.FailedEventQueryQuarantinesBacking (0 ms)
+3: [ RUN      ] PinnedRuntime.DeallocateReturnValueIsNotPolluted
+3: [       OK ] PinnedRuntime.DeallocateReturnValueIsNotPolluted (0 ms)
+3: [ RUN      ] PinnedRuntime.FailedDriverFreeIsNotRetried
+3: [       OK ] PinnedRuntime.FailedDriverFreeIsNotRetried (0 ms)
+3: [ RUN      ] PinnedRuntime.CopyValidatesBoundsAndRegistersBeforeSubmitting
+3: [       OK ] PinnedRuntime.CopyValidatesBoundsAndRegistersBeforeSubmitting (0 ms)
+3: [ RUN      ] PinnedRuntime.OomFlushesCacheRetriesAndReportsFailure
+3: [       OK ] PinnedRuntime.OomFlushesCacheRetriesAndReportsFailure (0 ms)
+3: [ RUN      ] PinnedRuntime.OverflowForeignPointersAndDeviceRestoration
+3: [       OK ] PinnedRuntime.OverflowForeignPointersAndDeviceRestoration (0 ms)
+3: [ RUN      ] PinnedRuntime.DestructionWaitsForLiveAndPendingRecordedUses
+3: [       OK ] PinnedRuntime.DestructionWaitsForLiveAndPendingRecordedUses (0 ms)
+3: [ RUN      ] PinnedRuntime.TypedBufferMovesAndDefersDestruction
+3: [       OK ] PinnedRuntime.TypedBufferMovesAndDefersDestruction (0 ms)
+3: [ RUN      ] PinnedRuntime.ConcurrentAllocationAndCrossThreadFree
+3: [       OK ] PinnedRuntime.ConcurrentAllocationAndCrossThreadFree (0 ms)
+3: [----------] 17 tests from PinnedRuntime (1 ms total)
+3: 
+3: [----------] Global test environment tear-down
+3: [==========] 17 tests from 1 test suite ran. (1 ms total)
+3: [  PASSED  ] 17 tests.
+3/4 Test #3: MemoryPinnedHipRuntimeTests ..............   Passed    0.01 sec
+test 4
+    Start 4: MemoryCudaCachingAllocatorRuntimeTests
+
+4: Test command: C:\dev\build_ninja\bin\MemoryCudaCachingAllocatorRuntimeTests.exe
+4: Working Directory: C:/dev/build_ninja/Testing/Cxx/CudaCachingAllocator
+4: Test timeout computed to be: 60
+4: Running main() from C:/dev/Memory/ThirdParty/googletest/googletest/src/gtest_main.cc
+4: [==========] Running 4 tests from 1 test suite.
+4: [----------] Global test environment set-up.
+4: [----------] 4 tests from CudaCachingAllocatorRuntime
+4: [ RUN      ] CudaCachingAllocatorRuntime.PartialEventFailureOnSecondStreamQuarantinesBlock
+4: [       OK ] CudaCachingAllocatorRuntime.PartialEventFailureOnSecondStreamQuarantinesBlock (1 ms)
+4: [ RUN      ] CudaCachingAllocatorRuntime.SingleStreamEventFailureQuarantinesNotFrees
+4: [       OK ] CudaCachingAllocatorRuntime.SingleStreamEventFailureQuarantinesNotFrees (1 ms)
+4: [ RUN      ] CudaCachingAllocatorRuntime.RetryAfterDriverFailureRechecksShrunkenBudget
+4: [       OK ] CudaCachingAllocatorRuntime.RetryAfterDriverFailureRechecksShrunkenBudget (1 ms)
+4: [ RUN      ] CudaCachingAllocatorRuntime.SegmentAllocDeviceGuardThrowRollsBackPendingBudget
+4: [       OK ] CudaCachingAllocatorRuntime.SegmentAllocDeviceGuardThrowRollsBackPendingBudget (1 ms)
+4: [----------] 4 tests from CudaCachingAllocatorRuntime (5 ms total)
+4: 
+4: [----------] Global test environment tear-down
+4: [==========] 4 tests from 1 test suite ran. (5 ms total)
+4: [  PASSED  ] 4 tests.
+4/4 Test #4: MemoryCudaCachingAllocatorRuntimeTests ...   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Label Time Summary:
+Memory         =   0.23 sec*proc (4 tests)
+RuntimeShim    =   0.02 sec*proc (3 tests)
+Unit           =   0.23 sec*proc (4 tests)
+
+Total Test time (real) =   0.23 sec
+[INFO] Config time: 0.0000 seconds
+[INFO] Build time: 0.0638 seconds
+[INFO] Cppcheck time: 0.0131 seconds
+[INFO] Test time: 0.4192 seconds
+[INFO] Coverage time: 0.0000 seconds
+[INFO] Total time: 0.4962 seconds
+[SUCCESS] Build process completed successfully!
+[INFO] 
+================================================================================
+[INFO] BUILD AND ANALYSIS SUMMARY REPORT
+[INFO] ================================================================================
+[SUCCESS] CPPCHECK: No issues found
+[INFO] ================================================================================

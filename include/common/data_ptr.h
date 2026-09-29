@@ -7,6 +7,7 @@
 #include "allocator.h"
 #include "common/data_view.h"
 #include "common/device.h"
+#include "common/execution_context.h"
 #include "common/memory_macros.h"
 
 // Trivial accessors (data/begin/end/size) are called from CUDA kernel argument
@@ -32,17 +33,24 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr() = default;
 
-    MEMORY_FORCE_INLINE data_ptr(
-        size_t size, device_enum type, int device_index = 0, stream_t stream = nullptr)
-        : size_(size), type_(type), device_index_(device_index), stream_(stream), allocated_(false),
-          aligned_(true)
+    // Allocate from execution context (preferred API)
+    MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
+        : size_(size), type_(ctx.device_type), device_index_(ctx.device_index),
+          stream_(ctx.stream), allocated_(false), aligned_(true)
     {
         if (size == 0)
         {
             return;
         }
-        data_      = allocator_t::allocate(size, type, device_index, stream);
+        data_      = allocator_t::allocate(size, ctx);
         allocated_ = true;
+    }
+
+    // Allocate from separate device/stream parameters (backward compatible)
+    MEMORY_FORCE_INLINE data_ptr(
+        size_t size, device_enum type, int device_index = 0, stream_t stream = nullptr)
+        : data_ptr(size, execution_context{type, device_index, stream})
+    {
     }
 
     // Adopt by cloning: allocate owned storage and copy @p data into it.
