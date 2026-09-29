@@ -55,7 +55,8 @@ add_executable(MemoryCxxTests ${TestFiles})
 # interface. Memory's own include/ root must come first: some third-party deps (e.g. Profiler)
 # vendor an identically-named relative header (common/device.h) and would otherwise shadow
 # Memory's own copy for quote-include resolution.
-set(_memory_test_include_dirs "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
+set(_memory_include_root "${CMAKE_CURRENT_SOURCE_DIR}/../../include")
+set(_memory_test_include_dirs "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                               "${CMAKE_CURRENT_BINARY_DIR}/.."
 )
 
@@ -74,7 +75,9 @@ if(TARGET gtest)
 endif()
 
 target_include_directories(MemoryCxxTests PRIVATE ${_memory_test_include_dirs})
+# Memory's headers must come before Profiler's to resolve device_enum correctly
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
+  list(REMOVE_ITEM MEMORY_DEPENDENCY_INCLUDE_DIRS "${_memory_include_root}")
   target_include_directories(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 

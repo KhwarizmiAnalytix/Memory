@@ -17,5 +17,5 @@ Checks: >
   readability-container-size-empty,
   -bugprone-easily-swappable-parameters,
   -bugprone-implicit-widening-of-multiplication-result,
-HeaderFilterRegex: '^include/'
+HeaderFilterRegex: '^(include|src)/'
 FormatStyle: file

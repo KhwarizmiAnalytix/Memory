@@ -405,16 +405,18 @@ if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
 endif()
 
 # --- Source discovery ---
-# Public headers/sources live under include/ (mirrors Logging's logging/ layout): consumers
+# Public headers live under include/ (mirrors Logging's logging/ layout): consumers
 # include bare filenames relative to that root, e.g. "allocator.h", "common/data_ptr.h",
 # "gpu/caching_allocator.h", "helper/memory_allocator.h" — never "include/allocator.h".
-set(_memory_src_root "${CMAKE_CURRENT_SOURCE_DIR}/include")
+# Implementation files live in src/ with the same folder structure.
+set(_memory_include_root "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set(_memory_src_root "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(memory_headers "")
 set(memory_sources "")
 set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
 
-file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${_memory_src_root}/*.h"
-                                                        "${_memory_src_root}/*.hxx"
+file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${_memory_include_root}/*.h"
+                                                        "${_memory_include_root}/*.hxx"
 )
 file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${_memory_src_root}/*.cpp")
 
@@ -430,7 +432,7 @@ list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
   file(GLOB_RECURSE GPU_SOURCE_FILES "${_memory_src_root}/gpu/*.cpp")
-  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_src_root}/gpu/*.h" "${_memory_src_root}/gpu/*.hxx")
+  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_include_root}/gpu/*.h" "${_memory_include_root}/gpu/*.hxx")
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
 endif()
@@ -460,9 +462,9 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   get_target_property(_profiler_src_dir Profiler::Profiler SOURCE_DIR)
   if(_profiler_src_dir AND EXISTS "${_profiler_src_dir}/include/common/device.h")
     set(_memory_profiler_shadowed_sources
-        "${_memory_src_root}/helper/memory_allocator.cpp"
-        "${_memory_src_root}/helper/pinned_memory_allocator.cpp"
-        "${_memory_src_root}/profiler/profiled_cpu_memory_reporter.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/helper/memory_allocator.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/helper/pinned_memory_allocator.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/profiler/profiled_cpu_memory_reporter.cpp"
     )
     set_source_files_properties(
       ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES
@@ -502,7 +504,7 @@ if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 if(COMMAND xsigma_module_create_filters)
-  xsigma_module_create_filters("${_memory_src_root}")
+  xsigma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 set_target_properties(
@@ -527,16 +529,17 @@ configure_file(
 
 # Include roots: include/ → "allocator.h", "common/data_ptr.h", "gpu/caching_allocator.h",
 # "helper/memory_allocator.h", generated "common/memory_export.h".
+# Memory's own include/ MUST come BEFORE Profiler's (both define device_enum/device_option).
 target_include_directories(
   Memory
-  PUBLIC $<BUILD_INTERFACE:${_memory_src_root}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  PUBLIC $<BUILD_INTERFACE:${_memory_include_root}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Testing>
          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/Testing> $<INSTALL_INTERFACE:include>
-  PRIVATE ${_memory_src_root}
+  PRIVATE ${_memory_include_root}
 )
 
 if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
-  target_include_directories(Memory PUBLIC ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+  target_include_directories(Memory PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 
 if(MEMORY_ENABLE_CLANGTIDY)
@@ -576,7 +579,7 @@ install(
   DESTINATION include
 )
 install(
-  DIRECTORY "${_memory_src_root}/"
+  DIRECTORY "${_memory_include_root}/"
   DESTINATION include/Memory
   FILES_MATCHING
   PATTERN "*.h"

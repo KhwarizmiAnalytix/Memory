@@ -29,34 +29,34 @@ using stream_handle_t = void*;
 // carry a single context argument instead of three.
 struct execution_context
 {
-    device_enum    device_type{device_enum::CPU};
+    memory::device_enum    device_type{memory::device_enum::CPU};
     int            device_index{0};
     stream_handle_t stream{nullptr};  // nullptr = CUDA/HIP per-thread default
 
     static execution_context cpu() noexcept
     {
-        return {device_enum::CPU, 0, nullptr};
+        return {memory::device_enum::CPU, 0, nullptr};
     }
 
     static execution_context cuda(int index = 0, stream_handle_t s = nullptr) noexcept
     {
-        return {device_enum::CUDA, index, s};
+        return {memory::device_enum::CUDA, index, s};
     }
 
     static execution_context hip(int index = 0, stream_handle_t s = nullptr) noexcept
     {
-        return {device_enum::HIP, index, s};
+        return {memory::device_enum::HIP, index, s};
     }
 
     static execution_context metal(int index = 0) noexcept
     {
-        return {device_enum::METAL, index, nullptr};
+        return {memory::device_enum::METAL, index, nullptr};
     }
 
     bool is_gpu() const noexcept
     {
-        return device_type == device_enum::CUDA || device_type == device_enum::HIP ||
-               device_type == device_enum::METAL;
+        return device_type == memory::device_enum::CUDA || device_type == memory::device_enum::HIP ||
+               device_type == memory::device_enum::METAL;
     }
 
     bool operator==(execution_context const& o) const noexcept

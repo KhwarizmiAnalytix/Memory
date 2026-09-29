@@ -13,11 +13,12 @@
 # shared C++ code between CUDA and HIP via gpu/gpu_runtime.h's macro aliasing,
 # so exercising it under HIP labels is equally valid coverage.
 get_filename_component(_cca_include "${CMAKE_CURRENT_SOURCE_DIR}/../../include" ABSOLUTE)
+get_filename_component(_cca_src "${CMAKE_CURRENT_SOURCE_DIR}/../../src" ABSOLUTE)
 
 add_executable(
   MemoryCudaCachingAllocatorRuntimeTests TestCudaCachingAllocatorRuntime.cpp
-  "${_cca_include}/gpu/cuda_caching_allocator.cpp"
-  "${_cca_include}/profiler/unified_memory_stats.cpp"
+  "${_cca_src}/gpu/cuda_caching_allocator.cpp"
+  "${_cca_src}/profiler/unified_memory_stats.cpp"
 )
 target_include_directories(
   MemoryCudaCachingAllocatorRuntimeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_cca_include}"

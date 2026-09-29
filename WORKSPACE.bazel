@@ -47,15 +47,9 @@ load("//bazel:tbb_repository.bzl", "tbb_repository")
 tbb_repository(name = "tbb")
 
 # =============================================================================
-# fmt — resolved from the Logging submodule's own bundled copy.
 # mimalloc — vendored nested submodule (ThirdParty/)
+# fmt is now managed through Logging's own dependency setup
 # =============================================================================
-new_local_repository(
-    name = "fmt",
-    path = "ThirdParty/Logging/ThirdParty/fmt",
-    build_file = "//ThirdParty:fmt.BUILD",
-)
-
 new_local_repository(
     name = "mimalloc",
     path = "ThirdParty/mimalloc",
@@ -82,14 +76,7 @@ new_local_repository(
 # Git submodule ThirdParty/Logging. Overlay BUILD so we do not edit the
 # vendored tree, using the same local-repository-with-overlay technique
 # XSigma itself uses for its own ThirdParty/logging.BUILD.
-
-# Logging's own nested submodule for magic_enum support
-# (mirrors ThirdParty/Logging/WORKSPACE.bazel).
-new_local_repository(
-    name = "magic_enum",
-    path = "ThirdParty/Logging/ThirdParty/magic_enum",
-    build_file = "//ThirdParty:magic_enum.BUILD",
-)
+# magic_enum and fmt are now managed through Logging's own dependencies.
 
 load("//bazel:logging_repository.bzl", "local_logging_repository")
 

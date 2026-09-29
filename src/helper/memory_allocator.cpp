@@ -17,13 +17,13 @@
  * Website: https://www.xsigma.co.uk
  */
 
-#include "memory_allocator.h"
+#include "helper/memory_allocator.h"
 
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>  // for std::memset
 
-#include <include/util/exception.h>
+#include "include/util/exception.h"
 
 #include "common/memory_macros.h"
 

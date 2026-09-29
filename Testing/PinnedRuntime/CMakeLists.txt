@@ -2,10 +2,11 @@
 # These targets never link Memory or vendor GPU libraries, so the shims cannot
 # replace a real backend in the library or its integration tests.
 get_filename_component(_pinned_include "${CMAKE_CURRENT_SOURCE_DIR}/../../include" ABSOLUTE)
+get_filename_component(_pinned_src "${CMAKE_CURRENT_SOURCE_DIR}/../../src" ABSOLUTE)
 foreach(_backend IN ITEMS Cuda Hip)
   set(_target "MemoryPinned${_backend}RuntimeTests")
   add_executable(
-    ${_target} TestPinnedRuntime.cpp "${_pinned_include}/helper/pinned_memory_allocator.cpp"
+    ${_target} TestPinnedRuntime.cpp "${_pinned_src}/helper/pinned_memory_allocator.cpp"
   )
   target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_pinned_include}")
   target_compile_features(${_target} PRIVATE cxx_std_17)
