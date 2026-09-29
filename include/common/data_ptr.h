@@ -35,8 +35,7 @@ struct data_ptr
 
     // Allocate from execution context (preferred API)
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
-        : size_(size), type_(ctx.device_type), device_index_(ctx.device_index),
-          stream_(ctx.stream), aligned_(true)
+        : size_(size), ctx_(ctx), aligned_(true)
     {
         if (size == 0)
         {
@@ -102,8 +101,7 @@ struct data_ptr
     }
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
-        : data_(rhs.data_), size_(rhs.size_), type_(rhs.type_), device_index_(rhs.device_index_),
-          stream_(rhs.stream_), aligned_(rhs.aligned_)
+        : data_(rhs.data_), size_(rhs.size_), ctx_(rhs.ctx_), aligned_(rhs.aligned_)
     {
         rhs.clear_handle();
     }
@@ -115,12 +113,10 @@ struct data_ptr
             return *this;
         }
         release_owned();
-        data_         = rhs.data_;
-        size_         = rhs.size_;
-        type_         = rhs.type_;
-        device_index_ = rhs.device_index_;
-        stream_       = rhs.stream_;
-        aligned_      = rhs.aligned_;
+        data_    = rhs.data_;
+        size_    = rhs.size_;
+        ctx_     = rhs.ctx_;
+        aligned_ = rhs.aligned_;
         rhs.clear_handle();
         return *this;
     }
@@ -161,13 +157,14 @@ struct data_ptr
 
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
-    MEMORY_FORCE_INLINE int                          device_index() const { return device_index_; }
-    MEMORY_FORCE_INLINE device_enum                  device() const { return type_; }
-    MEMORY_FORCE_INLINE stream_t                     stream() const { return stream_; }
+    MEMORY_FORCE_INLINE int                          device_index() const { return ctx_.device_index; }
+    MEMORY_FORCE_INLINE device_enum                  device() const { return ctx_.device_type; }
+    MEMORY_FORCE_INLINE stream_t                     stream() const { return ctx_.stream; }
+    MEMORY_FORCE_INLINE execution_context            context() const { return ctx_; }
 
     MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
     {
-        allocator_t::record_stream(data_, type_, device_index_, stream);
+        allocator_t::record_stream(data_, ctx_.device_type, ctx_.device_index, stream);
     }
 
     friend struct data_view<value_t>;
@@ -177,27 +174,23 @@ private:
     {
         if (data_ != nullptr)
         {
-            allocator_t::free(data_, type_, device_index_, 0, stream_);
+            allocator_t::free(data_, ctx_.device_type, ctx_.device_index, 0, ctx_.stream);
             data_ = nullptr;
         }
     }
 
     MEMORY_FORCE_INLINE void clear_handle() noexcept
     {
-        data_         = nullptr;
-        size_         = 0;
-        type_         = device_enum::CPU;
-        device_index_ = 0;
-        stream_       = nullptr;
-        aligned_      = false;
+        data_    = nullptr;
+        size_    = 0;
+        ctx_     = execution_context::cpu();
+        aligned_ = false;
     }
 
-    value_t*    data_{nullptr};
-    size_t      size_{0};
-    device_enum type_{device_enum::CPU};
-    int         device_index_{0};
-    stream_t    stream_{nullptr};
-    bool        aligned_{false};
+    value_t*         data_{nullptr};
+    size_t           size_{0};
+    execution_context ctx_{execution_context::cpu()};
+    bool             aligned_{false};
 };
 
 // Handle-based copy_async: both endpoints are data_ptr base allocations so
@@ -233,8 +226,8 @@ MEMORY_FORCE_INLINE copy_token copy_async(
 
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
-    : data_view(
-          owner.data_, owner.size_, owner.type_, owner.device_index_, owner.stream_, owner.data_)
+    : data_view(owner.data_, owner.size_, owner.ctx_.device_type, owner.ctx_.device_index,
+                owner.ctx_.stream, owner.data_)
 {
 }
 
