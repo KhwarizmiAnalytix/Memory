@@ -14,6 +14,68 @@ cache (expandable segments, mutex dropped around malloc, process-wide
 OOM stack capture; `cudaMallocAsync`; view does not refcount owner; Metal async /
 device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization.
 
+## CPU Memory Allocation — Fragmentation & Backend Characteristics
+
+### Fragmentation Behavior (2026-09)
+
+CPU allocators exhibit different fragmentation profiles under stress:
+
+- **malloc (unaligned baseline)**: Coalesces adjacent free blocks across size
+  classes (glibc malloc behavior). Lower fragmentation under many-small-allocate
+  + selective-free patterns because segregated-list allocators cannot coalesce
+  across size boundaries.
+- **aligned_malloc / posix_memalign**: Segregated by alignment. Alignment requests
+  > default force elevated heap overhead; fragmentation increases with alignment
+  diversity.
+- **mimalloc**: Eager per-thread local heaps reduce lock contention. Supports
+  fast deallocation via segment reclamation. Fragmentation depends on thread
+  affinity and deallocation order; "use after free"-like leaks are possible if
+  pointers move between threads.
+- **TBB scalable_malloc**: Partitioned heap by CPU. Cache-friendly for scalable
+  workloads. Fragmentation grows with non-local access patterns (allocation
+  on CPU 0, deallocation on CPU 1).
+
+### Benchmark Alignment Fix (P0, 2026-09-29)
+
+Fixed `memory_interface_api` wrapper in BenchmarkCPUMemoryAllocators.cpp to
+forward alignment parameter to `cpu::memory_allocator::allocate()`. Previous
+implementation silently ignored alignment, causing unaligned benchmarks for the
+STL-style facade while other backends (mimalloc, TBB) received correct alignment.
+This masked alignment-specific performance characteristics and produced unfair
+comparisons.
+
+### Tuning Parameters for Mimalloc (P1 Investigation)
+
+Key environment variables for profiling:
+
+- `MIMALLOC_SHOW_STATS=1` — dump counters at exit (also available via
+  `memory::cpu::memory_allocator::stats_print()`)
+- `MIMALLOC_EAGER_REGION_DELAY=<ms>` — delay before regions are reclaimed
+  (default 100ms; set 0 for immediate reuse)
+- `MIMALLOC_RESET_DELAY=<ms>` — when to decommit pages (default 0)
+- `MIMALLOC_LARGE_OS_PAGES=1` — use huge pages (Linux/Windows; may require
+  elevated privileges)
+- `MIMALLOC_HEAP_DESTROY_DELAY=<ms>` — delay before heap cleanup on thread exit
+- `MIMALLOC_VERBOSE=1` — enable verbose output during initialization
+
+### Fragmentation Telemetry (P1 Roadmap)
+
+Add to profiler:
+
+- `fragmentation_ratio = (reserved - allocated) / reserved` per allocator
+- `peak_memory_reserved` tracking (similar to GPU `max_memory_reserved`)
+- Per-size-class allocation/deallocation counters (mimalloc via `mi_stats_*`)
+- Thread-local heap migration events (mimalloc/TBB)
+
+### Future Work (P2)
+
+- **NUMA-aware allocation**: For large blocks (>100MB), detect NUMA topology and
+  allocate on local node via `numa_alloc_local()` when available.
+- **Memory pooling**: Pre-allocate fixed-size pools for predictable allocation
+  patterns (e.g., model weights, activations).
+- **Adaptive backend selection**: Route allocations to mimalloc (low contention,
+  many threads), TBB (NUMA locality), or platform malloc (single-threaded)
+
 ## What lives here (and why)
 
 After the allocator consolidation, the library intentionally keeps these

@@ -117,28 +117,17 @@ struct tbb_backend
 };
 #endif
 
-// The production CPU path: exactly what allocator<T> and data_ptr call.
-struct xsigma_cpu_backend
+// The STL-style facade, to measure the (inlined) wrapper overhead over the raw
+// production path.
+struct memory_interface_api
 {
     static void* allocate(std::size_t size, std::size_t alignment)
     {
         return cpu::memory_allocator::allocate(size, alignment);
     }
-    static void deallocate(void* ptr, std::size_t /*size*/) { cpu::memory_allocator::free(ptr); }
-};
-
-// The STL-style facade, to measure the (inlined) wrapper overhead over the raw
-// production path.
-struct xsigma_stl_backend
-{
-    static void* allocate(std::size_t size, std::size_t /*alignment*/)
-    {
-        return allocator<std::byte>::allocate(size, device_enum::CPU);
-    }
     static void deallocate(void* ptr, std::size_t /*size*/)
     {
-        auto* byte_ptr = static_cast<std::byte*>(ptr);
-        allocator<std::byte>::free(byte_ptr, device_enum::CPU);
+        cpu::memory_allocator::free(ptr);
     }
 };
 
@@ -406,13 +395,8 @@ BENCHMARK_TEMPLATE(benchmark_simple_allocation, tbb_backend)
     ->Unit(benchmark::kMicrosecond);
 #endif
 
-BENCHMARK_TEMPLATE(benchmark_simple_allocation, xsigma_cpu_backend)
-    ->Name("BM_XSigmaCpu_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(benchmark_simple_allocation, xsigma_stl_backend)
-    ->Name("BM_XSigmaStl_SimpleAllocation")
+BENCHMARK_TEMPLATE(benchmark_simple_allocation, memory_interface_api)
+    ->Name("BM_InterfaceApi_SimpleAllocation")
     ->Range(64, 1 << 20)
     ->Unit(benchmark::kMicrosecond);
 
@@ -443,11 +427,8 @@ BENCHMARK_TEMPLATE(benchmark_batch_allocation, tbb_backend)
     ->Name("BM_TBB_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-BENCHMARK_TEMPLATE(benchmark_batch_allocation, xsigma_cpu_backend)
-    ->Name("BM_XSigmaCpu_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(benchmark_batch_allocation, xsigma_stl_backend)
-    ->Name("BM_XSigmaStl_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(benchmark_batch_allocation, memory_interface_api)
+    ->Name("BM_InterfaceApi_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
 BENCHMARK(benchmark_data_ptr_batch)
     ->Name("BM_DataPtr_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
@@ -474,11 +455,8 @@ BENCHMARK_TEMPLATE(benchmark_mixed_sizes, tbb_backend)
     ->Name("BM_TBB_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-BENCHMARK_TEMPLATE(benchmark_mixed_sizes, xsigma_cpu_backend)
-    ->Name("BM_XSigmaCpu_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(benchmark_mixed_sizes, xsigma_stl_backend)
-    ->Name("BM_XSigmaStl_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(benchmark_mixed_sizes, memory_interface_api)
+    ->Name("BM_InterfaceApi_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_MIXED_ARGS
 
@@ -500,9 +478,6 @@ BENCHMARK_TEMPLATE(benchmark_aligned_allocation, mimalloc_backend)
 BENCHMARK_TEMPLATE(benchmark_aligned_allocation, tbb_backend)
     ->Name("BM_TBB_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 #endif
-
-BENCHMARK_TEMPLATE(benchmark_aligned_allocation, xsigma_cpu_backend)
-    ->Name("BM_XSigmaCpu_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_ALIGN_ARGS
 
@@ -527,11 +502,8 @@ BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, tbb_backend)
     ->Name("BM_TBB_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, xsigma_cpu_backend)
-    ->Name("BM_XSigmaCpu_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, xsigma_stl_backend)
-    ->Name("BM_XSigmaStl_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+BENCHMARK_TEMPLATE(benchmark_fragmentation_pattern, memory_interface_api)
+    ->Name("BM_InterfaceApi_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_FRAG_ARGS
 
