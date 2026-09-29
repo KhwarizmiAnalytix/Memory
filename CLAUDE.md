@@ -9,6 +9,8 @@ covers what's specific to this library. Design narrative, done/open list:
 cache (expandable segments, mutex dropped around malloc, process-wide
 `empty_cache` / stats / fraction); tensor device_index + stream;
 `assign_async` records expression sources. Tensor copy always clones.
+CUDA caching allocator benchmarks (2026-09-29): direct malloc comparison,
+cold/warm path analysis, fragmentation resilience, multi-stream scaling.
 
 **Open:** CUDA/HIP runtime tests; graphs/MemPool; AllocConf;
 OOM stack capture; `cudaMallocAsync`; view does not refcount owner; Metal async /
@@ -140,3 +142,13 @@ calls. Note `cuda_caching_allocator` itself throws
 (`std::bad_alloc`/`std::invalid_argument`/`std::logic_error`) as part of
 its API contract; callers going through `allocator<T>` inherit that
 behavior on the allocation path.
+
+## Benchmark Documentation
+
+Performance analysis and baseline measurements:
+
+- `Docs/cpu_gpu_memory_review.md` — CPU/GPU memory allocation comparison, Order 0 baseline recordings
+- `Docs/cuda_benchmark_analysis.md` — CUDA caching allocator vs direct malloc: cold/warm paths, 
+  multi-stream scaling, fragmentation resilience, throughput analysis
+- `Testing/Cxx/BenchmarkCudaCachingAllocator.cpp` — Benchmark suite: 14 test scenarios covering
+  allocation patterns, cache efficiency, and contention under concurrent streams
