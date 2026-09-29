@@ -57,8 +57,10 @@ MEMORYTEST(GpuWorkspace, rebind_while_acquired_throws)
 #endif
     gpu_workspace ws{4096, execution_context::cuda(0)};
     (void)ws.acquire(256);
-    // cursor_ > 0: rebind must throw.
+#ifndef NDEBUG
+    // LOGGING_CHECK_DEBUG: only active in debug builds.
     ASSERT_ANY_THROW(ws.rebind(execution_context::cuda(0)));
+#endif
     // release() before rebind: no throw.
     ws.release();
     ws.rebind(execution_context::cuda(0));

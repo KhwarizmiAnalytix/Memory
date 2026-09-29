@@ -87,12 +87,12 @@ void NUMAMove(const void* ptr, size_t size, int numa_node_id)
     {
         return;
     }
-    LOGGING_CHECK(ptr != nullptr, "");
+    LOGGING_CHECK_DEBUG(ptr != nullptr, "");
 
     uintptr_t page_start_ptr = ((reinterpret_cast<uintptr_t>(ptr)) & ~(getpagesize() - 1));
     ptrdiff_t offset         = reinterpret_cast<uintptr_t>(ptr) - page_start_ptr;
     // Avoid extra dynamic allocation and NUMA api calls
-    LOGGING_CHECK(static_cast<unsigned>(numa_node_id) < sizeof(unsigned long) * 8, "");
+    LOGGING_CHECK_DEBUG(static_cast<unsigned>(numa_node_id) < sizeof(unsigned long) * 8, "");
     unsigned long mask = 1UL << numa_node_id;
     LOGGING_CHECK(
         mbind(

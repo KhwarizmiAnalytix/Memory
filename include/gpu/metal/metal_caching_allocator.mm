@@ -161,7 +161,7 @@ struct metal_caching_allocator::Impl
 
     void* allocate(size_t size, void* stream)
     {
-        LOGGING_CHECK(size > 0, "metal_caching_allocator cannot allocate zero bytes");
+        LOGGING_CHECK_DEBUG(size > 0, "metal_caching_allocator cannot allocate zero bytes");
         (void)stream;  // v1: single default-stream pool
 
         std::scoped_lock const lock(mutex_);
@@ -235,12 +235,12 @@ struct metal_caching_allocator::Impl
         std::scoped_lock const lock(mutex_);
 
         auto it = allocated_blocks_.find(ptr);
-        LOGGING_CHECK(
+        LOGGING_CHECK_DEBUG(
             it != allocated_blocks_.end(),
             "metal_caching_allocator does not own the provided pointer");
 
         cache_block* block = it->second;
-        LOGGING_CHECK(block->allocated, "metal_caching_allocator detected a double free");
+        LOGGING_CHECK_DEBUG(block->allocated, "metal_caching_allocator detected a double free");
 
         allocated_blocks_.erase(it);
         block->allocated = false;

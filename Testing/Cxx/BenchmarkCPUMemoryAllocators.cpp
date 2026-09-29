@@ -57,6 +57,11 @@ constexpr std::size_t kBenchAlignment = 64;
 // Allocation backends (policy structs, static dispatch)
 // =============================================================================
 
+// NOTE: malloc_backend intentionally ignores alignment — it is an unaligned
+// baseline.  In fragmentation benchmarks this gives it an inherent advantage
+// over aligned backends (TBB, XSigma) because glibc malloc coalesces adjacent
+// free blocks across size classes, whereas segregated allocators do not.
+// The comparison is informative but not apples-to-apples.
 struct malloc_backend
 {
     static void* allocate(std::size_t size, std::size_t /*alignment*/) { return std::malloc(size); }
@@ -295,6 +300,7 @@ void benchmark_fragmentation_pattern(benchmark::State& state)
 
         // Allocate larger blocks into the fragmented space.
         std::vector<void*> large_ptrs;
+        large_ptrs.reserve(num_allocations / 4);
         for (std::size_t i = 0; i < num_allocations / 4; ++i)
         {
             void* ptr = Backend::allocate(256, kBenchAlignment);
@@ -321,7 +327,9 @@ void benchmark_fragmentation_pattern(benchmark::State& state)
         benchmark::ClobberMemory();
     }
 
-    state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * num_allocations));
+    // Count every allocation issued: num_allocations small + num_allocations/4 large.
+    state.SetItemsProcessed(
+        static_cast<int64_t>(state.iterations() * (num_allocations + num_allocations / 4)));
 }
 
 // =============================================================================

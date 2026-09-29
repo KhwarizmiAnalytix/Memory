@@ -352,7 +352,7 @@ struct cuda_caching_allocator::Impl
 
     void* allocate(size_t size, cudaStream_t stream)
     {
-        LOGGING_CHECK(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
+        LOGGING_CHECK_DEBUG(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
 
         std::unique_lock lock(mutex_);
         process_events_locked();
@@ -427,12 +427,12 @@ struct cuda_caching_allocator::Impl
         process_events_locked();
 
         auto it = allocated_blocks_.find(ptr);
-        LOGGING_CHECK(
+        LOGGING_CHECK_DEBUG(
             it != allocated_blocks_.end(),
             "cuda_caching_allocator does not own the provided pointer");
 
         cache_block* block = it->second;
-        LOGGING_CHECK(block->allocated, "cuda_caching_allocator detected a double free");
+        LOGGING_CHECK_DEBUG(block->allocated, "cuda_caching_allocator detected a double free");
 
         allocated_blocks_.erase(it);
         block->allocated = false;
@@ -493,7 +493,7 @@ struct cuda_caching_allocator::Impl
 
         std::scoped_lock const lock(mutex_);
         auto                   it = allocated_blocks_.find(ptr);
-        LOGGING_CHECK(
+        LOGGING_CHECK_DEBUG(
             it != allocated_blocks_.end(),
             "cuda_caching_allocator::record_stream on a pointer that is not a live allocation");
 
@@ -953,7 +953,7 @@ private:
         }
         auto const* src_bytes = static_cast<char const*>(src->ptr);
         auto const* dst_bytes = static_cast<char const*>(dst->ptr);
-        LOGGING_CHECK(
+        LOGGING_CHECK_DEBUG(
             (src_is_prev && src_bytes + src->size == dst_bytes) ||
                 (src_is_next && dst_bytes + dst->size == src_bytes),
             "cuda_caching_allocator: merge of non-adjacent blocks");

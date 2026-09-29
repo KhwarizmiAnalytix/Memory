@@ -95,49 +95,49 @@ MEMORY_FORCE_INLINE void maybe_record_out_of_memory(std::size_t nbytes)
 }  // namespace
 #endif
 
+namespace
+{
+// Hot path: raw allocation with no init or bookkeeping logic.
+// static linkage lets the compiler inline this into allocate() and, via LTO,
+// into callers that pass a constant init_policy_enum::UNINITIALIZED so the
+// init branch below folds away entirely.
+MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment) noexcept
+{
+#if MEMORY_HAS_MIMALLOC
+    return mi_aligned_alloc(alignment, nbytes);
+#elif MEMORY_HAS_TBB
+    return scalable_aligned_malloc(nbytes, alignment);
+#elif defined(__ANDROID__)
+    return memalign(alignment, nbytes);
+#elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+    return _aligned_malloc(nbytes, alignment);
+#else
+    // POSIX systems
+    if (alignment < sizeof(void*))
+    {
+        return malloc(nbytes);
+    }
+    void* ptr = nullptr;
+    // cppcheck-suppress syntaxError
+    return MEMORY_UNLIKELY(posix_memalign(&ptr, alignment, nbytes) != 0) ? nullptr : ptr;
+#endif
+}
+}  // namespace
+
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    LOGGING_CHECK(
+    LOGGING_CHECK_DEBUG(
         static_cast<std::ptrdiff_t>(nbytes) > 0,
         "cpu allocate() called with negative or zero size: {}",
         nbytes);
 
-    // Release-visible: is_valid_alignment is a noexcept, branch-free power-of-2
-    // test, negligible next to the heap call below it. A bad alignment passed
-    // to mimalloc/TBB/_aligned_malloc/posix_memalign can misbehave differently
-    // per backend, so this is not a debug-only concern.
-    LOGGING_CHECK(
+    LOGGING_CHECK_DEBUG(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,
         sizeof(void*));
 
-    void* ptr = nullptr;
-
-    // Platform-specific allocation
-#if MEMORY_HAS_MIMALLOC
-    ptr = mi_aligned_alloc(alignment, nbytes);
-#elif MEMORY_HAS_TBB
-    ptr = scalable_aligned_malloc(nbytes, alignment);
-#elif defined(__ANDROID__)
-    ptr = memalign(alignment, nbytes);
-#elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-    ptr = _aligned_malloc(nbytes, alignment);  // Fixed syntax error
-#else
-    // POSIX systems
-    if (alignment < sizeof(void*))
-    {
-        ptr = malloc(nbytes);
-    }
-    else
-    {
-        // cppcheck-suppress syntaxError
-        if MEMORY_UNLIKELY (posix_memalign(&ptr, alignment, nbytes) != 0)
-        {
-            ptr = nullptr;
-        }
-    }
-#endif
+    void* ptr = allocate_raw(nbytes, alignment);
     // cppcheck-suppress syntaxError
     if MEMORY_UNLIKELY (ptr == nullptr)
     {
@@ -152,22 +152,20 @@ void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
     NUMAMove(ptr, nbytes, GetCurrentNUMANode());
 #endif
 
-    // Memory initialization
-    switch (init)
+    // Memory initialization — UNINITIALIZED is the overwhelmingly common case;
+    // the unlikely branches let the predictor treat the fall-through as free.
+    // cppcheck-suppress syntaxError
+    if MEMORY_UNLIKELY (init == init_policy_enum::ZERO)
     {
-    case init_policy_enum::ZERO:
         std::memset(ptr, 0, nbytes);
-        break;
-#ifndef NDEBUG
-    case init_policy_enum::PATTERN:
-        std::memset(ptr, 0xCC, nbytes);
-        break;
-#endif
-    case init_policy_enum::UNINITIALIZED:
-    default:
-        // Do nothing - fastest option
-        break;
     }
+#ifndef NDEBUG
+    // cppcheck-suppress syntaxError
+    else if MEMORY_UNLIKELY (init == init_policy_enum::PATTERN)
+    {
+        std::memset(ptr, 0xCC, nbytes);
+    }
+#endif
 
 #if MEMORY_HAS_PROFILER
     maybe_record_allocation(ptr, nbytes);
