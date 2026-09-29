@@ -41,6 +41,31 @@ MEMORYTEST(GpuWorkspace, rebind_changes_context)
     END_TEST();
 }
 
+MEMORYTEST(GpuWorkspace, rebind_while_acquired_throws)
+{
+    // rebind() must CHECK that cursor_ == 0 (release() was called).
+    // Simulate a non-zero cursor by acquiring on a GPU device.  If no GPU is
+    // available the test is skipped; the CHECK still fires in GPU builds.
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+    int device_count = 0;
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+    if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0)
+    {
+        END_TEST();
+        return;
+    }
+#endif
+    gpu_workspace ws{4096, execution_context::cuda(0)};
+    (void)ws.acquire(256);
+    // cursor_ > 0: rebind must throw.
+    ASSERT_ANY_THROW(ws.rebind(execution_context::cuda(0)));
+    // release() before rebind: no throw.
+    ws.release();
+    ws.rebind(execution_context::cuda(0));
+#endif
+    END_TEST();
+}
+
 MEMORYTEST(GpuWorkspace, move_transfers_ownership)
 {
     gpu_workspace a{512, execution_context::cpu()};

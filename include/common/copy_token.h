@@ -22,9 +22,11 @@ namespace memory
 // Completion token returned by allocator<T>::copy_async.
 //
 // The token records the execution context (backend, device, stream) the copy
-// was enqueued on.  Both GPU endpoints have already had record_stream called
-// before the token is returned, so the caching allocator defers their reuse
-// until the stream catches up regardless of whether the token is kept.
+// was enqueued on.  Both GPU endpoints have record_stream called BEFORE the
+// copy is submitted, so the caching allocator defers their reuse until the
+// stream catches up regardless of whether the token is kept.  This guarantee
+// holds only for pointers that are live allocations in the caching allocator;
+// interior or foreign GPU pointers remain caller-managed (see copy_async).
 //
 // For pageable (non-pinned) CPU endpoints the copy_async caller is responsible
 // for keeping the host buffer alive and unmodified until the copy completes.

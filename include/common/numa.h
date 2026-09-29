@@ -30,7 +30,7 @@ MEMORY_API int GetNumNUMANodes();
 /**
  * Move the memory pointed to by `ptr` of a given size to another NUMA node
  */
-MEMORY_API void NUMAMove(void* ptr, size_t size, int numa_node_id);
+MEMORY_API void NUMAMove(const void* ptr, size_t size, int numa_node_id);
 
 /**
  * Get the current NUMA node id

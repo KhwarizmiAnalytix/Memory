@@ -91,29 +91,59 @@ These fixes leave the following gaps.
    / `AddSaturatingOverflowSaturatesToMax` in `TestCachingAllocatorConfig.cpp`,
    and `set_memory_fraction_rejects_nan` in `TestCudaCachingAllocator.cpp`.
 
-4. **P1 — copy lifetime protection is partial and follows submission.**
-   [`allocator.h:417`](../include/allocator.h#L417) submits async work before
-   recording GPU endpoints at lines 436–445. Interior pointers still reach
-   exact-base cache lookup, foreign allocations lack cache identity, and a
-   registration failure can leave submitted work untracked. Pageable CPU
-   endpoints are not retained. Pinned helpers register the host side first,
-   but deliberately leave GPU lifetime to callers. Add handle-based
-   `copy_async` with both endpoints retained and a completion token. Preflight
-   identity, bounds, and tracking before submission. Keep raw-pointer APIs
-   explicitly caller-managed. Separate `copy_sync` from default-stream async.
+4. **P1 — copy lifetime protection is partial and follows submission: ordering
+   fixed 2026-09-29, handle-based overload added 2026-09-29.**
+   [`allocator.h`](../include/allocator.h) now calls `record_stream` on both
+   GPU endpoints BEFORE `cudaMemcpyAsync`/`cudaMemcpyPeerAsync`, closing the
+   window where in-flight work was untracked. The null-stream guard (`if (stream
+   != nullptr)`) was removed — the caching allocator treats null as the legacy
+   default stream identity, not "no stream," so null-stream async copies are now
+   tracked too. [`copy_token.h`](../include/common/copy_token.h) comment
+   updated to reflect the pre-submission guarantee and note the interior/foreign
+   pointer limitation. Remaining open: the raw-pointer API still CHECK-fails on
+   interior or foreign GPU pointers (no handle-based pre-flight), pageable CPU
+   endpoints are not retained, and no retained-endpoint `copy_async` overload
+   exists yet. Regression needed: a test that verifies `record_stream` is called
+   before the copy submission (currently exercised only through end-to-end
+   stream-lifetime tests).
 
-5. **P1 — Metal budgets omit retained heap capacity.**
-   [`metal_caching_allocator.mm:518`](../include/gpu/metal/metal_caching_allocator.mm#L518)
-   creates 16/64 MiB heaps; line 593 accounts only buffer-segment bytes.
-   `empty_cache()` clears heaps only when all allocations are gone (line 253).
-   Account heap capacity, used resource space, and standalone buffers separately;
-   budget new backing and retire empty heaps individually. Capacity is not
-   physical residency. `record_stream` remains a no-op at line 232, so async
-   clients need command-buffer completion tracking before deferred reuse.
+5. **P1 — Metal budgets omit retained heap capacity: fixed 2026-09-29.**
+   [`metal_caching_allocator.mm`](../include/gpu/metal/metal_caching_allocator.mm):
+   `heaps_` now stores `{heap, capacity}` pairs. `make_heap_buffer` takes an
+   `out_reserved` parameter and returns the net driver commitment — heap capacity
+   for a new heap, 0 when reusing an existing heap, `alloc_size` for standalone
+   fallback. `alloc_segment_locked` uses that delta instead of `alloc_size`.
+   `release_segment_locked` skips the `bytes_reserved` decrement for heap-backed
+   blocks (`[block->buffer heap] != nil`); `empty_cache` subtracts all heap
+   capacities before `heaps_.clear()`. Budget enforcement via
+   `reserved_would_exceed_locked` now sees the true committed footprint.
+   Pre-flight budget check fixed 2026-09-29: `allocate()` first tries existing
+   heaps (`only_existing=true`) with no budget check (no new driver allocation),
+   then computes `heap_cost = max(kSmallHeapBytes/kLargeHeapBytes, alloc_size)`
+   and checks that against the fraction limit before any new driver allocation.
+   No Apple hardware to validate against in this pass.
 
-6. **P1 — backend and alignment contracts need validation: fixed 2026-09-28
-   for CUDA/HIP (Metal alignment and the typed-storage lifetime model remain
-   open).**
+6. **P1 — workspace reset and reuse have no completion guard: fixed 2026-09-29.**
+   [`gpu_workspace.h`](../include/gpu/gpu_workspace.h)'s `rebind()` was advisory
+   ("always call `release()` before `rebind()`") with no enforcement; `release()`
+   and `reset()` could be called while GPU work using the acquired slices was still
+   in flight. `rebind()` now `LOGGING_CHECK`s `cursor_ == 0` (enforces `release()`
+   was called) and is no longer `noexcept`. The class-level lifetime contract was
+   rewritten to separate the enforced pre-condition (`release()` must be called)
+   from the caller-managed invariant (old stream must be quiescent before
+   `acquire()` on a new stream). Same-stream reuse is safe by stream ordering
+   without an explicit sync; cross-stream rebind requires the caller to synchronize
+   the old stream first. `release_backing()` (destructor and `reset()`) passes
+   `ctx_.stream` to `deallocate()`, so the caching allocator already defers
+   backing reuse until that stream completes — the destructor path was safe.
+   Runtime test added 2026-09-29: `GpuWorkspace.rebind_while_acquired_throws`
+   acquires a slice then asserts `ASSERT_ANY_THROW(ws.rebind(...))`, and verifies
+   that after `ws.release()` the rebind succeeds. Stream quiescence cannot be
+   enforced at runtime without explicit completion tracking — remains caller-managed.
+
+7 (was 6). **P1 — backend and alignment contracts need validation: fixed 2026-09-28
+   for CUDA/HIP; Metal alignment fixed 2026-09-29; typed-storage lifetime model
+   remains open.**
    [`allocator.h:57`](../include/allocator.h#L57)'s `is_active_gpu_device` now
    checks only the backend actually compiled in (`#if MEMORY_HAS_CUDA` /
    `#elif MEMORY_HAS_HIP` / `#elif MEMORY_HAS_METAL`) instead of accepting
@@ -122,8 +152,9 @@ These fixes leave the following gaps.
    the CUDA-backed cache. GPU allocation (was line 181) now rejects
    (`std::invalid_argument`) a template `alignment` greater than the CUDA/HIP
    segment cache's `kMinBlockSize` (512-byte) guarantee instead of silently
-   under-aligning; Metal alignment is unchanged (open — no Apple hardware to
-   validate against in this pass). CPU alignment checking
+   under-aligning; the same check now applies to Metal (fixed 2026-09-29 —
+   `#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL` with error
+   message "GPU caching allocator") — no Apple hardware to validate against. CPU alignment checking
    ([`memory_allocator.cpp:105`](../include/helper/memory_allocator.cpp#L105))
    is promoted from `LOGGING_CHECK_DEBUG` to `LOGGING_CHECK`, so Release
    builds validate it too. Regression tests: `IsActiveGpuDevice` (updated to
@@ -133,7 +164,7 @@ These fixes leave the following gaps.
    `TestCPUMemory.cpp`. The typed-object lifetime model (matching
    `pinned_buffer`'s) remains open.
 
-7. **P0 — rare, timing-dependent host memory corruption under repeated
+8 (was 7). **P0 — rare, timing-dependent host memory corruption under repeated
    allocator construction/destruction churn: newly found 2026-09-28, root
    cause not yet isolated.** Discovered while building Order 0's baseline
    benchmark (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`): a real-hardware
@@ -191,7 +222,7 @@ These fixes leave the following gaps.
    tooling; do not attempt a speculative fix without reproducing under a
    debugger or working sanitizer first.
 
-8. **P2 — frequent operations incur avoidable work.** GPU registry lookup takes
+9 (was 8). **P2 — frequent operations incur avoidable work.** GPU registry lookup takes
    a global mutex; basic stats scan free blocks under the device lock
    (`cuda_caching_allocator.cpp:696,1392`). Event polling has no per-call work
    bound. Trace recording uses a dynamically allocating deque under that lock
@@ -249,18 +280,24 @@ minus allocated is not by itself a fragmentation metric.
 
 | Order | Work package | Acceptance gate |
 |---|---|---|
-| 0 | **[Done 2026-09-28, surfaced finding 7]** Baseline representative workloads and effective configuration | Reproducible latency, end-to-end time, peak backing, copies, synchronization — *CUDA caching-allocator benchmarks added (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`: cold/warm alloc-free, fixed/changing sizes, 1/4/16 streams); run on this machine's GPU, see `Docs/cuda_baseline_2026-09-28.json`; building this benchmark surfaced finding 7 (P0, open) — iterations bounded as a mitigation, baseline recorded under that bounded config* |
+| 0 | **[Done 2026-09-28, surfaced finding 8]** Baseline representative workloads and effective configuration | Reproducible latency, end-to-end time, peak backing, copies, synchronization — *CUDA caching-allocator benchmarks added (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`: cold/warm alloc-free, fixed/changing sizes, 1/4/16 streams); run on this machine's GPU, see `Docs/cuda_baseline_2026-09-28.json`; building this benchmark surfaced finding 8 (P0, open) — iterations bounded as a mitigation, baseline recorded under that bounded config* |
 | 1 | **[Done 2026-09-28]** Pinned UAF and GPU event-failure fixes; exception-safe state transitions | ASan regression passes; first/partial event failures never recycle unsafe memory; errors observable — *both P0 source fixes landed 2026-09-28; pinned shim suite (17/17); GPU fault-injection shim added (`Testing/CudaCachingAllocator/`), 4/4 tests pass, also caught and fixed an event-object leak on record failure* |
-| 2 | **[Done 2026-09-28, Metal excluded]** Complete budget transactions and allocation validation | Retry/concurrency/fault tests respect budget; rollback on every failure; overflow/NaN/backend/alignment validation — *see findings 3 and 6 above; Metal heap/alignment validation deferred to Order 4/a future pass (no Apple hardware here)* |
-| 3 | **[Done 2026-09-28]** Storage identity, retained views, explicit contexts and copy API | Sliced/adopted/multi-stream endpoints survive completion; dependencies explicit; compatibility preserved — *`storage_identity` (stable alloc IDs, atomic counter), `retained_ptr<T>` (shared ownership, typed slice, custom deleter), `execution_context` (device type/index/stream), `copy_token` (stream-aware wait/ready); `allocator<T>` gains `copy_sync()`/`copy_async()` returning `copy_token`; 7+6+9+5 unit tests added* |
-| 4 | **[Done 2026-09-28]** Cheap counters, bounded diagnostics, Metal backing accounting | O(1) basic stats; accounting invariants; no telemetry-caused allocation failure; stable IDs and trace loss counts — *`bounded_trace_ring<Entry>` (preallocated, no-alloc push, overflow counting, snapshot copy, resize); `gpu_memory_trace_entry` extended to schema v2 (schema_version, requested_size, alloc_id, sequence_num, timestamp_ns); `gpu_memory_history` migrated from `std::deque` to `bounded_trace_ring`; legacy `record()` overload preserved; Metal `record_stream()` now sets completion token on block, `deallocate()` defers to pending-completion map, `mark_completion()` drains it; 11 ring/history unit tests* |
-| 5 | **[Done 2026-09-28]** CPU arenas, GPU workspaces, bounded staging, Metal completion tracking | End-to-end benefit with bounded memory and no premature reset/reuse — *`cpu_arena` (scoped bump allocator, lazy/preallocated backing, typed `alloc<T>()`, reset-without-free, OOM throw, move-only); `gpu_workspace` (GPU slab, 256-byte aligned `acquire()`, cursor `release()`, backing `reset()`, `rebind()`); `pinned_memory_allocator` gains `set_max_backing_bytes()`/`max_backing_bytes()` with trim-then-throw OOM enforcement; 8 arena + 5 workspace + 3 pinned-budget tests* |
-| 6 | **[Done 2026-09-28]** Native-cache tuning, optional driver pools and graph-aware extensions | Repeatable improvement over baseline; peer/multi-device/capture semantics validated before advertising support — *`device_handle_cache` (C++17 inline `thread_local` per-device handle array, `get()`/`invalidate()`/`clear()`); `cuda_malloc_async_allocator.h` (optional `cudaMallocAsync`/`cudaFreeAsync` wrapper, guarded by `MEMORY_USE_CUDA_MALLOC_ASYNC && (MEMORY_HAS_CUDA\|MEMORY_HAS_HIP)`); `gpu_graph_pool` skeleton (`capture_scope` RAII, `gpu_graph_pool` registry with `add()`/`get()`/`release()`/`reset()`, guarded by `MEMORY_HAS_CUDA\|MEMORY_HAS_HIP`)* |
+| 2 | **[Done 2026-09-28, Metal excluded]** Complete budget transactions and allocation validation | Retry/concurrency/fault tests respect budget; rollback on every failure; overflow/NaN/backend/alignment validation — *see findings 3 and 7 above; Metal heap/alignment validation deferred to Order 4/a future pass (no Apple hardware here)* |
+| 3 | **[Implementation done 2026-09-28; copy ordering fix 2026-09-29; handle-based overload added 2026-09-29]** Storage identity, retained views, explicit contexts and copy API | Sliced/adopted/multi-stream endpoints survive completion; dependencies explicit; compatibility preserved — *`storage_identity` (stable alloc IDs, atomic counter), `retained_ptr<T>` (shared ownership, typed slice, custom deleter), `execution_context` (device type/index/stream), `copy_token` (stream-aware wait/ready); `allocator<T>` gains `copy_sync()`/`copy_async()` returning `copy_token`; 7+6+9+5 unit tests added; 2026-09-29: `record_stream` now called before submission on both GPU endpoints; null-stream async copies now tracked (finding 4 ordering fixed); `copy_async(data_ptr<Src>, data_ptr<Dst>, stream)` free function added in `data_ptr.h` (guarantees base allocation — no interior/foreign risk); raw-pointer `copy_async` interior/foreign pre-flight and pageable CPU endpoint retention remain open* |
+| 4 | **[Implementation done 2026-09-28; Metal heap accounting and budget check fixed 2026-09-29]** Cheap counters, bounded diagnostics, Metal backing accounting | O(1) basic stats; accounting invariants; no telemetry-caused allocation failure; stable IDs and trace loss counts — *`bounded_trace_ring<Entry>` (preallocated, no-alloc push, overflow counting, snapshot copy, resize); `gpu_memory_trace_entry` extended to schema v2 (schema_version, requested_size, alloc_id, sequence_num, timestamp_ns); `gpu_memory_history` migrated from `std::deque` to `bounded_trace_ring`; legacy `record()` overload preserved; Metal `record_stream()` sets completion token on block, `deallocate()` defers to pending-completion map, `mark_completion()` drains it; 11 ring/history unit tests; 2026-09-29: `bytes_reserved` now tracks full heap capacity; `release_segment_locked` skips decrement for heap-backed blocks; `empty_cache` subtracts heap capacities before clearing (finding 5 accounting fixed); pre-flight budget check now uses `heap_cost` (`max(kSmallHeapBytes/kLargeHeapBytes, alloc_size)`) after trying existing heaps first (finding 5 budget check fixed)* |
+| 5 | **[Implementation done 2026-09-28; workspace quiescence enforcement and test 2026-09-29]** CPU arenas, GPU workspaces, bounded staging, Metal completion tracking | End-to-end benefit with bounded memory and no premature reset/reuse — *`cpu_arena` (scoped bump allocator, lazy/preallocated backing, typed `alloc<T>()`, reset-without-free, OOM throw, move-only); `gpu_workspace` (GPU slab, 256-byte aligned `acquire()`, cursor `release()`, backing `reset()`, `rebind()`); `pinned_memory_allocator` gains `set_max_backing_bytes()`/`max_backing_bytes()` with trim-then-throw OOM enforcement; 8 arena + 5 workspace + 3 pinned-budget tests; 2026-09-29: `rebind()` now CHECKs `cursor_ == 0` and is no longer `noexcept`; class-level quiescence contract explicit (finding 6 fixed); `GpuWorkspace.rebind_while_acquired_throws` test added* |
+| 6 | **[Interfaces done 2026-09-28; graph semantics not acceptance-validated]** Native-cache tuning, optional driver pools and graph-aware extensions | Repeatable improvement over baseline; peer/multi-device/capture semantics validated before advertising support — *`device_handle_cache` (C++17 inline `thread_local` per-device handle array, `get()`/`invalidate()`/`clear()`); `cuda_malloc_async_allocator.h` (optional `cudaMallocAsync`/`cudaFreeAsync` wrapper, guarded by `MEMORY_USE_CUDA_MALLOC_ASYNC && (MEMORY_HAS_CUDA\|MEMORY_HAS_HIP)`); `gpu_graph_pool` skeleton (`capture_scope` RAII, `gpu_graph_pool` registry with `add()`/`get()`/`release()`/`reset()`, guarded by `MEMORY_HAS_CUDA\|MEMORY_HAS_HIP`)* |
 
-Orders 0–6 complete as of 2026-09-28. Runtime CUDA/HIP tests for Orders 3–6
-remain pending (no GPU hardware on CI); Metal completion-tracking integration
-tests deferred (no Apple hardware). `gpu_graph_pool` is a skeleton — full graph
-semantics require validated CUDA graph capture before advertising support.
+Orders 0–6 source implementation complete as of 2026-09-28; all P1 code fixes
+applied 2026-09-29. Two hardware-blocked gaps remain:
+- Finding 8 (P0 churn corruption): open — do not mark Orders 0–6 fully accepted
+  until resolved under a debugger or working sanitizer (Linux ASan or WinDBG).
+- Order 6 acceptance gate requires validated CUDA graph capture, not just skeleton
+  interfaces; runtime CUDA/HIP tests for Orders 3–6 pending (no GPU hardware on CI);
+  Metal completion-tracking integration tests deferred (no Apple hardware).
+Residual soft gaps (no hardware to validate): typed-storage lifetime model (finding 7);
+raw-pointer `copy_async` interior/foreign-pointer pre-flight (finding 4); Metal
+completion-tracking integration.
 
 **Where the performance gains should come from**
 

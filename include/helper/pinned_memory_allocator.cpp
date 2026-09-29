@@ -455,24 +455,24 @@ struct pinned_memory_allocator::Impl
         trim(limit);
     }
 #else
-    void* allocate(std::size_t bytes)
+    static void* allocate(std::size_t bytes)
     {
         if (bytes == 0)
             return nullptr;
         throw std::runtime_error("Pinned host allocation requires the CUDA or HIP backend");
     }
-    bool deallocate(void* ptr) noexcept { return ptr == nullptr; }
-    void record_stream(const void* ptr, stream_type)
+    static bool deallocate(const void* ptr) noexcept { return ptr == nullptr; }
+    static void record_stream(const void* ptr, stream_type)
     {
         if (ptr)
             throw std::runtime_error("Pinned host streams require CUDA or HIP");
     }
-    void copy(void*, const void*, std::size_t bytes, stream_type, bool)
+    static void copy(void*, const void*, std::size_t bytes, stream_type, bool)
     {
         if (bytes)
             throw std::runtime_error("Pinned host transfers require CUDA or HIP");
     }
-    void collect(bool, std::size_t) {}
+    static void collect(bool, std::size_t) {}
 #endif
 };
 

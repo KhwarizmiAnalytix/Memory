@@ -1,0 +1,45 @@
+# cppcheck suppressions for XSigma Memory library
+#
+# Format: <id>[:<file>[:<line>]]
+# File paths are relative to the project root (where cppcheck is invoked).
+
+# ---------------------------------------------------------------------------
+# syntaxError: compiler built-in function-like macros cppcheck cannot evaluate
+# ---------------------------------------------------------------------------
+# memory_macros.h uses __has_cpp_attribute(...) and __has_attribute(...) in
+# #if conditions.  These are Clang/GCC/MSVC built-ins, not ordinary macros;
+# cppcheck 2.x cannot expand them in preprocessor conditionals and reports a
+# syntax error.  The guarded paths (C++20 [[likely]]/[[unlikely]] attributes
+# and thread-safety annotations) are correct; suppress the false parse failure.
+syntaxError:*memory_macros.h
+
+# memory_allocator.cpp uses the MEMORY_UNLIKELY macro as `if MEMORY_UNLIKELY
+# (cond)` — valid after expansion to `if (__builtin_expect(...))` or the C++20
+# attribute form, but cppcheck sees the unexpanded token and rejects it.
+syntaxError:*memory_allocator.cpp
+
+# gpu/cuda_caching_allocator.cpp has the same MEMORY_UNLIKELY pattern.
+syntaxError:*cuda_caching_allocator.cpp
+
+# copy_token.h triggers a spurious "namespacememory{" parse error only when
+# certain include combinations are analysed together — cppcheck token-merging
+# artifact, not a real issue.
+syntaxError:*copy_token.h
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# information: branch-limit notice from --check-level=normal
+# ---------------------------------------------------------------------------
+# When check-level=normal is active, cppcheck emits this notice once per TU.
+# It is informational only and not actionable.
+normalCheckLevelMaxBranches
+
+# ---------------------------------------------------------------------------
+# unusedFunction: library API functions
+# ---------------------------------------------------------------------------
+# All public API functions (allocator helpers, copy_sync/copy_async, workspace
+# accessors, caching-allocator stat helpers, NUMA utilities, etc.) are only
+# called by consumers outside the include/ tree.  cppcheck analyses include/
+# in isolation and cannot see those callers, so every public entry-point
+# appears "unused".  Suppress globally rather than annotating every header.
+unusedFunction

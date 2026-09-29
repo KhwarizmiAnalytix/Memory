@@ -141,6 +141,10 @@ constexpr int16_t kGpuDeviceType = 3;  // profiler::device_enum::PrivateUse1
 
 struct metal_caching_allocator::Impl
 {
+    // Heap granularity constants — shared by allocate() and make_heap_buffer().
+    static constexpr size_t kSmallHeapBytes = 16ull * 1024ull * 1024ull;
+    static constexpr size_t kLargeHeapBytes = 64ull * 1024ull * 1024ull;
+
     Impl(int device, size_t max_cached_bytes) : device_(device), max_cached_bytes_(max_cached_bytes)
     {
         LOGGING_CHECK(device == 0, "Metal caching allocator only supports device index 0");
@@ -179,22 +183,39 @@ struct metal_caching_allocator::Impl
         else
         {
             stats_.cache_misses++;
-            if (reserved_would_exceed_locked(alloc_size))
-            {
-                release_cached_blocks_locked();
-            }
-            if (reserved_would_exceed_locked(alloc_size))
-            {
-                fail_oom_locked(size);
-            }
-            block = alloc_segment_locked(pool, pool_stream, alloc_size, false);
+
+            // First, try to serve from an existing heap — zero new reservation,
+            // no budget check required.
+            block = alloc_segment_locked(pool, pool_stream, alloc_size, false,
+                                         /*only_existing=*/true);
+
             if (block == nullptr)
             {
-                release_cached_blocks_locked();
-                block = alloc_segment_locked(pool, pool_stream, alloc_size, true);
-                if (block == nullptr)
+                // No existing heap fits: a new heap (or standalone buffer) is
+                // needed.  Budget-check against the actual commitment: a new heap
+                // is kSmallHeapBytes or kLargeHeapBytes, not just alloc_size.
+                size_t const heap_cost = std::max(
+                    alloc_size <= kSmallBuffer ? kSmallHeapBytes : kLargeHeapBytes,
+                    alloc_size);
+                if (reserved_would_exceed_locked(heap_cost))
+                {
+                    release_cached_blocks_locked();
+                }
+                if (reserved_would_exceed_locked(heap_cost))
                 {
                     fail_oom_locked(size);
+                }
+                block = alloc_segment_locked(pool, pool_stream, alloc_size, false,
+                                             /*only_existing=*/false);
+                if (block == nullptr)
+                {
+                    release_cached_blocks_locked();
+                    block = alloc_segment_locked(pool, pool_stream, alloc_size, true,
+                                                 /*only_existing=*/false);
+                    if (block == nullptr)
+                    {
+                        fail_oom_locked(size);
+                    }
                 }
             }
         }
@@ -315,6 +336,10 @@ struct metal_caching_allocator::Impl
         release_cached_blocks_locked();
         if (allocated_blocks_.empty())
         {
+            for (auto const& [_heap, cap] : heaps_)
+            {
+                stats_.bytes_reserved -= cap;
+            }
             heaps_.clear();
         }
     }
@@ -578,16 +603,24 @@ private:
         return block;
     }
 
-    id<MTLBuffer> make_heap_buffer(id<MTLDevice> dev, size_t alloc_size)
+    // Allocates a buffer of alloc_size from a heap or standalone.
+    // Sets *out_reserved to the net new bytes committed to the driver:
+    //   0            — reused an existing heap (capacity already counted)
+    //   heap_bytes   — created a new heap (heap capacity is now reserved)
+    //   alloc_size   — standalone fallback (one buffer, no heap overhead)
+    //
+    // When only_existing is true, only existing heaps are tried; returns nil
+    // (with *out_reserved = 0) if none can serve the request without a new
+    // driver allocation.  This lets callers budget-check against the heap cost
+    // before committing to a new backing allocation.
+    id<MTLBuffer> make_heap_buffer(
+        id<MTLDevice> dev, size_t alloc_size, size_t* out_reserved,
+        bool only_existing = false)
     {
-        // Pack segments into Automatic shared heaps so Metal can recycle the
-        // backing store instead of issuing one newBufferWithLength per miss.
-        constexpr size_t kSmallHeapBytes = 16ull * 1024ull * 1024ull;
-        constexpr size_t kLargeHeapBytes = 64ull * 1024ull * 1024ull;
         size_t const class_bytes = alloc_size <= kSmallBuffer ? kSmallHeapBytes : kLargeHeapBytes;
         MTLResourceOptions const opts = MTLResourceStorageModeShared;
 
-        for (id<MTLHeap> heap : heaps_)
+        for (auto const& [heap, _cap] : heaps_)
         {
             if ([heap maxAvailableSizeWithAlignment:256] < alloc_size)
             {
@@ -596,15 +629,18 @@ private:
             id<MTLBuffer> buffer = [heap newBufferWithLength:alloc_size options:opts];
             if (buffer != nil)
             {
+                *out_reserved = 0;
                 return buffer;
             }
         }
 
-        size_t heap_bytes = class_bytes;
-        if (heap_bytes < alloc_size)
+        if (only_existing)
         {
-            heap_bytes = alloc_size;
+            *out_reserved = 0;
+            return nil;
         }
+
+        size_t const heap_bytes = std::max(class_bytes, alloc_size);
 
         MTLHeapDescriptor* desc = [[MTLHeapDescriptor alloc] init];
         desc.type               = MTLHeapTypeAutomatic;
@@ -613,19 +649,26 @@ private:
         id<MTLHeap> heap        = [dev newHeapWithDescriptor:desc];
         if (heap != nil)
         {
-            heaps_.push_back(heap);
+            heaps_.push_back({heap, heap_bytes});
             id<MTLBuffer> buffer = [heap newBufferWithLength:alloc_size options:opts];
             if (buffer != nil)
             {
+                *out_reserved = heap_bytes;  // full heap capacity, not just alloc_size
                 return buffer;
             }
+            // Allocation from the fresh heap failed — discard it.
+            heaps_.pop_back();
         }
 
-        return [dev newBufferWithLength:alloc_size options:opts];
+        // Standalone fallback: one buffer with no heap overhead.
+        id<MTLBuffer> buffer = [dev newBufferWithLength:alloc_size options:opts];
+        *out_reserved = (buffer != nil) ? alloc_size : 0;
+        return buffer;
     }
 
     cache_block* alloc_segment_locked(
-        block_pool& pool, void* stream, size_t alloc_size, bool is_retry)
+        block_pool& pool, void* stream, size_t alloc_size, bool is_retry,
+        bool only_existing = false)
     {
         if (is_retry)
         {
@@ -642,7 +685,8 @@ private:
         // a successfully created MTLBuffer.
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool, nil);
 
-        id<MTLBuffer> buffer = make_heap_buffer(dev, alloc_size);
+        size_t        reserved_delta = 0;
+        id<MTLBuffer> buffer         = make_heap_buffer(dev, alloc_size, &reserved_delta, only_existing);
         if (buffer == nil)
         {
             return nullptr;
@@ -653,7 +697,7 @@ private:
         block->registration_counter =
             registration_counter_global_.fetch_add(1, std::memory_order_relaxed) + 1;
         stats_.driver_allocations++;
-        stats_.bytes_reserved += alloc_size;
+        stats_.bytes_reserved += reserved_delta;  // heap capacity or standalone size
         bump_peak_locked(
             stats_.peak_bytes_reserved, stats_.bytes_reserved.load(std::memory_order_relaxed));
         record_trace_locked(gpu_memory_trace_action::segment_alloc, block->ptr, alloc_size);
@@ -756,7 +800,14 @@ private:
         // Only whole segments (never split) can be returned to Metal.
         stats_.driver_frees++;
         stats_.cache_evictions++;
-        stats_.bytes_reserved -= block->size;
+        // Heap-backed buffers do not decrement bytes_reserved here: the heap's
+        // capacity was reserved at heap-creation time and is subtracted when the
+        // heap itself is freed (in empty_cache).  Standalone buffers (no heap)
+        // own their reservation individually.
+        if (block->buffer == nil || [block->buffer heap] == nil)
+        {
+            stats_.bytes_reserved -= block->size;
+        }
         record_trace_locked(gpu_memory_trace_action::segment_free, block->ptr, block->size);
         block->buffer = nil;  // ARC releases the MTLBuffer
         delete block;
@@ -882,7 +933,7 @@ private:
     std::atomic<int64_t>                                       registration_counter_global_{0};
     unified_cache_stats                                        stats_;
     gpu_memory_history                                         history_;
-    std::vector<id<MTLHeap>>                                   heaps_;
+    std::vector<std::pair<id<MTLHeap>, size_t>>                heaps_;  // heap + capacity
     // Command-buffer completion tracking (Order 5): token → deferred blocks.
     std::unordered_map<void*, std::vector<cache_block*>>       pending_completion_;
 };

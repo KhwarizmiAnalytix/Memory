@@ -41,8 +41,10 @@
 
 #endif
 
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
 #include "gpu/caching_allocator_config.h"  // for caching_config::kMinBlockSize
+#endif
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 #endif
@@ -181,15 +183,15 @@ public:
                     "GPU hardware); use device_enum::CPU for double tensors.");
             }
 #endif
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-            // The CUDA/HIP segment cache rounds every block to a kMinBlockSize
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+            // The GPU segment cache rounds every block to a kMinBlockSize
             // multiple and does not thread a caller alignment through block
             // splitting/reuse; it cannot guarantee more than that. Reject
             // requests it cannot satisfy rather than silently under-aligning.
             if constexpr (alignment > gpu::caching_config::kMinBlockSize)
             {
                 throw std::invalid_argument(
-                    "allocator<T, alignment>: CUDA/HIP caching allocator guarantees at most "
+                    "allocator<T, alignment>: GPU caching allocator guarantees at most "
                     "kMinBlockSize-byte alignment; requested alignment exceeds it");
             }
 #endif
@@ -385,6 +387,23 @@ public:
         if (from_type == device_enum::CUDA || to_type == device_enum::CUDA ||
             from_type == device_enum::HIP || to_type == device_enum::HIP)
         {
+            // Register stream uses on GPU endpoints BEFORE enqueuing the copy.
+            // This closes the window between submission and registration: a
+            // deallocation arriving between cudaMemcpyAsync and record_stream
+            // could reclaim a block that the in-flight copy still references.
+            // null stream is the legacy default CUDA stream — a valid stream
+            // identity, not "no stream" (see cuda_caching_allocator::record_stream).
+            // copy_sync passes stream=nullptr and is caller-responsible for blocking;
+            // copy_async always passes a non-null stream.
+            if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
+            {
+                record_stream(const_cast<pointer>(from), from_type, from_index, stream);
+            }
+            if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
+            {
+                record_stream(to, to_type, to_index, stream);
+            }
+
             cudaError_t result = cudaSuccess;
             if ((from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
                 (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
@@ -437,26 +456,6 @@ public:
                 throw std::runtime_error(
                     "GPU memory copy failed: " + std::string(cudaGetErrorString(result)));
             }
-            // An async copy (stream != nullptr, cudaMemcpy{,Peer}Async above)
-            // has not necessarily completed when this call returns: it only
-            // enqueued work on `stream`. Neither endpoint's caching allocator
-            // otherwise learns that `stream` touches this memory, so a GPU
-            // block freed right after this call could be reused (and
-            // overwritten) by a new allocation before the copy actually
-            // finishes. Recording the use on both GPU endpoints defers their
-            // reclamation until `stream` catches up, the same protection
-            // record_stream() gives an explicit kernel launch.
-            if (stream != nullptr)
-            {
-                if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
-                {
-                    record_stream(const_cast<pointer>(from), from_type, from_index, stream);
-                }
-                if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
-                {
-                    record_stream(to, to_type, to_index, stream);
-                }
-            }
             return;
         }
 #elif MEMORY_HAS_METAL
@@ -491,9 +490,12 @@ public:
     }
 
     // copy_async: enqueue a non-blocking copy on @p stream and return a
-    // copy_token.  Both GPU endpoints have record_stream called before the
-    // token is returned so the caching allocator defers their reuse until the
-    // stream catches up, regardless of whether the caller holds the token.
+    // copy_token.  Both GPU endpoints have record_stream called BEFORE the
+    // copy is submitted, so the caching allocator defers their reuse until
+    // the stream catches up regardless of whether the caller holds the token.
+    // record_stream requires the pointer to be a live allocation from this
+    // caching allocator; interior or foreign GPU pointers are caller-managed
+    // (record_stream will CHECK-fail if the base is not found in the cache).
     // For pageable CPU endpoints the caller must wait() the token before
     // accessing the host buffer again.
     MEMORY_FORCE_INLINE static copy_token copy_async(
@@ -508,8 +510,11 @@ public:
     {
         copy(from, n, to, from_type, to_type, from_index, to_index, stream);
         // Build a context that identifies which device/stream to wait on.
-        device_enum gpu_dev = (is_active_gpu_device(to_type) ? to_type : from_type);
-        int         gpu_idx = (is_active_gpu_device(to_type) ? to_index : from_index);
+        // Use is_gpu_device (enum-based) rather than is_active_gpu_device
+        // (compile-time backend check) so the selection is based on whether the
+        // endpoint IS a GPU device, not on which backend happens to be compiled in.
+        device_enum gpu_dev = (is_gpu_device(to_type) ? to_type : from_type);
+        int         gpu_idx = (is_gpu_device(to_type) ? to_index : from_index);
         execution_context ctx;
         ctx.device_type  = gpu_dev;
         ctx.device_index = gpu_idx;

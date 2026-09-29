@@ -78,7 +78,7 @@ def build_cppcheck_command(
     output_file: str,
     max_parallel_jobs: int = 8,
     additional_includes: Optional[list[str]] = None,
-    check_level: str = "exhaustive",
+    check_level: str = "normal",
     exclude_patterns: Optional[list[str]] = None,
 ) -> list[str]:
     """

@@ -76,7 +76,7 @@ int GetNumNUMANodes()
 #endif
 }
 
-void NUMAMove(void* ptr, size_t size, int numa_node_id)
+void NUMAMove(const void* ptr, size_t size, int numa_node_id)
 {
 #if MEMORY_HAS_NUMA
     if (numa_node_id < 0)

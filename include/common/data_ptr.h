@@ -197,6 +197,37 @@ private:
     bool        aligned_{false};
 };
 
+// Handle-based copy_async: both endpoints are data_ptr base allocations so
+// record_stream is guaranteed to find them in the caching allocator (no
+// interior or foreign pointer risk). sizeof(Src) must equal sizeof(Dst);
+// element counts must match. The caller must keep both data_ptrs alive until
+// token.wait() returns — the token does not retain them.
+template <typename Src, typename Dst>
+MEMORY_FORCE_INLINE copy_token copy_async(
+    data_ptr<Src> const&                from,
+    data_ptr<Dst>&                      to,
+    typename allocator<Src>::stream_t   stream)
+{
+    static_assert(
+        sizeof(Src) == sizeof(Dst),
+        "copy_async: source and destination element sizes must match");
+    if (from.size() != to.size())
+    {
+        throw std::invalid_argument("copy_async: element count mismatch between endpoints");
+    }
+    // Byte-level copy via allocator<uint8_t> so the two element types need not
+    // be the same type — only the same size (checked above via static_assert).
+    return allocator<uint8_t>::copy_async(
+        reinterpret_cast<const uint8_t*>(from.data()),
+        from.size() * sizeof(Src),
+        reinterpret_cast<uint8_t*>(to.data()),
+        stream,
+        from.device(),
+        to.device(),
+        from.device_index(),
+        to.device_index());
+}
+
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
     : data_view(

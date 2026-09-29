@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <include/util/exception.h>
+
 #include "common/device.h"
 #include "common/memory_macros.h"
 #include "common/execution_context.h"
@@ -34,8 +36,15 @@ namespace memory::gpu
 //   - One gpu_workspace per operator (or one per stream, shared across calls).
 //   - acquire() returns a raw pointer into the slab; the caller must not
 //     hold this pointer across a subsequent acquire() or reset() call.
-//   - release() returns the slab to "fully available" state; any previous
-//     acquire() pointers are invalidated.
+//   - release() resets the cursor only — it does NOT synchronize the stream.
+//     The caller must ensure the GPU stream has completed all work that uses
+//     the acquired slices BEFORE calling release() if those slices will be
+//     re-acquired for new work on a DIFFERENT stream.  For same-stream reuse
+//     (the typical pattern), stream ordering guarantees safety without an
+//     explicit sync.
+//   - rebind() to a different stream requires BOTH release() AND that the
+//     old stream is quiescent.  rebind() enforces the release() pre-condition
+//     with a CHECK; stream quiescence is caller-managed.
 //   - If capacity is exceeded, acquire() throws std::bad_alloc; the caller
 //     should fall back to a fresh allocator<T>::allocate() call.
 //
@@ -122,14 +131,21 @@ public:
     void reset() { release_backing(); }
 
     // Re-bind to a different execution context (e.g. a new stream each call).
-    // Calling this while slices are acquired leads to record_stream mismatches;
-    // always call release() before rebind().
+    // Pre-conditions (enforced for the release() call; stream quiescence is
+    // caller-managed — see class comment):
+    //   - release() must have been called: CHECKs that cursor_ == 0.
     //
     // If the new context targets a different device than the current backing
     // allocation, the backing is freed here (on the original device) before the
-    // context is updated.  A same-device rebind retains the cached backing slab.
-    void rebind(execution_context ctx) noexcept
+    // context is updated.  A same-device rebind retains the cached backing slab;
+    // the caller must ensure the old stream is quiescent before issuing new
+    // work through acquire() on the new stream.
+    void rebind(execution_context ctx)
     {
+        LOGGING_CHECK(
+            cursor_ == 0,
+            "gpu_workspace::rebind called while slices are still acquired (cursor > 0); "
+            "call release() before rebind()");
         if (backing_ != nullptr && ctx.device_index != ctx_.device_index)
         {
             release_backing();  // free on original device before switching
