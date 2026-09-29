@@ -14,7 +14,7 @@ def logging_defines():
     """
     defines = xsigma_defines()
 
-    # Logging backend — mutually exclusive; default LOGURU (matches CMake LOGGING_BACKEND default)
+    # Logging backend — mutually exclusive; default NATIVE
     defines += select({
         "//bazel:logging_glog": [
             "LOGGING_HAS_LOGURU=0",
@@ -28,12 +28,6 @@ def logging_defines():
             "LOGGING_HAS_NATIVE=1",
             "LOGGING_HAS_SPDLOG=0",
         ],
-        "//bazel:logging_loguru": [
-            "LOGGING_HAS_LOGURU=1",
-            "LOGGING_HAS_GLOG=0",
-            "LOGGING_HAS_NATIVE=0",
-            "LOGGING_HAS_SPDLOG=0",
-        ],
         "//bazel:logging_spdlog": [
             "LOGGING_HAS_LOGURU=0",
             "LOGGING_HAS_GLOG=0",
@@ -41,10 +35,10 @@ def logging_defines():
             "LOGGING_HAS_SPDLOG=1",
             "SPDLOG_FMT_EXTERNAL=1",
         ],
-        "//conditions:default": [  # LOGURU when no --define=logging_backend (matches CMake default)
-            "LOGGING_HAS_LOGURU=1",
+        "//conditions:default": [  # NATIVE when no --define=logging_backend
+            "LOGGING_HAS_LOGURU=0",
             "LOGGING_HAS_GLOG=0",
-            "LOGGING_HAS_NATIVE=0",
+            "LOGGING_HAS_NATIVE=1",
             "LOGGING_HAS_SPDLOG=0",
         ],
     })

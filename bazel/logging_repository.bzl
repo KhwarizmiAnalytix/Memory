@@ -71,6 +71,19 @@ for name in os.listdir(src):
         repository_ctx.read(repository_ctx.attr.build_file),
     )
 
+    # Overwrite bazel/logging.bzl with the Memory repo's version so that
+    # `//bazel:logging.bzl` (resolved inside @@logging) uses our backend
+    # defaults (NATIVE) rather than the submodule's (LOGURU).
+    logging_bzl = repository_ctx.path(
+        str(repository_ctx.workspace_root) + "/bazel/logging.bzl"
+    )
+    if logging_bzl.exists:
+        repository_ctx.file(
+            "bazel/logging.bzl",
+            repository_ctx.read(logging_bzl),
+            executable = False,
+        )
+
 local_logging_repository = repository_rule(
     implementation = _local_logging_repository_impl,
     attrs = {

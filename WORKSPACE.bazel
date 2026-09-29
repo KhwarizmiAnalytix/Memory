@@ -15,6 +15,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # =============================================================================
 http_archive(
     name = "bazel_skylib",
+    sha256 = "66ffd9315665bfaafc96b52278f57c7e2dd09f5ede279ea6d39b2be471e7e3aa",
     urls = [
         "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.4.2/bazel-skylib-1.4.2.tar.gz",
         "https://github.com/bazelbuild/bazel-skylib/releases/download/1.4.2/bazel-skylib-1.4.2.tar.gz",
@@ -26,11 +27,32 @@ load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 bazel_skylib_workspace()
 
 # =============================================================================
-# fmt / mimalloc — vendored nested submodules (ThirdParty/)
+# CUDA Toolkit — @local_config_cuda wraps the installed CUDA toolkit.
+# Path mirrors the default NVIDIA GPU Computing Toolkit install on Windows.
+# Update the path if the toolkit version changes.
+# =============================================================================
+new_local_repository(
+    name = "local_config_cuda",
+    path = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2",
+    build_file = "//ThirdParty:cuda.BUILD",
+)
+
+# =============================================================================
+# TBB — system-installed oneTBB, found via TBB_ROOT / TBB_DIR / TBBROOT.
+# Mirrors cmake/tbb_memory.cmake's find_package(TBB) pattern: no vendored
+# ThirdParty/tbb submodule. Required when --define=memory_enable_tbb=true.
+# =============================================================================
+load("//bazel:tbb_repository.bzl", "tbb_repository")
+
+tbb_repository(name = "tbb")
+
+# =============================================================================
+# fmt — resolved from the Logging submodule's own bundled copy.
+# mimalloc — vendored nested submodule (ThirdParty/)
 # =============================================================================
 new_local_repository(
     name = "fmt",
-    path = "ThirdParty/fmt",
+    path = "ThirdParty/Logging/ThirdParty/fmt",
     build_file = "//ThirdParty:fmt.BUILD",
 )
 
@@ -48,9 +70,10 @@ local_repository(
     path = "ThirdParty/googletest",
 )
 
-local_repository(
+new_local_repository(
     name = "com_google_benchmark",
     path = "ThirdParty/benchmark",
+    build_file = "//ThirdParty:benchmark.BUILD",
 )
 
 # =============================================================================
@@ -60,14 +83,8 @@ local_repository(
 # vendored tree, using the same local-repository-with-overlay technique
 # XSigma itself uses for its own ThirdParty/logging.BUILD.
 
-# Logging's own nested submodules for its default LOGURU backend and
-# magic_enum support (mirrors ThirdParty/Logging/WORKSPACE.bazel).
-new_local_repository(
-    name = "loguru",
-    path = "ThirdParty/Logging/ThirdParty/loguru",
-    build_file = "//ThirdParty:loguru.BUILD",
-)
-
+# Logging's own nested submodule for magic_enum support
+# (mirrors ThirdParty/Logging/WORKSPACE.bazel).
 new_local_repository(
     name = "magic_enum",
     path = "ThirdParty/Logging/ThirdParty/magic_enum",

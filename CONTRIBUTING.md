@@ -9,14 +9,14 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Switch backend / options with `-DLOGGING_BACKEND=SPDLOG|GLOG|NATIVE|LOGURU` and any
+Switch backend / options with `-DLOGGING_BACKEND=SPDLOG|GLOG|NATIVE` and any
 `-DLOGGING_ENABLE_*` flag documented in [README.md](README.md#cmake-options). Bazel:
 `bazel test //...` (see [README.md](README.md#bazel-flags) for `--define` flags).
 
 ## Before opening a PR
 
-- Run the test suite against at least the default backend (`LOGURU`); if your change
-  touches backend-dispatch code, build all four (`LOGURU`, `SPDLOG`, `GLOG`, `NATIVE`).
+- Run the test suite against at least the default backend (`NATIVE`); if your change
+  touches backend-dispatch code, build all three (`NATIVE`, `SPDLOG`, `GLOG`).
 - For changes touching memory or object lifetime, build with a sanitizer:
   ```bash
   cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \

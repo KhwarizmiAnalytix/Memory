@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
-"""Logging Bazel Build Configuration Script.
+"""Memory Bazel Build Configuration Script.
 
 Design follows KhwarizmiAnalytix/XSigma's Scripts/setup_bazel.py (dotted-token
 CLI, BazelConfiguration class, the llvm-profdata/llvm-cov coverage pipeline
 that works around Bazel's own broken C++ coverage merging) scoped down to
 what this standalone repo's bazel/BUILD.bazel and .bazelrc actually wire up:
-one flat `//:Logging` target plus the `--define=` keys bazel/BUILD.bazel's
-config_settings actually consume (logging_backend, build_shared_libs,
-logging_enable_magic_enum, logging_enable_cxa_demangle,
-logging_enable_portable_float_format, logging_format_use_std,
-logging_default_exception_mode) — there is no per-module Library/* tree,
-no --config=clang/gcc/asan (not defined in this repo's minimal .bazelrc), and
-no GPU/MKL/vectorization backends.
+one flat `//...` target tree plus the `--define=` keys bazel/BUILD.bazel's
+config_settings actually consume (memory_gpu_backend, memory_enable_tbb,
+memory_enable_mimalloc, memory_enable_numa, memory_enable_memkind,
+memory_enable_profiler, build_shared_libs) — there is no per-module Library/*
+tree, no --config=clang/gcc/asan (not defined in this repo's minimal .bazelrc),
+and no logging-backend selector.
+
+TBB is not a vendored submodule: `tbb` resolves via the TBB_ROOT / TBB_DIR /
+TBBROOT environment variable (mirrors cmake/tbb_memory.cmake's find_package
+pattern). Set TBB_ROOT before using the `tbb` token.
 
 Usage:
     python Scripts/setup_bazel.py config.build.test
     python Scripts/setup_bazel.py build.test.release
-    python Scripts/setup_bazel.py test --backend.glog
+    python Scripts/setup_bazel.py build.test.cuda
+    python Scripts/setup_bazel.py build.test.tbb.vv
     python Scripts/setup_bazel.py coverage
+    python Scripts/setup_bazel.py config.build.test.benchmark.cuda.clangtidy.cppcheck.iwyu.spell.tbb.vv
 """
 
 import os
@@ -87,20 +92,17 @@ def bazel_prefix() -> list[str]:
 # "CMake-only" warning instead of a silent no-op.
 _SANITIZER_NAMES = {"address", "undefined", "thread", "memory", "leak"}
 
-
-_BACKEND_NAMES = {"native", "loguru", "glog", "spdlog"}
+# GPU backend names that map to --define=memory_gpu_backend=<name>.
+_GPU_BACKEND_NAMES = {"cuda", "hip", "metal"}
 
 
 def _merge_dotted_segments(parts: list[str]) -> list[str]:
-    """Merge split segments like backend.glog, sanitizer.address into single tokens."""
+    """Merge split segments like sanitizer.address, lto.thin into single tokens."""
     out: list[str] = []
     pl = [p.lower() for p in parts]
     i = 0
     while i < len(pl):
-        if pl[i] == "backend" and i + 1 < len(pl) and pl[i + 1] in _BACKEND_NAMES:
-            out.append(pl[i + 1])
-            i += 2
-        elif pl[i] == "sanitizer" and i + 1 < len(pl) and pl[i + 1] in _SANITIZER_NAMES:
+        if pl[i] == "sanitizer" and i + 1 < len(pl) and pl[i + 1] in _SANITIZER_NAMES:
             out.append(f"sanitizer.{pl[i + 1]}")
             i += 2
         elif pl[i] == "lto" and i + 1 < len(pl) and pl[i + 1] in ("off", "thin", "full", "ipo", "auto"):
@@ -115,8 +117,8 @@ def _merge_dotted_segments(parts: list[str]) -> list[str]:
     return out
 
 
-class LoggingBazelConfiguration:
-    """Manages Bazel build configuration and execution for the Logging repo."""
+class MemoryBazelConfiguration:
+    """Manages Bazel build configuration and execution for the Memory repo."""
 
     def __init__(self, args: list[str]) -> None:
         self.args = args
@@ -142,45 +144,69 @@ class LoggingBazelConfiguration:
         self.compiler_c: Optional[str] = None
         self.compiler_cxx: Optional[str] = None
 
-        # Mirrors CMake LOGGING_BACKEND (native | loguru | glog | spdlog); None =
-        # bazel/BUILD.bazel's own default (loguru, via logging.bzl's select()).
-        self.logging_backend: Optional[str] = None
-        # bazel/BUILD.bazel's :shared_libs config_setting; Bazel's own default (no
-        # --define) is a *static* link, the opposite of CMake's standalone default.
+        # --- Memory Bazel --define flags (bazel/BUILD.bazel config_settings) ---
+
+        # MEMORY_GPU_BACKEND: none (default), cuda, hip, metal.
+        self.gpu_backend: Optional[str] = None  # None → no --define added (stays "none")
+
+        # MEMORY_ENABLE_TBB: off by default; token 'tbb' enables it.
+        self.enable_tbb: bool = False
+
+        # MEMORY_ENABLE_MIMALLOC: ON by default; token 'nomimalloc' disables it.
+        self.disable_mimalloc: bool = False
+
+        # MEMORY_ENABLE_NUMA: off by default; token 'numa' enables it.
+        self.enable_numa: bool = False
+
+        # MEMORY_ENABLE_MEMKIND: off by default; token 'memkind' enables it.
+        self.enable_memkind: bool = False
+
+        # MEMORY_ENABLE_PROFILER: .bazelrc sets false by default; 'profiler' re-enables.
+        self.enable_profiler: bool = False
+
+        # BUILD_SHARED_LIBS: Bazel's own default (no --define) is static.
         self.shared_libs: bool = False
 
-        # These five ARE wired to real bazel/BUILD.bazel config_settings (unlike
-        # Parallel, which has no equivalent feature flags at all).
-        self.disable_magic_enum: bool = False
-        self.disable_cxa_demangle: bool = False
-        self.portable_float_format: bool = False
-        self.std_format: bool = False
-        self.exception_mode: Optional[str] = None  # None | "log_fatal"
+        # --- Bazel-wired tool flags ---
 
-        # CMake-only flags — not wired to any Bazel --config/--define in this repo's
-        # bazel/BUILD.bazel or .bazelrc; tracked only so the summary/warnings are accurate.
+        # valgrind: --run_under=valgrind on the test command (Linux/macOS only).
+        self.valgrind: bool = False
+
+        # linker: --linkopt=-fuse-ld=<value> (e.g. linker.lld → -fuse-ld=lld).
+        self.linker: Optional[str] = None
+
+        # lto: --copt/-linkopt for -flto[=thin|full] (Clang; Linux/macOS only).
+        self.lto_mode: Optional[str] = None
+
+        # --- Analysis / quality tools (run as post-build subprocess steps) ---
+        # spell: codespell on source files.
         self.spell: bool = False
+        # clangtidy / fix: clang-tidy (--fix applies fixes).
         self.clangtidy: bool = False
         self.fix: bool = False
+        # iwyu: include-what-you-use.
         self.iwyu: bool = False
-        self.valgrind: bool = False
-        self.icecc: bool = False
-        self.examples: bool = False
+        # cppcheck: static analysis.
         self.cppcheck: bool = False
-        self.cache: bool = False
-        self.sanitizer: Optional[str] = None
-        self.lto_mode: Optional[str] = None
-        self.linker: Optional[str] = None
+        # benchmark: build/run benchmark targets (included in //...).
+        self.benchmark: bool = False
+
+        # --- Genuinely N/A for Bazel ---
+        self.icecc: bool = False    # icecc is distcc-style; Bazel uses --spawn_strategy
+        self.examples: bool = False  # no separate examples targets in this Bazel build
+        self.cache: bool = False     # use --disk_cache / --remote_cache directly
+        self.sanitizer: Optional[str] = None  # no sanitizer --config in this repo's .bazelrc
 
         self._parse_arguments()
         self._apply_defaults()
 
-    def _cmake_only(self, token: str, attr: Optional[str] = None) -> None:
+    def _na_token(self, token: str, attr: Optional[str] = None) -> None:
+        """Mark a token that has no equivalent in this repo's Bazel setup."""
         if attr:
             setattr(self, attr, True)
         print_status(
-            f"Token '{token}': CMake-only (Scripts/setup.py) — not wired to a Bazel "
-            "--config/--define in this repo's bazel/BUILD.bazel or .bazelrc.",
+            f"Token '{token}': no Bazel equivalent in this repo "
+            "(use --spawn_strategy / --disk_cache / --remote_cache directly).",
             "WARNING",
         )
 
@@ -197,59 +223,56 @@ class LoggingBazelConfiguration:
                 self.build_type = arg_lower
             elif arg_lower in ["cxx17", "cxx20", "cxx23"]:
                 self.cxx_standard = arg_lower
-            elif arg_lower in _BACKEND_NAMES:
-                self.logging_backend = arg_lower
-            elif arg_lower.startswith("backend."):
-                backend = arg_lower.split(".", 1)[1]
-                if backend in _BACKEND_NAMES:
-                    self.logging_backend = backend
-                else:
-                    print_status(f"Invalid logging backend '{backend}'. Use native, loguru, glog, or spdlog.", "ERROR")
-                    sys.exit(1)
+            elif arg_lower in _GPU_BACKEND_NAMES:
+                if arg_lower == "metal" and self.system != "Darwin":
+                    print_status(
+                        "Token 'metal': --define=memory_gpu_backend=metal is only supported on Apple platforms.",
+                        "WARNING",
+                    )
+                self.gpu_backend = arg_lower
+            elif arg_lower == "tbb":
+                self.enable_tbb = True
+            elif arg_lower in ("nomimalloc", "no_mimalloc"):
+                self.disable_mimalloc = True
+            elif arg_lower == "numa":
+                self.enable_numa = True
+            elif arg_lower == "memkind":
+                self.enable_memkind = True
+            elif arg_lower == "profiler":
+                self.enable_profiler = True
             elif arg_lower in ("shared", "static"):
-                # CMake's BUILD_SHARED_LIBS defaults ON for this repo; Bazel's own
-                # default (no define) is static, so both spellings are accepted and
-                # only "static" (or omitting the token) keeps Bazel's real default.
                 self.shared_libs = arg_lower == "shared"
-            elif arg_lower in ("nomagicenum", "no_magicenum"):
-                self.disable_magic_enum = True
-            elif arg_lower in ("nocxademangle", "no_cxademangle"):
-                self.disable_cxa_demangle = True
-            elif arg_lower == "portablefloat":
-                self.portable_float_format = True
-            elif arg_lower == "stdformat":
-                self.std_format = True
-            elif arg_lower == "logfatal":
-                self.exception_mode = "log_fatal"
-            elif arg_lower == "throw":
-                self.exception_mode = None
+            elif arg_lower == "benchmark":
+                self.benchmark = True
             elif arg_lower.startswith("sanitizer."):
                 self.sanitizer = arg_lower.split(".", 1)[1]
-                self._cmake_only(arg_lower)
+                print_status(
+                    f"Token '{arg_lower}': sanitizer configs are not defined in this repo's "
+                    ".bazelrc — use a custom --config or --copt=-fsanitize=address directly.",
+                    "WARNING",
+                )
             elif arg_lower.startswith("lto"):
-                self.lto_mode = arg_lower.split(".", 1)[1] if "." in arg_lower else "auto"
-                self._cmake_only(arg_lower)
+                self.lto_mode = arg_lower.split(".", 1)[1] if "." in arg_lower else "thin"
             elif arg_lower.startswith("linker."):
                 self.linker = arg_lower.split(".", 1)[1]
-                self._cmake_only(arg_lower)
             elif arg_lower == "spell":
-                self._cmake_only(arg_lower, "spell")
+                self.spell = True
             elif arg_lower in ("clangtidy", "clang-tidy", "clang_tidy"):
-                self._cmake_only(arg_lower, "clangtidy")
+                self.clangtidy = True
             elif arg_lower == "fix":
-                self._cmake_only(arg_lower, "fix")
+                self.fix = True
             elif arg_lower == "iwyu":
-                self._cmake_only(arg_lower, "iwyu")
+                self.iwyu = True
             elif arg_lower == "valgrind":
-                self._cmake_only(arg_lower, "valgrind")
+                self.valgrind = True
             elif arg_lower == "icecc":
-                self._cmake_only(arg_lower, "icecc")
+                self._na_token(arg_lower, "icecc")
             elif arg_lower == "examples":
-                self._cmake_only(arg_lower, "examples")
+                self._na_token(arg_lower, "examples")
             elif arg_lower == "cppcheck":
-                self._cmake_only(arg_lower, "cppcheck")
+                self.cppcheck = True
             elif arg_lower in ("cache", "cache_type"):
-                self._cmake_only(arg_lower, "cache")
+                self._na_token(arg_lower, "cache")
             elif arg_lower == "vv":
                 self.verbose_tests = True
             elif arg_lower == "batch":
@@ -311,31 +334,51 @@ class LoggingBazelConfiguration:
         if self.compiler_cxx:
             flags.append(f"--repo_env=CXX={self.compiler_cxx}")
 
-        if self.logging_backend:
-            flags.append(f"--define=logging_backend={self.logging_backend}")
-
+        # Memory feature --define flags (bazel/BUILD.bazel config_settings).
+        if self.gpu_backend:
+            flags.append(f"--define=memory_gpu_backend={self.gpu_backend}")
+        if self.enable_tbb:
+            flags.append("--define=memory_enable_tbb=true")
+        if self.disable_mimalloc:
+            flags.append("--define=memory_enable_mimalloc=false")
+        if self.enable_numa:
+            flags.append("--define=memory_enable_numa=true")
+        if self.enable_memkind:
+            flags.append("--define=memory_enable_memkind=true")
+        if self.enable_profiler:
+            # .bazelrc sets memory_enable_profiler=false by default; this re-enables it.
+            flags.append("--define=memory_enable_profiler=true")
         if self.shared_libs:
             flags.append("--define=build_shared_libs=true")
-
-        if self.disable_magic_enum:
-            flags.append("--define=logging_enable_magic_enum=false")
-
-        if self.disable_cxa_demangle:
-            flags.append("--define=logging_enable_cxa_demangle=false")
-
-        if self.portable_float_format:
-            flags.append("--define=logging_enable_portable_float_format=true")
-
-        if self.std_format:
-            flags.append("--define=logging_format_use_std=true")
-
-        if self.exception_mode == "log_fatal":
-            flags.append("--define=logging_default_exception_mode=log_fatal")
 
         if self.cxx_standard:
             std_version = self.cxx_standard.replace("cxx", "")
             flags.append(f"--cxxopt=-std=c++{std_version}")
             flags.append(f"--host_cxxopt=-std=c++{std_version}")
+
+        # linker: -fuse-ld=<value> (Linux/macOS Clang; no-op note on Windows).
+        if self.linker:
+            if self.system == "Windows":
+                print_status(
+                    f"linker.{self.linker}: -fuse-ld= is not supported on Windows "
+                    "(clang-cl uses lld-link by default); flag ignored.",
+                    "WARNING",
+                )
+            else:
+                flags.append(f"--linkopt=-fuse-ld={self.linker}")
+
+        # lto: -flto[=thin|full] for Clang (Linux/macOS only).
+        if self.lto_mode and self.lto_mode != "off":
+            if self.system == "Windows":
+                print_status(
+                    f"lto.{self.lto_mode}: -flto is not supported on Windows with clang-cl; "
+                    "flag ignored.",
+                    "WARNING",
+                )
+            else:
+                flto = "-flto=thin" if self.lto_mode in ("thin", "auto") else "-flto"
+                flags.append(f"--copt={flto}")
+                flags.append(f"--linkopt={flto}")
 
         return flags
 
@@ -346,6 +389,11 @@ class LoggingBazelConfiguration:
             cmd.append("--batch")
         cmd.append(action)
         cmd.extend(self._config_flags())
+        if action == "test" and self.valgrind:
+            if self.system == "Windows":
+                print_status("valgrind: not available on Windows; --run_under ignored.", "WARNING")
+            else:
+                cmd.append("--run_under=valgrind")
         cmd.extend(self.targets)
         return cmd
 
@@ -375,7 +423,7 @@ class LoggingBazelConfiguration:
         return f"{COLOR_GREEN}ON{COLOR_RESET}" if condition else f"{COLOR_RED}OFF{COLOR_RESET}"
 
     def _na(self) -> str:
-        return f"{COLOR_YELLOW}N/A (CMake-only){COLOR_RESET}"
+        return f"{COLOR_YELLOW}N/A{COLOR_RESET}"
 
     def _pf(self, label: str, value: str, width: int = 20) -> None:
         print(f"  {label:{width}}: {value}")
@@ -383,7 +431,7 @@ class LoggingBazelConfiguration:
     def print_configuration_summary(self) -> None:
         """Print a summary of the resolved build configuration to stdout."""
         print("\n" + "=" * 80)
-        print("LOGGING BAZEL BUILD CONFIGURATION SUMMARY")
+        print("MEMORY BAZEL BUILD CONFIGURATION SUMMARY")
         print("=" * 80)
 
         print(f"\n{COLOR_CYAN}Compiler & Build Tool:{COLOR_RESET}")
@@ -392,30 +440,35 @@ class LoggingBazelConfiguration:
         self._pf("Build type", self.build_type.upper())
         self._pf("Cxx standard", self.cxx_standard.replace("cxx", "C++") if self.cxx_standard else "C++20 (default)")
 
-        print(f"\n{COLOR_CYAN}Logging module (Bazel flags):{COLOR_RESET}")
-        self._pf("Backend", (self.logging_backend or "loguru").upper())
+        print(f"\n{COLOR_CYAN}Memory module (Bazel --define flags):{COLOR_RESET}")
+        self._pf("GPU backend", (self.gpu_backend or "none").upper())
+        self._pf("TBB", self._on_off(self.enable_tbb))
+        self._pf("Mimalloc", self._on_off(not self.disable_mimalloc))
+        self._pf("NUMA", self._on_off(self.enable_numa))
+        self._pf("Memkind", self._on_off(self.enable_memkind))
+        self._pf("Profiler", self._on_off(self.enable_profiler))
         self._pf("Shared libs", self._on_off(self.shared_libs))
-        self._pf("Magic enum", self._on_off(not self.disable_magic_enum))
-        self._pf("Cxa demangle", self._on_off(not self.disable_cxa_demangle))
-        self._pf("Portable floats", self._on_off(self.portable_float_format))
-        self._pf("Std format", self._on_off(self.std_format))
-        self._pf("Exception mode", (self.exception_mode or "throw").upper())
         self._pf("Coverage", self._on_off(self.run_coverage))
         self._pf("Testing", self._on_off(self.run_tests))
-        self._pf("Gtest", self._on_off(True))
-        self._pf("Benchmark", self._on_off(True))
-        self._pf("Examples", self._na() if self.examples else self._on_off(False))
-        self._pf("Clang-tidy", self._na() if self.clangtidy else self._on_off(False))
-        self._pf("Fix", self._na() if self.fix else self._on_off(False))
-        self._pf("Iwyu", self._na() if self.iwyu else self._on_off(False))
-        self._pf("Cppcheck", self._na() if self.cppcheck else self._on_off(False))
-        self._pf("Sanitizer", self._na() if self.sanitizer else self._on_off(False))
-        self._pf("Spell", self._na() if self.spell else self._on_off(False))
-        self._pf("Valgrind", self._na() if self.valgrind else self._on_off(False))
-        self._pf("Icecc", self._na() if self.icecc else self._on_off(False))
-        self._pf("Cache", self._na() if self.cache else self._on_off(False))
-        self._pf("Linker", self._na() if self.linker else "default")
-        self._pf("Lto", self._na() if self.lto_mode else self._on_off(False))
+
+        print(f"\n{COLOR_CYAN}Bazel build options:{COLOR_RESET}")
+        self._pf("Valgrind", self._on_off(self.valgrind) + (" (Linux/macOS: --run_under=valgrind)" if self.valgrind else ""))
+        self._pf("Linker", self.linker if self.linker else "default")
+        lto_label = self.lto_mode if self.lto_mode else "off"
+        self._pf("LTO", lto_label)
+        self._pf("Sanitizer", self.sanitizer if self.sanitizer else "off")
+
+        print(f"\n{COLOR_CYAN}Analysis / quality tools (post-build):{COLOR_RESET}")
+        self._pf("Benchmark", self._on_off(self.benchmark))
+        self._pf("Spell", self._on_off(self.spell))
+        self._pf("Clang-tidy", self._on_off(self.clangtidy) + (" (+fix)" if self.clangtidy and self.fix else ""))
+        self._pf("Iwyu", self._on_off(self.iwyu))
+        self._pf("Cppcheck", self._on_off(self.cppcheck))
+
+        print(f"\n{COLOR_CYAN}N/A for Bazel:{COLOR_RESET}")
+        self._pf("Icecc", self._na())
+        self._pf("Examples", self._na())
+        self._pf("Cache token", self._na() + " (use --disk_cache/--remote_cache)")
 
         if self.run_build or self.run_tests or self.run_coverage:
             action = "test" if self.run_tests else ("coverage" if self.run_coverage else "build")
@@ -427,6 +480,92 @@ class LoggingBazelConfiguration:
 
     def config(self) -> None:
         """Handle config action (summary already printed by execute())."""
+
+    def run_tools(self) -> None:
+        """Run post-build analysis / quality tools requested via tokens."""
+        if self.spell:
+            self._run_spell()
+        if self.clangtidy:
+            self._info_tool(
+                "clang-tidy",
+                "bazel build --aspects //bazel:clang_tidy.bzl%clang_tidy_aspect //...",
+                "or: run-clang-tidy -p $(bazel info output_base)/execroot/_main",
+            )
+        if self.cppcheck:
+            self._run_cppcheck()
+        if self.iwyu:
+            self._info_tool(
+                "iwyu",
+                "bazel build --aspects //bazel:iwyu.bzl%iwyu_aspect //...",
+                "or: iwyu_tool.py -p $(bazel info output_base)/execroot/_main",
+            )
+        if self.benchmark:
+            print_status(
+                "benchmark: benchmark targets are included in //... — "
+                "add --test_tag_filters=benchmark to run only benchmark tests.",
+                "INFO",
+            )
+
+    def _run_spell(self) -> None:
+        codespell = shutil.which("codespell")
+        if codespell is None:
+            print_status("spell: codespell not found on PATH (pip install codespell).", "WARNING")
+            return
+        workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        cmd = [
+            codespell,
+            "--skip=*.git,bazel-*,ThirdParty,*.pb.*,*.lock",
+            "--quiet-level=2",
+            workspace_root,
+        ]
+        print_status(f"Running spell check: {' '.join(cmd)}", "INFO")
+        try:
+            start_time = time.time()
+            result = subprocess.run(cmd, check=False, timeout=120)
+            elapsed = time.time() - start_time
+            if result.returncode == 0:
+                print_status(f"Spell check passed ({elapsed:.2f}s)", "SUCCESS")
+            else:
+                print_status(f"Spell check found issues (exit {result.returncode})", "WARNING")
+        except subprocess.TimeoutExpired:
+            print_status("Spell check timed out.", "WARNING")
+
+    def _run_cppcheck(self) -> None:
+        cppcheck = shutil.which("cppcheck")
+        if cppcheck is None:
+            print_status("cppcheck: not found on PATH.", "WARNING")
+            return
+        workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        # Scan only first-party directories; exclude vendored ThirdParty/ trees.
+        first_party_dirs = [
+            d for d in ("include", "Testing", "Scripts", "bazel")
+            if os.path.isdir(os.path.join(workspace_root, d))
+        ]
+        scan_targets = [os.path.join(workspace_root, d) for d in first_party_dirs] or [workspace_root]
+        cmd = [
+            cppcheck,
+            "--enable=warning,style,performance",
+            "--suppress=missingIncludeSystem",
+            "--quiet",
+            "--error-exitcode=1",
+            *scan_targets,
+        ]
+        print_status(f"Running cppcheck: {' '.join(cmd)}", "INFO")
+        try:
+            start_time = time.time()
+            result = subprocess.run(cmd, check=False, timeout=300)
+            elapsed = time.time() - start_time
+            if result.returncode == 0:
+                print_status(f"cppcheck passed ({elapsed:.2f}s)", "SUCCESS")
+            else:
+                print_status(f"cppcheck found issues (exit {result.returncode})", "WARNING")
+        except subprocess.TimeoutExpired:
+            print_status("cppcheck timed out.", "WARNING")
+
+    def _info_tool(self, name: str, *hints: str) -> None:
+        print_status(f"{name}: enabled — run after build:", "INFO")
+        for hint in hints:
+            print(f"    {hint}")
 
     def clean(self) -> None:
         if not self.run_clean:
@@ -590,9 +729,8 @@ class LoggingBazelConfiguration:
                     # way build/test/coverage do (query only inherits "common", not
                     # "build"). This repo mixes bzlmod (MODULE.bazel: rules_cc,
                     # platforms, bazel_skylib) with WORKSPACE-registered local_repository/
-                    # new_local_repository deps (fmt, magic_enum, glog, loguru, spdlog,
-                    # googletest, benchmark) — querying without this flag fails to
-                    # resolve those with "unknown repo" errors.
+                    # new_local_repository deps (ThirdParty/* submodules) — querying
+                    # without this flag fails to resolve those with "unknown repo" errors.
                     "--enable_workspace",
                 ],
                 check=True,
@@ -781,6 +919,7 @@ class LoggingBazelConfiguration:
         else:
             self.build()
             self.test()
+        self.run_tools()
         self.print_timing_summary()
 
 
@@ -788,14 +927,6 @@ def parse_args(args: list[str]) -> list[str]:
     """Parse argv like Scripts/setup.py: long flags, dotted shortcuts."""
     processed: list[str] = []
     for arg in args:
-        if arg.startswith("--backend."):
-            bt = arg.split(".", 1)[1].lower()
-            if bt in _BACKEND_NAMES:
-                processed.append(bt)
-            else:
-                print_status(f"Invalid logging backend: {bt}. Valid: native, loguru, glog, spdlog", "ERROR")
-                sys.exit(1)
-            continue
         if arg.startswith("--sanitizer."):
             processed.append(f"sanitizer.{arg.split('.', 1)[1].lower()}")
             continue
@@ -816,7 +947,7 @@ def parse_args(args: list[str]) -> list[str]:
 
 
 def print_help() -> None:
-    print_status("Logging Bazel Build Configuration Helper", "INFO")
+    print_status("Memory Bazel Build Configuration Helper", "INFO")
     print("\n" + "=" * 80)
     print("BAZEL BUILD SYSTEM")
     print("=" * 80)
@@ -827,14 +958,15 @@ def print_help() -> None:
     print("     python setup_bazel.py build.test")
     print("  3. Release build:")
     print("     python setup_bazel.py build.test.release")
-    print("  4. Build against a specific logging backend:")
-    print("     python setup_bazel.py build.test.glog")
-    print("     python setup_bazel.py build.test --backend.spdlog")
-    print("  5. Run tests only:")
+    print("  4. CUDA GPU backend:")
+    print("     python setup_bazel.py build.test.cuda")
+    print("  5. TBB scalable allocator:")
+    print("     python setup_bazel.py build.test.tbb")
+    print("  6. Run tests only:")
     print("     python setup_bazel.py test")
-    print("  6. Coverage (llvm-profdata/llvm-cov + genhtml report; Clang only):")
+    print("  7. Coverage (llvm-profdata/llvm-cov + genhtml report; Clang only):")
     print("     python setup_bazel.py coverage")
-    print("  7. Clean build:")
+    print("  8. Clean build:")
     print("     python setup_bazel.py clean.build.test.release")
     print("\nBuild types:")
     print("  debug          - Debug build, -c dbg (default)")
@@ -844,18 +976,34 @@ def print_help() -> None:
     print("  clang | gcc | clang-15 | gcc-13 | ...")
     print("\nC++ Standard:")
     print("  cxx17 | cxx20 (default, from .bazelrc) | cxx23")
-    print("\nLogging backend (mirrors CMake LOGGING_BACKEND; default loguru):")
-    print("  native | loguru | glog | spdlog")
-    print("  --backend.native | --backend.loguru | --backend.glog | --backend.spdlog  (same, long form)")
-    print("\nFeature toggles (mirror CMake LOGGING_ENABLE_*):")
-    print("  nomagicenum    - --define=logging_enable_magic_enum=false (default: enabled)")
-    print("  nocxademangle  - --define=logging_enable_cxa_demangle=false (default: enabled, non-Windows)")
-    print("  portablefloat  - --define=logging_enable_portable_float_format=true (default: off)")
-    print("  stdformat      - --define=logging_format_use_std=true (default: off)")
-    print("  logfatal       - --define=logging_default_exception_mode=log_fatal (default: throw)")
-    print("\nLinking:")
+    print("\nMemory --define flags (bazel/BUILD.bazel config_settings):")
+    print("  cuda           - --define=memory_gpu_backend=cuda")
+    print("  hip            - --define=memory_gpu_backend=hip")
+    print("  metal          - --define=memory_gpu_backend=metal  (Apple only)")
+    print("  tbb            - --define=memory_enable_tbb=true  (requires TBB_ROOT env var)")
+    print("  nomimalloc     - --define=memory_enable_mimalloc=false (default: enabled)")
+    print("  numa           - --define=memory_enable_numa=true")
+    print("  memkind        - --define=memory_enable_memkind=true")
+    print("  profiler       - --define=memory_enable_profiler=true (disabled in .bazelrc)")
     print("  shared         - --define=build_shared_libs=true")
     print("  static         - Bazel's own default (no define needed)")
+    print("\nBazel build options:")
+    print("  valgrind       - --run_under=valgrind on test command (Linux/macOS)")
+    print("  linker.<val>   - --linkopt=-fuse-ld=<val>  e.g. linker.lld (Linux/macOS)")
+    print("  lto[.<mode>]   - -flto[=thin|full] via --copt/--linkopt (Linux/macOS Clang)")
+    print("                   modes: thin (default), full, off")
+    print("\nAnalysis / quality tools (post-build subprocess steps):")
+    print("  spell          - Run codespell on source files (pip install codespell)")
+    print("  clangtidy      - Print Bazel aspect invocation hint (aspect .bzl setup needed)")
+    print("  fix            - Combined with clangtidy: apply clang-tidy fixes")
+    print("  cppcheck       - Run cppcheck on src/ (requires cppcheck on PATH)")
+    print("  iwyu           - Print Bazel aspect invocation hint (aspect .bzl setup needed)")
+    print("  benchmark      - Print hint: add --test_tag_filters=benchmark to run benchmarks")
+    print("\nN/A for Bazel (use Bazel flags directly):")
+    print("  icecc          - Use --spawn_strategy=remote instead")
+    print("  examples       - No separate examples targets in this Bazel build")
+    print("  cache          - Use --disk_cache=<path> or --remote_cache=<url>")
+    print("  sanitizer.*    - No sanitizer --config defined in this repo's .bazelrc")
     print("\nMisc:")
     print("  vv             - Verbose Bazel test output (--test_output=all)")
     print("  batch          - Pass --batch to Bazel (runs `bazel shutdown` first)")
@@ -865,9 +1013,6 @@ def print_help() -> None:
     print("  test           - Run tests")
     print("  coverage       - Run tests with coverage instrumentation (lcov report)")
     print("  clean          - Clean build artifacts")
-    print("\nCMake-only (Scripts/setup.py), not wired to Bazel in this repo:")
-    print("  sanitizer.* | valgrind | cppcheck | clangtidy | fix | iwyu | spell |")
-    print("  icecc | examples | cache | cache_type | linker.* | lto.*")
     print("\nEquivalent to CMake setup.py:")
     print("  CMake:  python setup.py config.build.test.release")
     print("  Bazel:  python setup_bazel.py config.build.test.release")
@@ -886,7 +1031,7 @@ def main() -> None:
     try:
         arg_list = parse_args(sys.argv[1:])
         print_status(f"Starting Bazel build for {platform.system()}", "INFO")
-        config = LoggingBazelConfiguration(arg_list)
+        config = MemoryBazelConfiguration(arg_list)
 
         if not (config.run_build or config.run_tests or config.run_clean or config.run_config or config.run_coverage):
             config.run_build = True

@@ -2,7 +2,7 @@
 # Do not edit files inside that submodule — this overlay lives in this repo, mirroring
 # the same technique XSigma itself uses for its own ThirdParty/logging.BUILD.
 # This repo depends on @logging//:Logging only. Tracks the submodule's own
-# BUILD.bazel (include/ layout, loguru default backend, magic_enum).
+# BUILD.bazel (include/ headers, src/ implementations).
 load("//bazel:logging.bzl", "logging_copts", "logging_defines", "logging_linkopts")
 
 package(default_visibility = ["//visibility:public"])
@@ -15,6 +15,7 @@ filegroup(
             "include/common/*.h",
             "include/util/*.h",
             "include/logger/*.h",
+            "include/backend/*.h",
         ],
         allow_empty = True,
     ),
@@ -22,9 +23,12 @@ filegroup(
 
 filegroup(
     name = "logging_srcs",
+    # Implementation lives under src/ (mirrors CMakeLists.txt). The per-backend
+    # files are compile-time guarded, so globbing all of them is safe.
     srcs = glob(
         [
-            "include/util/*.cpp",
+            "src/*.cpp",
+            "src/backend/*.cpp",
         ],
         allow_empty = True,
     ),
@@ -34,8 +38,6 @@ cc_library(
     name = "logging_lib",
     srcs = [
         ":logging_srcs",
-        "include/logger/back_trace.cpp",
-        "include/logger/logger.cpp",
     ],
     hdrs = [":logging_hdrs"],
     copts = logging_copts(),
@@ -47,12 +49,11 @@ cc_library(
         "//bazel:shared_libs": ["LOGGING_BUILDING_DLL"],
         "//conditions:default": [],
     }),
-    # Logging's own headers include each other as "include/util/..." from the
-    # repo root, and Memory includes them as <include/util/...>, <logger.h>
-    # and "util/...".
+    # No "." in includes: the package root is the staged repo root, so Bazel's
+    # default -iquote already resolves "include/..." headers.
+    # "include/logger" stays: sources include its headers by bare name (e.g.
+    # "logger_verbosity_enum.h" from within include/logger/logger.h itself).
     includes = [
-        ".",
-        "include",
         "include/logger",
     ],
     linkopts = logging_linkopts() + select({
@@ -70,10 +71,9 @@ cc_library(
         "//conditions:default": ["@magic_enum//:magic_enum"],
     }) + select({
         "//bazel:logging_glog": ["@glog//:glog"],
-        "//bazel:logging_loguru": ["@loguru//:loguru"],
         "//bazel:logging_native": [],
         "//bazel:logging_spdlog": ["@spdlog//:spdlog"],
-        "//conditions:default": ["@loguru//:loguru"],
+        "//conditions:default": [],
     }),
     alwayslink = False,
 )

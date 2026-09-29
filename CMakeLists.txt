@@ -250,38 +250,11 @@ macro(_memory_tp_root _component _out)
   endif()
 endmacro()
 
-_memory_tp_root(fmt _tp_fmt)
 _memory_tp_root(mimalloc _tp_mimalloc)
 
 set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
 set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
-
-# fmt — Logging (below) also registers Fmt::fmt; this block is a fallback if
-# Logging's own third-party setup does not run first (e.g. Logging resolved via
-# FetchContent without add_third_party_library involvement).
-if(NOT TARGET Fmt::fmt)
-  set(FMT_TEST OFF CACHE BOOL "Disable fmt tests" FORCE)
-  set(FMT_DOC OFF CACHE BOOL "Disable fmt documentation" FORCE)
-  set(FMT_INSTALL OFF CACHE BOOL "Disable fmt install" FORCE)
-  set(FMT_HEADER_ONLY ON CACHE BOOL "Use header-only fmt library" FORCE)
-
-  add_third_party_library(
-    fmt
-    LIBRARY_TYPE
-    STATIC
-    SOURCE_DIR
-    "${_tp_fmt}/fmt"
-    ALIASES
-    "fmt::fmt-header-only"
-    XSIGMA_TARGETS
-    "Fmt::fmt=fmt::fmt-header-only|fmt::fmt|fmt"
-    INCLUDE_DIR
-    "${_tp_fmt}/fmt/include"
-    AUTO_ADD_TO_DEPENDENCIES
-    OFF
-  )
-endif()
 
 if(MEMORY_ENABLE_MIMALLOC)
   # mimalloc-specific options
@@ -415,9 +388,6 @@ endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_PROFILER=${MEMORY_HAS_PROFILER_BUILD})
 
 # --- Runtime library wiring ---
-if(TARGET Fmt::fmt)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Fmt::fmt)
-endif()
 if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND DEFINED PROJECT_CUDA_LIBRARIES)
   list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
 endif()
