@@ -75,7 +75,7 @@ MEMORYTEST(MetalCachingAllocator, rounds_requests_to_512_byte_multiples)
 
     auto stats = allocator.stats();
     EXPECT_EQ(1024U, stats.bytes_allocated.load());
-    EXPECT_EQ(2U * 1024U * 1024U, stats.bytes_reserved.load());
+    EXPECT_EQ(16U * 1024U * 1024U, stats.bytes_reserved.load());
 
     allocator.deallocate(ptr1, 1);
     allocator.deallocate(ptr2, 512);
@@ -94,7 +94,7 @@ MEMORYTEST(MetalCachingAllocator, packs_small_allocations_into_one_segment)
 
     auto stats = allocator.stats();
     EXPECT_EQ(1U, stats.driver_allocations.load());
-    EXPECT_EQ(2U * 1024U * 1024U, stats.bytes_reserved.load());
+    EXPECT_EQ(16U * 1024U * 1024U, stats.bytes_reserved.load());
     EXPECT_EQ(2048U, stats.bytes_allocated.load());
 
     allocator.deallocate(ptr1, 1024);
