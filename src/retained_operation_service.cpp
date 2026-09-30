@@ -36,9 +36,8 @@ void retained_operation_service::enqueue(copy_token token, size_t priority, bool
                 "retained_operation_service: max pending operations reached; "
                 "call poll() to drain or set_max_pending(0) for unlimited");
         }
-        lock.unlock();
-        std::this_thread::yield();
-        lock.lock();
+        // Wait for space to become available
+        cv_.wait(lock, [this]() { return max_pending_ == 0 || pending_.size() < max_pending_; });
     }
 
     pending_.push_back({token, priority});
@@ -51,10 +50,21 @@ size_t retained_operation_service::poll() noexcept
 
     for (auto it = pending_.begin(); it != pending_.end();)
     {
-        if (it->token.ready())
+        completion_state state = it->token.state();
+        if (state == completion_state::complete)
         {
             ++completed;
             it = pending_.erase(it);
+            // Notify waiters that space may be available
+            cv_.notify_one();
+        }
+        else if (state == completion_state::failed)
+        {
+            ++completed;
+            failed_.push_back(state);
+            it = pending_.erase(it);
+            // Notify waiters that space may be available
+            cv_.notify_one();
         }
         else
         {
@@ -71,35 +81,34 @@ size_t retained_operation_service::wait_all(std::chrono::milliseconds timeout)
 
     while (true)
     {
-        size_t completed = poll();
-        if (completed > 0)
+        poll();  // Poll once to reap any completed operations
+
+        std::unique_lock<std::mutex> lock(mu_);
+        if (pending_.empty())
         {
-            return completed;
+            return 0;  // All pending operations completed
         }
 
-        {
-            std::unique_lock<std::mutex> lock(mu_);
-            if (pending_.empty())
-            {
-                return 0;
-            }
-        }
-
+        // Calculate remaining time
+        std::chrono::milliseconds wait_timeout;
         if (timeout.count() == 0)
         {
-            std::this_thread::yield();
-            continue;
+            wait_timeout = std::chrono::milliseconds(10);  // Indefinite: wait with short timeout
         }
-
-        auto now = std::chrono::steady_clock::now();
-        if (now >= deadline)
+        else
         {
-            return 0;
+            auto now = std::chrono::steady_clock::now();
+            if (now >= deadline)
+            {
+                return pending_.size();  // Timeout expired, return remaining count
+            }
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+            wait_timeout = std::chrono::milliseconds(
+                std::min(remaining.count(), static_cast<decltype(remaining.count())>(10)));
         }
 
-        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-            std::min(remaining.count(), static_cast<decltype(remaining.count())>(10))));
+        // Wait for completion or timeout
+        cv_.wait_for(lock, wait_timeout, [this]() { return pending_.empty(); });
     }
 }
 
@@ -124,15 +133,7 @@ size_t retained_operation_service::max_pending() const noexcept
 size_t retained_operation_service::failed_count() const noexcept
 {
     std::unique_lock<std::mutex> lock(mu_);
-    size_t                        count = 0;
-    for (auto const& op : pending_)
-    {
-        if (op.token.state() == completion_state::failed)
-        {
-            ++count;
-        }
-    }
-    return count;
+    return failed_.size();
 }
 
 size_t retained_operation_service::drain(std::chrono::milliseconds timeout) noexcept
@@ -174,6 +175,7 @@ void retained_operation_service::reset() noexcept
 {
     std::unique_lock<std::mutex> lock(mu_);
     pending_.clear();
+    failed_.clear();
     max_pending_ = 0;
 }
 

@@ -7,6 +7,7 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <deque>
 #include <memory>
@@ -94,9 +95,11 @@ private:
         size_t     priority;
     };
 
-    mutable std::mutex       mu_;
-    std::deque<pending_op>   pending_;
-    size_t                   max_pending_{0};  // 0 = unlimited
+    mutable std::mutex           mu_;
+    std::condition_variable      cv_;          // Signals when space available or ops complete
+    std::deque<pending_op>       pending_;
+    std::deque<completion_state> failed_;      // Track failed operations separately
+    size_t                       max_pending_{0};  // 0 = unlimited
 };
 
 }  // namespace memory
