@@ -843,11 +843,11 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_copy_assign_returns_block_to_cache)
     {
         ptr_t first(256, device_enum::CUDA);
         ptr_t second(256, device_enum::CUDA);
-        first = second;
+        first = std::move(second);
     }
 
     EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
-    LOGGING_LOG_INFO("data_ptr copy-assign returns GPU block to cache");
+    LOGGING_LOG_INFO("data_ptr move-assign returns GPU block to cache");
 }
 
 MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
