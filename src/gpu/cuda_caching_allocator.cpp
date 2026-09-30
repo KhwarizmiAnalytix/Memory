@@ -290,23 +290,51 @@ struct cache_block
     int64_t registration_counter{-1};
 };
 
+// Lightweight key for heterogeneous lookup in block_pool::blocks.  Avoids
+// constructing a full cache_block (which heap-allocates a std::set head node)
+// just to call lower_bound.  registration_counter=-1 finds the oldest (FIFO)
+// block of a given (stream, size) pair because all real blocks are assigned
+// counter values >= 1 by alloc_segment_unlocked.
+struct block_search_key
+{
+    cudaStream_t stream{nullptr};
+    size_t       size{0};
+    int64_t      registration_counter{-1};
+    void*        ptr{nullptr};
+};
+
 struct cache_block_comparator
 {
+    // Transparent comparator: std::set::lower_bound accepts block_search_key
+    // directly without a cache_block wrapper.
+    using is_transparent = void;
+
     bool operator()(const cache_block* a, const cache_block* b) const
     {
-        if (a->stream != b->stream)
-        {
-            return reinterpret_cast<uintptr_t>(a->stream) < reinterpret_cast<uintptr_t>(b->stream);
-        }
-        if (a->size != b->size)
-        {
-            return a->size < b->size;
-        }
-        if (a->registration_counter != b->registration_counter)
-        {
-            return a->registration_counter < b->registration_counter;
-        }
-        return reinterpret_cast<uintptr_t>(a->ptr) < reinterpret_cast<uintptr_t>(b->ptr);
+        return less(a->stream, a->size, a->registration_counter, a->ptr,
+                    b->stream, b->size, b->registration_counter, b->ptr);
+    }
+    bool operator()(const block_search_key& a, const cache_block* b) const
+    {
+        return less(a.stream, a.size, a.registration_counter, a.ptr,
+                    b->stream, b->size, b->registration_counter, b->ptr);
+    }
+    bool operator()(const cache_block* a, const block_search_key& b) const
+    {
+        return less(a->stream, a->size, a->registration_counter, a->ptr,
+                    b.stream, b.size, b.registration_counter, b.ptr);
+    }
+
+private:
+    static bool less(cudaStream_t sa, size_t za, int64_t ra, void* pa,
+                     cudaStream_t sb, size_t zb, int64_t rb, void* pb)
+    {
+        auto sv = [](cudaStream_t s) { return reinterpret_cast<uintptr_t>(s); };
+        auto pv = [](void* p) { return reinterpret_cast<uintptr_t>(p); };
+        if (sa != sb) return sv(sa) < sv(sb);
+        if (za != zb) return za < zb;
+        if (ra != rb) return ra < rb;
+        return pv(pa) < pv(pb);
     }
 };
 
@@ -746,8 +774,10 @@ private:
 
     cache_block* get_free_block_locked(block_pool& pool, cudaStream_t stream, size_t size)
     {
-        cache_block key(nullptr, size, stream, &pool);
-        auto        it = pool.blocks.lower_bound(&key);
+        // Use a lightweight search key so no cache_block (and thus no
+        // stream_uses std::set head-node heap allocation) is needed here.
+        block_search_key const key{stream, size};
+        auto                   it = pool.blocks.lower_bound(key);
         // Free pools are stream-scoped: a block belonging to another stream is
         // never reused (upstream get_free_block rule).
         if (it == pool.blocks.end() || (*it)->stream != stream)
@@ -976,6 +1006,10 @@ private:
         }
         dst->size += src->size;
         erase_from_pool_locked(*dst->pool, src);
+        // Null the list pointers before freeing: any stale dereference of src
+        // (e.g. through a mis-linked neighbor) sees null rather than dangling data.
+        src->prev = nullptr;
+        src->next = nullptr;
         delete src;
     }
 

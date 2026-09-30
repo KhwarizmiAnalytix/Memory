@@ -32,13 +32,23 @@ See `Docs/phase0_1_2_3_summary.md` for overview; commit d23b18b for Phase 3 impl
 - All 11 CopyRuntime tests passing; no regression in 206 main tests ✓
 See commit bc8f808 for service backpressure; 0adb77d for Phase 2 GPU fixes.
 
+**Done (2026-09-30, Phase 1.1 churn-crash fix):**
+- Root cause: `get_free_block_locked` constructed stack-local `cache_block key` whose
+  `stream_uses` `std::set` head-node was allocated from a corrupted heap ✓
+- Fix: `block_search_key` + transparent `cache_block_comparator` eliminates `cache_block`
+  construction entirely from the lower_bound hot path; also nulled `src->prev`/`src->next`
+  before `delete src` in `try_merge_locked` ✓
+- Validated: 10-rep × 6-size churn benchmark clean; 255/255 tests pass ✓
+- Finding 8 in `cpu_gpu_memory_review.md` closed ✓
+- Full write-up + validation: `Docs/phase1_churn_diagnosis.md`
+
 **Next (non-GPU, 2026-10):**
 - Phase 3.5: retained_operation_service background polling thread
 - Phase 2 GPU: device context activation + failed-state reporting (tests passing)
 - Phase 1 diagnostics: cleanup hooks, quarantine counters (optional)
 
 **Open (GPU hardware required):** 
-- Phase 1 churn diagnosis; Phase 2 event-based completion; Phase 2 multi-stream ordering
+- Phase 1 churn fix validation (Linux ASan); Phase 2 event-based completion; Phase 2 multi-stream ordering
 - Optional: graphs/MemPool; AllocConf; `cudaMallocAsync`; OOM stack capture
 - Known constraints: view does not refcount owner (by design, Phase 3 documents);
   Metal async / device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization

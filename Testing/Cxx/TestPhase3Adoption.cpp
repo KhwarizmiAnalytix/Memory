@@ -162,10 +162,13 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_basic)
     auto from = allocator<T>::allocate(10, execution_context::cpu());
     auto to   = allocator<T>::allocate(10, execution_context::cpu());
 
+    auto cpu_free = [](T* p, size_t, execution_context const&) {
+        allocator<T>::free(p, device_enum::CPU);
+    };
     auto from_retained = allocator<T>::allocate_adopted(
-        from, 10, execution_context::cpu());
+        from, 10, execution_context::cpu(), cpu_free);
     auto to_retained = allocator<T>::allocate_adopted(
-        to, 10, execution_context::cpu());
+        to, 10, execution_context::cpu(), cpu_free);
 
     std::fill(from_retained.data(), from_retained.end(), 42.0f);
 
@@ -177,9 +180,7 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_basic)
     {
         EXPECT_EQ(to_retained.data()[i], 42.0f);
     }
-
-    allocator<T>::free(from, device_enum::CPU);
-    allocator<T>::free(to, device_enum::CPU);
+    // retained_ptr deleter handles cleanup; no explicit free needed
 }
 
 TEST_F(Phase3RetainedTransfer, copy_async_retained_null_source_throws)
@@ -211,10 +212,13 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_large_buffer)
     auto from = allocator<T>::allocate(count, execution_context::cpu());
     auto to   = allocator<T>::allocate(count, execution_context::cpu());
 
+    auto cpu_free = [](T* p, size_t, execution_context const&) {
+        allocator<T>::free(p, device_enum::CPU);
+    };
     auto from_retained = allocator<T>::allocate_adopted(
-        from, count, execution_context::cpu());
+        from, count, execution_context::cpu(), cpu_free);
     auto to_retained = allocator<T>::allocate_adopted(
-        to, count, execution_context::cpu());
+        to, count, execution_context::cpu(), cpu_free);
 
     for (size_t i = 0; i < count; ++i)
     {
@@ -229,9 +233,7 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_large_buffer)
     {
         EXPECT_EQ(to_retained.data()[i], static_cast<T>(i));
     }
-
-    allocator<T>::free(from, device_enum::CPU);
-    allocator<T>::free(to, device_enum::CPU);
+    // retained_ptr deleter handles cleanup; no explicit free needed
 }
 
 // --- Retained Operation Service Tests ---

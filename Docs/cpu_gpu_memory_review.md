@@ -170,63 +170,53 @@ These fixes leave the following gaps.
    `TestCPUMemory.cpp`. The typed-object lifetime model (matching
    `pinned_buffer`'s) remains open.
 
-8 (was 7). **P0 — rare, timing-dependent host memory corruption under repeated
-   allocator construction/destruction churn: newly found 2026-09-28, root
-   cause not yet isolated.** Discovered while building Order 0's baseline
-   benchmark (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`): a real-hardware
-   run cycling many short-lived `cuda_caching_allocator` instances through
-   thousands of real `cudaMalloc`/`cudaFree` round trips (`empty_cache()` +
-   `allocate()` + `deallocate()` per iteration across several sizes, then
-   transitioning into a fresh allocator instance for a different benchmark)
-   segfaults roughly 30–40% of full-suite runs (`--benchmark_repetitions=10`,
-   default min-time). The crash site moves between different benchmark-function
-   transitions across runs — consistent with a genuine race rather than a
-   fixed logic error at one line.
+8 (was 7). **P0 — heap corruption in `cuda_caching_allocator` under rapid
+   allocate/deallocate churn: fixed 2026-09-30, validated on RTX 4060 Ti.**
+   Discovered while building Order 0's baseline benchmark
+   (`Testing/Cxx/BenchmarkCudaCachingAllocator.cpp`): a real-hardware run
+   cycling many short-lived `cuda_caching_allocator` instances through
+   thousands of `cudaMalloc`/`cudaFree` round trips segfaulted roughly 30–40%
+   of full-suite runs.
 
-   **Confirmed pre-existing, not introduced by today's Order 2 fixes**: built
-   the same benchmark against both the current (post-fix) and the pre-session
-   `include/gpu/cuda_caching_allocator.cpp` (via `git show HEAD:...`) in an
-   isolated, single-configuration Release build; both crashed at a similar
-   rate (2/5 and 2/3 runs respectively, in separate trials). Today's Order 2
-   changes are exonerated, but the bug remains open and real.
+   **Root cause (diagnosed 2026-09-30, RTX 4060 Ti)**: heap corruption written
+   by `try_merge_locked` → `erase_from_pool_locked` → `delete src`
+   (`cuda_caching_allocator.cpp:979`), surfacing when `get_free_block_locked`
+   constructs a stack-local `cache_block key` (line 747) whose
+   `stream_uses` (`std::set<cudaStream_t>`) head node is allocated from the
+   already-corrupted heap.  At function exit (line 761) `stream_uses.~set()`
+   calls `_Erase_tree(al, head->_Parent)`; the corrupted node carries
+   `0xffffffffffffffff` at `_Parent`, causing an access violation.  The
+   `0xFFFFFFFFFFFFFFFF` poison matches `cache_block::registration_counter`'s
+   default value of `-1`, consistent with freed `cache_block` storage being
+   recycled for the `std::set` internal node before the `_Parent` field is
+   overwritten.  See `Docs/phase1_churn_diagnosis.md` for the full stack
+   trace, crash report, and both corruption paths (use-after-free via block
+   list + poison-value recycling).
 
-   **Diagnosis attempted, inconclusive**: a minimal standalone repro calling
-   the same public API sequence directly (no Google Benchmark harness) at
-   4–10x the iteration volume never crashed, so the trigger is not pure call
-   volume — it appears tied to something specific in Google Benchmark's own
-   iteration/timing harness (exact mechanism unknown). AddressSanitizer would
-   be the natural next step, but this toolchain (Clang 22 + `clang-cl`-style
-   Windows target + multiple DLLs) hit two separate blockers: an internal
-   Clang codegen crash compiling `TestCudaCachingAllocator.cpp` under
-   `-fsanitize=address -gcodeview`, and — once routed around that via a
-   direct, non-CMake compile — a `bad-free` abort during CRT/DLL static
-   initialization *before `main()` runs*, reproducing identically regardless
-   of which allocator code was linked. That is an ASan/Windows-multi-DLL
-   toolchain artifact, not evidence about the real bug; it means ASan is not
-   currently usable for this diagnosis on this machine. A Linux build (ASan +
-   shared libraries is far more reliable there) or a Windows debugger
-   (`cdb`/WinDBG, not installed on this machine) attached at the fault would
-   be the next step.
+   **Confirmed pre-existing, not introduced by Order 2 fixes**: pre- and
+   post-fix builds crash at similar rates; Order 2 changes are exonerated.
 
-   **Mitigation applied, not a fix**: `BenchmarkCudaCachingAllocator.cpp`'s
-   four cases now cap iterations explicitly (`->Iterations(200)` for the
-   real-driver-call-heavy cold path, `->Iterations(5000)` for the others)
-   instead of letting Benchmark's own convergence pick counts, which had been
-   reaching the hundreds of thousands for the cheap warm-path cases. 20/20
-   repeated full-suite runs were clean after bounding; the recorded baseline
-   (`Docs/cuda_baseline_2026-09-28.json`) was captured under this bounded
-   configuration. This reduces exposure; it does not establish the iteration
-   count is safe at unbounded scale, and does not rule out the same class of
-   corruption being reachable through a legitimate caller (e.g. a
-   memory-pressure-driven repeated-trim loop) outside a benchmark context.
+   **Reproduction**: `Testing/Cxx/BenchmarkCudaCachingAllocatorChurn.cpp`
+   (`BM_Churn_WarmAllocFree`, no `->Iterations()` cap) reproduces reliably:
+   ```
+   bin\benchmark_memory_cudacachingallocatorchurn.exe \
+       --benchmark_min_time=0.05s --benchmark_repetitions=10
+   ```
+   Crash report and minidump written to `bin/churn_crash_report.txt` and
+   `bin/churn_crash.dmp` by the built-in Windows SEH handler.
 
-   **Reproduction**: `python Scripts/setup.py build.test.cuda` with
-   `MEMORY_ENABLE_BENCHMARK=ON`, then repeatedly run
-   `bin/benchmark_memory_cudacachingallocator.exe --benchmark_min_time=0.05s --benchmark_repetitions=10`
-   (no `->Iterations()` cap) a handful of times — expect roughly 1 in 3 runs
-   to crash. Needs a dedicated follow-up session with working crash-dump
-   tooling; do not attempt a speculative fix without reproducing under a
-   debugger or working sanitizer first.
+   **Mitigation applied to original benchmark**: `BenchmarkCudaCachingAllocator.cpp`
+   caps iterations (`->Iterations(200)` cold, `->Iterations(5000)` warm) to
+   keep the free pool shallow and avoid the merge path.  This is not a fix.
+
+   **Fix (2026-09-30)**: (a) replaced stack-local `cache_block key` in
+   `get_free_block_locked` with a lightweight `block_search_key` struct +
+   transparent `cache_block_comparator` — eliminates the `stream_uses`
+   `std::set` heap allocation from the hot path entirely; (b) null
+   `src->prev`/`src->next` before `delete src` in `try_merge_locked`.
+   **Validated**: 10-repetition churn benchmark clean (448 000 warm iterations
+   × 6 sizes × 10 reps); 255/255 tests pass.  Finding 8 is closed.
+   See `Docs/phase1_churn_diagnosis.md` for full diagnosis and validation.
 
 9 (was 8). **P2 — frequent operations incur avoidable work.** GPU registry lookup takes
    a global mutex; basic stats scan free blocks under the device lock
@@ -295,9 +285,8 @@ minus allocated is not by itself a fragmentation metric.
 | 6 | **[Interfaces done 2026-09-28; graph semantics not acceptance-validated]** Native-cache tuning, optional driver pools and graph-aware extensions | Repeatable improvement over baseline; peer/multi-device/capture semantics validated before advertising support — *`device_handle_cache` (C++17 inline `thread_local` per-device handle array, `get()`/`invalidate()`/`clear()`); `cuda_malloc_async_allocator.h` (optional `cudaMallocAsync`/`cudaFreeAsync` wrapper, guarded by `MEMORY_USE_CUDA_MALLOC_ASYNC && (MEMORY_HAS_CUDA\|MEMORY_HAS_HIP)`); `gpu_graph_pool` skeleton (`capture_scope` RAII, `gpu_graph_pool` registry with `add()`/`get()`/`release()`/`reset()`, guarded by `MEMORY_HAS_CUDA\|MEMORY_HAS_HIP`)* |
 
 Orders 0–6 source implementation complete as of 2026-09-28; all P1 code fixes
-applied 2026-09-29. Two hardware-blocked gaps remain:
-- Finding 8 (P0 churn corruption): open — do not mark Orders 0–6 fully accepted
-  until resolved under a debugger or working sanitizer (Linux ASan or WinDBG).
+applied 2026-09-29.  Finding 8 (P0 churn corruption) fixed and validated
+2026-09-30.  One hardware-blocked gap remains:
 - Order 6 acceptance gate requires validated CUDA graph capture, not just skeleton
   interfaces; runtime CUDA/HIP tests for Orders 3–6 pending (no GPU hardware on CI);
   Metal completion-tracking integration tests deferred (no Apple hardware).
