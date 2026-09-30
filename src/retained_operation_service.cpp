@@ -99,7 +99,7 @@ size_t retained_operation_service::wait_all(std::chrono::milliseconds timeout)
 
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
         std::this_thread::sleep_for(std::chrono::milliseconds(
-            std::min(remaining.count(), static_cast<long long>(10))));
+            std::min(remaining.count(), static_cast<decltype(remaining.count())>(10))));
     }
 }
 
@@ -166,7 +166,7 @@ size_t retained_operation_service::drain(std::chrono::milliseconds timeout) noex
 
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
         std::this_thread::sleep_for(std::chrono::milliseconds(
-            std::min(remaining.count(), static_cast<long long>(10))));
+            std::min(remaining.count(), static_cast<decltype(remaining.count())>(10))));
     }
 }
 

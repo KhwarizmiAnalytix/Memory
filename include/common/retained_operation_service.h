@@ -41,7 +41,7 @@ namespace memory
  *
  * Scope: API skeleton only (Phase 3). Background polling thread (Phase 4+).
  */
-class MEMORY_VISIBILITY retained_operation_service
+class MEMORY_API retained_operation_service
 {
 public:
     // Get singleton instance (thread-safe).
