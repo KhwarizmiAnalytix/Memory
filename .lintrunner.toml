@@ -311,7 +311,7 @@ init_command = [
     '-m',
     'lint_tool.adapters.pip_init',
     '--dry-run={{DRYRUN}}',
-    'lint-import-linter>=1.0.0',
+    'import-linter>=2.0.0',
 ]
 command = [
     'python3',
@@ -538,13 +538,7 @@ exclude_patterns = [
 ]
 command = [
     'python3',
-    '-m',
-    'lint_tool.adapters.grep_linter',
-    '--invert-match',
-    '--pattern=(Copyright|SPDX-License)',
-    '--linter-name=COPYRIGHT',
-    '--error-name=missing copyright header',
-    '--error-description=Add copyright/SPDX header to this file.',
+    'Scripts/check_copyright.py',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -602,20 +596,11 @@ exclude_patterns = [
     'build/**',
     'build_*/**',
 ]
-init_command = [
-    'python3',
-    '-m',
-    'lint_tool.adapters.s3_init',
-    '--linter=shellcheck',
-    '--dry-run={{DRYRUN}}',
-    '--output-dir=.lintbin',
-    '--output-name=shellcheck',
-]
 command = [
     'python3',
     '-m',
     'lint_tool.adapters.shellcheck_linter',
-    '--binary=.lintbin/shellcheck',
+    '--binary=shellcheck',
     '--',
     '@{{PATHSFILE}}',
 ]
