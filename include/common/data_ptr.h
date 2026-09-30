@@ -22,8 +22,9 @@
 namespace memory
 {
 /**
- * Unique owning typed buffer. Copy always deep-clones; move transfers
- * ownership. data_view<T> is a non-owning window over a data_ptr buffer.
+ * Unique owning typed buffer. Move transfers ownership; copying is deleted.
+ * Use clone() for explicit deep-copy. data_view<T> is a non-owning window
+ * over a data_ptr buffer.
  */
 template <typename value_t>
 struct data_ptr
@@ -87,18 +88,8 @@ struct data_ptr
     {
     }
 
-    MEMORY_FORCE_INLINE data_ptr(data_ptr const& rhs) : data_ptr(rhs.view()) {}
-
-    MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr const& rhs)
-    {
-        if (this == &rhs)
-        {
-            return *this;
-        }
-        data_ptr tmp(rhs);
-        *this = std::move(tmp);
-        return *this;
-    }
+    data_ptr(data_ptr const&) = delete;
+    data_ptr& operator=(data_ptr const&) = delete;
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
         : data_(rhs.data_), size_(rhs.size_), ctx_(rhs.ctx_), aligned_(rhs.aligned_)
@@ -147,6 +138,11 @@ struct data_ptr
     MEMORY_FORCE_INLINE data_view<value_t> view(size_t offset, size_t count) const noexcept
     {
         return data_view<value_t>(*this, offset, count);
+    }
+
+    MEMORY_FORCE_INLINE data_ptr clone() const
+    {
+        return data_ptr(data_, size_, ctx_.device_type, ctx_.device_index, ctx_.stream);
     }
 
     // Handle constness: a const data_ptr does not freeze the buffer (same as std::span<T>).

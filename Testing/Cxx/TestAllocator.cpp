@@ -339,14 +339,14 @@ MEMORYTEST(DataPtr, stores_device_index_and_device)
     END_TEST();
 }
 
-MEMORYTEST(DataPtr, copy_assign_releases_previous_storage)
+MEMORYTEST(DataPtr, clone_assign_releases_previous_storage)
 {
     data_ptr<int> first(4, device_enum::CPU);
     data_ptr<int> second(4, device_enum::CPU);
     first.data()[0]  = 1;
     second.data()[0] = 2;
 
-    first = second;
+    first = second.clone();
     EXPECT_EQ(2, first.data()[0]);
     EXPECT_EQ(2, second.data()[0]);
     EXPECT_NE(first.data(), second.data());
@@ -355,7 +355,7 @@ MEMORYTEST(DataPtr, copy_assign_releases_previous_storage)
     {
         data_ptr<int> tmp(4, device_enum::CPU);
         tmp.data()[0] = i;
-        first         = tmp;
+        first         = tmp.clone();
         EXPECT_EQ(i, first.data()[0]);
     }
     END_TEST();
@@ -398,11 +398,11 @@ MEMORYTEST(DataPtr, stores_and_moves_stream)
     END_TEST();
 }
 
-MEMORYTEST(DataPtr, copy_clones_storage)
+MEMORYTEST(DataPtr, clone_clones_storage)
 {
     data_ptr<int> src(4, device_enum::CPU);
     src.data()[0] = 7;
-    data_ptr<int> dst(src);
+    data_ptr<int> dst = src.clone();
     EXPECT_NE(src.data(), dst.data());
     EXPECT_EQ(7, dst.data()[0]);
     dst.data()[0] = 9;

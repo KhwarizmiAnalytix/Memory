@@ -91,8 +91,9 @@ allocation paths:
   `torch.cuda.memory`: `empty_cache`, `memory_allocated` /
   `max_memory_allocated`, `memory_reserved` / `max_memory_reserved`,
   `set_memory_fraction`, `reset_peak_memory_stats`.
-- `data_ptr<T>` (`common/data_ptr.h`) — unique owner. Copy always deep-clones.
-  Stores `device_index_` and `stream_`. `view()` returns a `data_view`.
+- `data_ptr<T>` (`common/data_ptr.h`) — unique owner (move-only). Explicit
+  `clone()` method for deep-copy. Stores `device_index_` and `stream_`.
+  `view()` returns a `data_view`.
 - `data_view<T>` (`common/data_view.h`) — non-owning window over a `data_ptr`
   (or `borrow()` for foreign memory). Does not keep the owner alive.
 - `pinned_buffer<T>` (`common/pinned_buffer.h`) — move-only pinned host buffer

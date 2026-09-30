@@ -347,7 +347,7 @@ MEMORYTEST(MetalCachingAllocator, data_ptr_assign_returns_block_to_cache)
         EXPECT_EQ(device_enum::METAL, first.device());
         first = std::move(second);
         ptr_t third(1024, device_enum::METAL);
-        first = third;
+        first = third.clone();
     }
 
     EXPECT_EQ(allocated, cache.stats().bytes_allocated.load());
