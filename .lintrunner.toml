@@ -297,30 +297,29 @@ command = [
     '@{{PATHSFILE}}',
 ]
 
-# IMPORT_LINTER disabled: lint-import-linter package not available
-# [[linter]]
-# code = 'IMPORT_LINTER'
-# include_patterns = ['**/*.py', 'Scripts/**/*.py']
-# exclude_patterns = [
-#     'ThirdParty/**',
-#     '.git/**',
-#     'build/**',
-#     '__pycache__/**',
-# ]
-# init_command = [
-#     'python3',
-#     '-m',
-#     'lint_tool.adapters.pip_init',
-#     '--dry-run={{DRYRUN}}',
-#     'lint-import-linter>=1.0.0',
-# ]
-# command = [
-#     'python3',
-#     '-m',
-#     'lint_tool.adapters.import_linter',
-#     '--',
-#     '@{{PATHSFILE}}',
-# ]
+[[linter]]
+code = 'IMPORT_LINTER'
+include_patterns = ['**/*.py', 'Scripts/**/*.py']
+exclude_patterns = [
+    'ThirdParty/**',
+    '.git/**',
+    'build/**',
+    '__pycache__/**',
+]
+init_command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.pip_init',
+    '--dry-run={{DRYRUN}}',
+    'lint-import-linter>=1.0.0',
+]
+command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.import_linter',
+    '--',
+    '@{{PATHSFILE}}',
+]
 
 [[linter]]
 code = 'DOCSTRING_LINTER'
@@ -524,32 +523,31 @@ command = [
     '@{{PATHSFILE}}',
 ]
 
-# COPYRIGHT disabled: grep_linter.py doesn't support --invert-match argument
-# [[linter]]
-# code = 'COPYRIGHT'
-# include_patterns = [
-#     'include/**/*.h',
-#     'include/**/*.hpp',
-#     'include/**/*.cpp',
-#     'Testing/**/*.h',
-#     'Testing/**/*.cpp',
-# ]
-# exclude_patterns = [
-#     'ThirdParty/**',
-#     '.git/**',
-# ]
-# command = [
-#     'python3',
-#     '-m',
-#     'lint_tool.adapters.grep_linter',
-#     '--invert-match',
-#     '--pattern=(Copyright|SPDX-License)',
-#     '--linter-name=COPYRIGHT',
-#     '--error-name=missing copyright header',
-#     '--error-description=Add copyright/SPDX header to this file.',
-#     '--',
-#     '@{{PATHSFILE}}',
-# ]
+[[linter]]
+code = 'COPYRIGHT'
+include_patterns = [
+    'include/**/*.h',
+    'include/**/*.hpp',
+    'include/**/*.cpp',
+    'Testing/**/*.h',
+    'Testing/**/*.cpp',
+]
+exclude_patterns = [
+    'ThirdParty/**',
+    '.git/**',
+]
+command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.grep_linter',
+    '--invert-match',
+    '--pattern=(Copyright|SPDX-License)',
+    '--linter-name=COPYRIGHT',
+    '--error-name=missing copyright header',
+    '--error-description=Add copyright/SPDX header to this file.',
+    '--',
+    '@{{PATHSFILE}}',
+]
 
 # ==============================================================================
 # CI/CD & SCRIPTS
@@ -595,33 +593,32 @@ command = [
     '@{{PATHSFILE}}',
 ]
 
-# SHELLCHECK disabled: s3_init configuration missing for shellcheck
-# [[linter]]
-# code = 'SHELLCHECK'
-# include_patterns = ['**/*.sh', 'Scripts/**/*.sh']
-# exclude_patterns = [
-#     'ThirdParty/**',
-#     '.git/**',
-#     'build/**',
-#     'build_*/**',
-# ]
-# init_command = [
-#     'python3',
-#     '-m',
-#     'lint_tool.adapters.s3_init',
-#     '--linter=shellcheck',
-#     '--dry-run={{DRYRUN}}',
-#     '--output-dir=.lintbin',
-#     '--output-name=shellcheck',
-# ]
-# command = [
-#     'python3',
-#     '-m',
-#     'lint_tool.adapters.shellcheck_linter',
-#     '--binary=.lintbin/shellcheck',
-#     '--',
-#     '@{{PATHSFILE}}',
-# ]
+[[linter]]
+code = 'SHELLCHECK'
+include_patterns = ['**/*.sh', 'Scripts/**/*.sh']
+exclude_patterns = [
+    'ThirdParty/**',
+    '.git/**',
+    'build/**',
+    'build_*/**',
+]
+init_command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.s3_init',
+    '--linter=shellcheck',
+    '--dry-run={{DRYRUN}}',
+    '--output-dir=.lintbin',
+    '--output-name=shellcheck',
+]
+command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.shellcheck_linter',
+    '--binary=.lintbin/shellcheck',
+    '--',
+    '@{{PATHSFILE}}',
+]
 
 [[linter]]
 code = 'EXEC'
