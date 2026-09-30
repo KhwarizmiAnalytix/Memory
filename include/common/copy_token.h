@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -22,10 +23,10 @@ namespace memory
 {
 
 // Completion state for copy operations
-enum class completion_state {
-    pending,   // Operation enqueued, awaiting completion
-    complete,  // Operation finished successfully
-    failed     // Operation or completion tracking failed
+enum class completion_state : std::uint8_t {
+    pending = 0,   // Operation enqueued, awaiting completion
+    complete = 1,  // Operation finished successfully
+    failed = 2     // Operation or completion tracking failed
 };
 
 // Completion token returned by allocator<T>::copy_async.
