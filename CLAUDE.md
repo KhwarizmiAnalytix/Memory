@@ -24,10 +24,18 @@ cold/warm path analysis, fragmentation resilience, multi-stream scaling.
 - All 206 tests passing (182 existing + 24 Phase 3 adoption/service)
 See `Docs/phase0_1_2_3_summary.md` for overview; commit d23b18b for Phase 3 impl.
 
-**Next (non-GPU):**
-- Phase 3 GPU: retained_operation_service polling thread (Phase 4)
-- Phase 1 diagnostics: cleanup hooks, quarantine states (optional)
-- Phase 2 GPU: device context activation (cudaSetDevice guards)
+**Done (2026-09-30, Phase 2 GPU no-hardware fixes):**
+- CopyRuntime shim: Testing/CopyRuntime/ for testing GPU code without hardware ✓
+- copy_token: failed-state reporting, device_guard on queries/sync ✓
+- allocator.h: peer-copy device_guard, copy_async_retained retention ✓
+- retained_operation_service: condition_variable backpressure, failed tracking ✓
+- All 11 CopyRuntime tests passing; no regression in 206 main tests ✓
+See commit bc8f808 for service backpressure; 0adb77d for Phase 2 GPU fixes.
+
+**Next (non-GPU, 2026-10):**
+- Phase 3.5: retained_operation_service background polling thread
+- Phase 2 GPU: device context activation + failed-state reporting (tests passing)
+- Phase 1 diagnostics: cleanup hooks, quarantine counters (optional)
 
 **Open (GPU hardware required):** 
 - Phase 1 churn diagnosis; Phase 2 event-based completion; Phase 2 multi-stream ordering

@@ -57,13 +57,7 @@ cc_test(
         "XSIGMA_GOOGLE_TEST",
         "USE_GTEST",
         "_VARIADIC_MAX=10",
-    ] + select({
-        "//bazel:enable_cuda": ["XSIGMA_HAS_CUDA=1"],
-        "//conditions:default": ["XSIGMA_HAS_CUDA=0"],
-    }) + select({
-        "//bazel:enable_hip": ["XSIGMA_HAS_HIP=1"],
-        "//conditions:default": ["XSIGMA_HAS_HIP=0"],
-    }),
+    ],
     includes = ["."],
     linkopts = memory_linkopts(),
     deps = [
