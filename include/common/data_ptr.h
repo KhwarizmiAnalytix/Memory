@@ -9,6 +9,7 @@
 #include "common/device.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
+#include "common/storage_identity.h"
 
 // Trivial accessors (data/begin/end/size) are called from CUDA kernel argument
 // structs via tensor's __host__ __device__ accessors.  Annotate them so Clang
@@ -36,7 +37,7 @@ struct data_ptr
 
     // Allocate from execution context (preferred API)
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
-        : size_(size), ctx_(ctx), aligned_(true)
+        : size_(size), ctx_(ctx), aligned_(true), id_(next_allocation_id())
     {
         if (size == 0)
         {
@@ -92,7 +93,7 @@ struct data_ptr
     data_ptr& operator=(data_ptr const&) = delete;
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
-        : data_(rhs.data_), size_(rhs.size_), ctx_(rhs.ctx_), aligned_(rhs.aligned_)
+        : data_(rhs.data_), size_(rhs.size_), ctx_(rhs.ctx_), aligned_(rhs.aligned_), id_(rhs.id_)
     {
         rhs.clear_handle();
     }
@@ -108,6 +109,7 @@ struct data_ptr
         size_    = rhs.size_;
         ctx_     = rhs.ctx_;
         aligned_ = rhs.aligned_;
+        id_      = rhs.id_;
         rhs.clear_handle();
         return *this;
     }
@@ -158,6 +160,9 @@ struct data_ptr
     MEMORY_FORCE_INLINE stream_t                     stream() const { return ctx_.stream; }
     MEMORY_FORCE_INLINE execution_context            context() const { return ctx_; }
 
+    // Unique allocation identifier (survives address reuse and slicing)
+    MEMORY_FORCE_INLINE allocation_id                id() const { return id_; }
+
     MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
     {
         allocator_t::record_stream(data_, ctx_.device_type, ctx_.device_index, stream);
@@ -187,6 +192,7 @@ private:
     size_t           size_{0};
     execution_context ctx_{execution_context::cpu()};
     bool             aligned_{false};
+    allocation_id    id_{};  // Unique per allocation lifetime
 };
 
 // Handle-based copy_async: both endpoints are data_ptr base allocations so
