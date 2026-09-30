@@ -61,7 +61,7 @@ public:
     ~bench_stream() { (void)cudaStreamDestroy(stream); }
     bench_stream(const bench_stream&)            = delete;
     bench_stream& operator=(const bench_stream&) = delete;
-    cudaStream_t stream{nullptr};
+    cudaStream_t  stream{nullptr};
 };
 
 // =============================================================================
@@ -76,7 +76,7 @@ void benchmark_cold_alloc_free(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    const std::size_t      size = static_cast<std::size_t>(state.range(0));
+    const std::size_t           size = static_cast<std::size_t>(state.range(0));
     gpu::cuda_caching_allocator allocator(0);
 
     for (auto _ : state)
@@ -115,7 +115,7 @@ void benchmark_warm_alloc_free(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    const std::size_t      size = static_cast<std::size_t>(state.range(0));
+    const std::size_t           size = static_cast<std::size_t>(state.range(0));
     gpu::cuda_caching_allocator allocator(0);
 
     for (auto _ : state)
@@ -146,9 +146,8 @@ void benchmark_changing_size_alloc_free(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    static const std::vector<std::size_t> kSizes = {
-        4096, 65536, 262144, 1 << 20, 2 << 20, 8 << 20};
-    gpu::cuda_caching_allocator allocator(0);
+    static const std::vector<std::size_t> kSizes = {4096, 65536, 262144, 1 << 20, 2 << 20, 8 << 20};
+    gpu::cuda_caching_allocator           allocator(0);
 
     std::size_t i = 0;
     for (auto _ : state)
@@ -179,8 +178,8 @@ void benchmark_multi_stream_alloc_free(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    const int               stream_count = static_cast<int>(state.range(0));
-    constexpr std::size_t    kSize        = 65536;
+    const int                   stream_count = static_cast<int>(state.range(0));
+    constexpr std::size_t       kSize        = 65536;
     gpu::cuda_caching_allocator allocator(0);
 
     std::vector<bench_stream> streams(static_cast<std::size_t>(stream_count));
@@ -339,8 +338,8 @@ void benchmark_concurrent_alloc_active(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    const std::size_t alloc_size = 1 << 20;
-    const int concurrent_allocs  = static_cast<int>(state.range(0));
+    const std::size_t alloc_size        = 1 << 20;
+    const int         concurrent_allocs = static_cast<int>(state.range(0));
 
     gpu::cuda_caching_allocator allocator(0);
 
@@ -386,7 +385,7 @@ void benchmark_allocation_throughput(benchmark::State& state)
     const std::size_t size = static_cast<std::size_t>(state.range(0));
 
     gpu::cuda_caching_allocator allocator(0);
-    std::vector<void*>           ptrs;
+    std::vector<void*>          ptrs;
     ptrs.reserve(1000);
 
     for (auto _ : state)

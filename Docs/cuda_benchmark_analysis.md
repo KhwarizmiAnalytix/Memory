@@ -1,8 +1,8 @@
 # CUDA Memory Allocation Benchmarks: Caching Allocator vs Direct malloc
 
-**Date:** 2026-09-29  
-**System:** TOMAHOOK (32 CPU cores @ 3187 MHz, 36.8 MiB L3 cache)  
-**Build:** DEBUG mode (timings may be 20-30% higher than Release)  
+**Date:** 2026-09-29
+**System:** TOMAHOOK (32 CPU cores @ 3187 MHz, 36.8 MiB L3 cache)
+**Build:** DEBUG mode (timings may be 20-30% higher than Release)
 **Repetitions:** 5
 
 ---
@@ -218,10 +218,10 @@ All data captured 2026-09-29 on TOMAHOOK with CUDA 13.2.
 
 The CUDA caching allocator is a **production-ready** drop-in replacement for raw `cudaMalloc`/`cudaFree` in allocation-heavy workloads. It delivers:
 
-✅ **Performance parity** on cold path (first allocation)  
-✅ **76–94× speedup** on warm path (reused allocations)  
-✅ **Robust fragmentation handling** under mixed size patterns  
-✅ **Low stream contention** (17% overhead at 16 concurrent streams)  
+✅ **Performance parity** on cold path (first allocation)
+✅ **76–94× speedup** on warm path (reused allocations)
+✅ **Robust fragmentation handling** under mixed size patterns
+✅ **Low stream contention** (17% overhead at 16 concurrent streams)
 ✅ **Size-class isolation** preventing inter-size inefficiency
 
 The overhead is negligible for typical ML training loops (10ms–1s iterations), where warm-cache allocation is the common case.

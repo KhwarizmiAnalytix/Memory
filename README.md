@@ -44,7 +44,7 @@ int main() {
     // Allocate on GPU device 0
     auto ctx = execution_context::cuda(0);
     data_ptr<float> tensor(1000, ctx);
-    
+
     // Use tensor.data(), tensor.size()
     // Memory freed automatically ✅
     return 0;
@@ -239,7 +239,7 @@ host.copy_to_device_async(device_pointer, stream);
 // Destruction waits for stream completion before reusing buffer
 ```
 
-**API:** `copy_to_device_async()`, `copy_from_device_async()`  
+**API:** `copy_to_device_async()`, `copy_from_device_async()`
 **Note:** Metal uses shared buffers instead; CPU-only has no pinned memory
 
 ---
@@ -306,8 +306,8 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 
 ## Understanding the Code
 
-**For users:** See the [**Dependency Graph**](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE) for visual architecture  
-**For integration:** Focus on `allocator<T>`, `data_ptr<T>`, `retained_ptr<T>`, `copy_token`  
+**For users:** See the [**Dependency Graph**](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE) for visual architecture
+**For integration:** Focus on `allocator<T>`, `data_ptr<T>`, `retained_ptr<T>`, `copy_token`
 **For optimization:** See `device_handle_cache` (thread-local LRU) and segment caching strategy
 
 **Key files:**
@@ -322,25 +322,25 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 
 ## FAQ
 
-**Q: When should I use data_ptr vs retained_ptr?**  
+**Q: When should I use data_ptr vs retained_ptr?**
 A: Use `data_ptr` by default (single owner). Switch to `retained_ptr` for:
 - Multiple kernels/stages needing same data
 - Async copy operations
 - Sharing across threads
 
-**Q: Does copying data_ptr allocate new memory?**  
+**Q: Does copying data_ptr allocate new memory?**
 A: Yes, copy = deep-clone. Use `move()` or `data_view` to avoid it.
 
-**Q: Can I mix CUDA and HIP?**  
+**Q: Can I mix CUDA and HIP?**
 A: No, choose one at build time (compile-time exclusive).
 
-**Q: How do I avoid memory leaks?**  
+**Q: How do I avoid memory leaks?**
 A: Destructors handle cleanup. Just avoid double-free:
 - Don't manually deallocate
 - Don't copy data_ptr unnecessarily
 - Don't keep data_view longer than owner
 
-**Q: What if I run out of GPU memory?**  
+**Q: What if I run out of GPU memory?**
 A: Allocators throw `std::bad_alloc`. Call `gpu::empty_cache(device_index)` to free unused cached blocks.
 
 ---

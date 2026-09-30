@@ -148,7 +148,7 @@ behavior on the allocation path.
 Performance analysis and baseline measurements:
 
 - `Docs/cpu_gpu_memory_review.md` — CPU/GPU memory allocation comparison, Order 0 baseline recordings
-- `Docs/cuda_benchmark_analysis.md` — CUDA caching allocator vs direct malloc: cold/warm paths, 
+- `Docs/cuda_benchmark_analysis.md` — CUDA caching allocator vs direct malloc: cold/warm paths,
   multi-stream scaling, fragmentation resilience, throughput analysis
 - `Testing/Cxx/BenchmarkCudaCachingAllocator.cpp` — Benchmark suite: 14 test scenarios covering
   allocation patterns, cache efficiency, and contention under concurrent streams
