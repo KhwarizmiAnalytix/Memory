@@ -567,7 +567,7 @@ public:
 
         if (deleter == nullptr)
         {
-            deleter = [](T*, size_t, execution_context const&) {};
+            deleter = [](T* p, size_t, execution_context const&) { delete[] p; };
         }
 
         return retained_ptr<T>::adopt(ptr, count, ctx, std::move(deleter));
