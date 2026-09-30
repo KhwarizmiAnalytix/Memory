@@ -1333,7 +1333,7 @@ struct cuda_caching_allocator::Impl
     }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
-    void                add_free_memory_callback(cuda_caching_allocator::free_memory_callback) {}
+    void                add_free_memory_callback(const cuda_caching_allocator::free_memory_callback&) {}
     void                clear_free_memory_callbacks() {}
     void                empty_cache() {}
     void                set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }

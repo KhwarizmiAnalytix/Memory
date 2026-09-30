@@ -43,7 +43,7 @@ inline constexpr size_t kDefaultMemoryHistoryEntries = 100000;
  * Stack frames (PyTorch GatheredContext) are not captured; the ring records
  * address, size, and running totals only.
  */
-enum class gpu_memory_trace_action
+enum class gpu_memory_trace_action : std::uint8_t
 {
     alloc,
     free_requested,
