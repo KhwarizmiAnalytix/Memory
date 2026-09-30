@@ -12,9 +12,40 @@ cache (expandable segments, mutex dropped around malloc, process-wide
 CUDA caching allocator benchmarks (2026-09-29): direct malloc comparison,
 cold/warm path analysis, fragmentation resilience, multi-stream scaling.
 
-**Open:** CUDA/HIP runtime tests; graphs/MemPool; AllocConf;
-OOM stack capture; `cudaMallocAsync`; view does not refcount owner; Metal async /
-device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization.
+**Done (2026-09-30):** Phase 0–3 specifications complete (CPU-independent work):
+- Phase 0: README corrections + validation manifest template
+- Phase 1–2: Token lifecycle and error semantics (design spec)
+- Phase 2: copy_sync() completion and context semantics (design spec)
+- Phase 3: Storage identity, adoption, retained ownership (design spec)
+See `Docs/phase0_1_2_3_summary.md` for overview and implementation roadmap.
+
+**Open:** 
+- GPU work: CUDA/HIP runtime tests; churn diagnosis (Phase 1); event-based completion (Phase 2)
+- Optional: graphs/MemPool; AllocConf; `cudaMallocAsync`; OOM stack capture
+- Known constraints: view does not refcount owner (by design, Phase 3 documents);
+  Metal async / device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization
+
+## Implementation roadmap and design specifications
+
+See the detailed phase plan in `Docs/memory_runtime_implementation_plan.md` for the complete architecture.
+
+**Phases 0–3 CPU-independent work (2026-09-30):**
+
+- `Docs/validation_manifest_template.md` — Use for every test run to record compiler, platform, GPU backend, hardware, and results
+- `Docs/phase1_2_token_error_spec.md` — Token state machine (pending/complete/failed), error types, and API contract
+- `Docs/phase2_copy_completion_spec.md` — `copy_sync()` semantics, operation-specific events (not stream queries), device context
+- `Docs/phase3_storage_identity_spec.md` — `allocation_id`, adoption contract, retained ownership, borrowed pointer limits
+- `Docs/phase0_1_2_3_summary.md` — Summary, implementation sequence, and what's ready to start
+
+**Implementation priority (non-GPU first):**
+1. Phase 2 CPU-side: add operation-specific completion to `copy_token`, implement `copy_sync()`
+2. Phase 1 non-churn: add diagnostic cleanup hooks, test failure injection (no GPU required)
+3. Phase 3 design+CPU: implement `allocation_id` type, adoption factories
+4. Phase 1 GPU: churn diagnosis (needs CUDA/HIP debugger on self-hosted runners)
+5. Phase 2 GPU: validate events, multi-stream ordering
+6. Phases 4–8 build on Phases 1–3
+
+---
 
 ## CPU Memory Allocation — Fragmentation & Backend Characteristics
 

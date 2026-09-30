@@ -60,8 +60,11 @@ int main() {
 ```cpp
 data_ptr<float> tensor(1000, execution_context::cuda(0));
 
-// Copy = allocates new memory (expensive)
-auto copy = tensor;  // ❌ Deep clone
+// Copy is deleted — data_ptr is move-only
+// auto copy = tensor;  // ❌ Compilation error
+
+// Explicit deep clone
+auto copy = tensor.clone();  // ✅ Allocates new memory
 
 // Move = transfers ownership (cheap)
 auto moved = std::move(tensor);  // ✅ Fast
@@ -69,6 +72,7 @@ auto moved = std::move(tensor);  // ✅ Fast
 ```
 
 **Use when:** You own the lifetime, single component
+**Note:** Copying is not implicit — use `clone()` for explicit deep-copy
 
 ---
 
@@ -122,22 +126,21 @@ data_ptr<float> owner(1000, ctx);
 retained_ptr<float> gpu_data = allocator<float>::allocate(nbytes, ctx_gpu);
 retained_ptr<float> cpu_data = allocator<float>::allocate(nbytes, ctx_cpu);
 
-// Async copy (doesn't block)
+// Async copy (doesn't block; records stream dependencies)
 copy_token token = allocator<float>::copy_async(gpu_data, cpu_data);
 
 // Do other work while copy happens
 do_other_work();
 
-// Check completion
-if (token.ready()) {
-    process(cpu_data);  // Safe to read
-}
-
-// Or wait
-token.wait();
+// Wait for completion before accessing host buffer
+token.wait();  // Synchronizes the operation's stream
+process(cpu_data);  // Now safe to read
 ```
 
-**Why retained_ptr:** Token holds references; memory survives async operation
+**Why retained_ptr:** 
+- Both endpoints must survive until `token.wait()` returns
+- `retained_ptr` prevents accidental premature deallocation
+- The caching allocator defers GPU buffer reuse via `record_stream()` automatically
 
 ---
 
@@ -221,6 +224,35 @@ try {
 - `std::invalid_argument` – Zero size, size mismatch
 - `std::overflow_error` – Integer overflow on alignment
 - `std::logic_error` – Double-free, nested capture
+
+---
+
+## Copy Token — Async Operations
+
+### Important: Token Lifecycle
+
+**`copy_token` does NOT retain endpoints.** The caller is responsible for keeping both source and destination buffers alive until `token.wait()` completes:
+
+```cpp
+{
+    retained_ptr<float> gpu_buf = allocator<float>::allocate(1000, ctx_gpu);
+    retained_ptr<float> cpu_buf = allocator<float>::allocate(1000, ctx_cpu);
+    
+    copy_token token = allocator<float>::copy_async(gpu_buf, cpu_buf);
+    
+    // ✅ CORRECT: wait before dropping buffers
+    token.wait();
+}  // Buffers destroyed after token.wait()
+
+// ❌ INCORRECT: buffers destroyed while copy is pending
+{
+    retained_ptr<float> gpu_buf = allocator<float>::allocate(1000, ctx_gpu);
+    retained_ptr<float> cpu_buf = allocator<float>::allocate(1000, ctx_cpu);
+    copy_token token = allocator<float>::copy_async(gpu_buf, cpu_buf);
+}  // token.wait() not called — copy may still be pending!
+```
+
+**Stream recording:** GPU buffers automatically have `record_stream()` called before submission, so the caching allocator defers their reuse until the stream completes. Pageable (non-pinned) CPU buffers require manual synchronization.
 
 ---
 
