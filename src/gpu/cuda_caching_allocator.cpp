@@ -1389,9 +1389,9 @@ void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
     impl_->record_stream(ptr, stream);
 }
 
-void cuda_caching_allocator::add_free_memory_callback(free_memory_callback callback)
+void cuda_caching_allocator::add_free_memory_callback(const free_memory_callback& callback)
 {
-    impl_->add_free_memory_callback(std::move(callback));
+    impl_->add_free_memory_callback(callback);
 }
 
 void cuda_caching_allocator::clear_free_memory_callbacks()

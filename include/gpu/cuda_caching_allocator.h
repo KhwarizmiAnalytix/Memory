@@ -201,7 +201,7 @@ public:
      * @brief Register a free-memory callback (upstream FreeCudaMemoryCallbacksRegistry)
      * @param callback Returns true if it freed device memory
      */
-    MEMORY_API void add_free_memory_callback(free_memory_callback callback);
+    MEMORY_API void add_free_memory_callback(const free_memory_callback& callback);
 
     /**
      * @brief Remove all registered free-memory callbacks
