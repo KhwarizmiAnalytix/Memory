@@ -1034,6 +1034,14 @@ private:
                 // block->quarantined prevents free_block_locked from handing
                 // this memory out again.
                 block->quarantined = true;
+                if (block->event_count == 0)
+                {
+                    // All event recordings failed: the block will never appear in
+                    // cuda_events_ and cannot be found by release_all_blocks_noexcept
+                    // via any pool or map. Track it here so teardown can free the
+                    // cache_block metadata (the GPU memory stays withheld).
+                    quarantine_metadata_.push_back(block);
+                }
             }
             throw;
         }
@@ -1082,11 +1090,19 @@ private:
                     // A quarantined block (see insert_events_locked) is never
                     // returned to a free pool: its untracked streams' uses
                     // were never proven complete, so it stays permanently
-                    // withheld (and its cache_block leaked) rather than
-                    // becoming reusable on the strength of a partial count.
-                    if (block->event_count == 0 && !block->quarantined)
+                    // withheld rather than becoming reusable on the strength
+                    // of a partial count. Track the orphaned metadata for
+                    // teardown cleanup (GPU memory remains withheld).
+                    if (block->event_count == 0)
                     {
-                        free_block_locked(block);
+                        if (block->quarantined)
+                        {
+                            quarantine_metadata_.push_back(block);
+                        }
+                        else
+                        {
+                            free_block_locked(block);
+                        }
                     }
                 }
                 else if (status == cudaErrorNotReady)
@@ -1121,9 +1137,12 @@ private:
                 throw_on_cuda_error(cudaEventSynchronize(entry.first), "cudaEventSynchronize");
                 recycle_event_locked(entry.first);
                 entry.second->event_count--;
-                if (entry.second->event_count == 0 && !entry.second->quarantined)
+                if (entry.second->event_count == 0)
                 {
-                    free_block_locked(entry.second);
+                    if (entry.second->quarantined)
+                        quarantine_metadata_.push_back(entry.second);
+                    else
+                        free_block_locked(entry.second);
                 }
             }
             map_it = cuda_events_.erase(map_it);
@@ -1258,6 +1277,11 @@ private:
                     collect(queued.second);
                 }
             }
+            for (cache_block* block : quarantine_metadata_)
+            {
+                collect(block);
+            }
+            quarantine_metadata_.clear();
         }
         catch (...)  // NOLINT(bugprone-empty-catch)
         {
@@ -1313,6 +1337,10 @@ private:
     memory_map<void*, cache_block*> allocated_blocks_;
     std::unordered_map<cudaStream_t, std::deque<std::pair<cudaEvent_t, cache_block*>>> cuda_events_;
     std::vector<cudaEvent_t>                                                           event_pool_;
+    // Quarantined blocks whose last event has already completed (or whose event
+    // recording failed entirely): the GPU memory is permanently withheld, but
+    // the cache_block metadata must be freed at teardown to satisfy LSan.
+    std::vector<cache_block*> quarantine_metadata_;
     std::vector<cuda_caching_allocator::free_memory_callback> free_memory_callbacks_;
     memory_map<void*, raw_segment>                            driver_segments_;
     std::atomic<int64_t>                                      registration_counter_global_{0};
