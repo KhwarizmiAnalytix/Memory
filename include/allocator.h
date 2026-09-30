@@ -32,6 +32,7 @@
 #include "common/device.h"            // for device_enum
 #include "common/execution_context.h" // for execution_context
 #include "common/memory_macros.h"     // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
+#include "common/retained_ptr.h"      // for retained_ptr
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
 // GPU caching allocator (CUDA, HIP, or Metal — compile-time exclusive).
@@ -544,6 +545,54 @@ public:
         ctx.device_index = gpu_idx;
         ctx.stream       = stream;
         return copy_token(ctx);
+    }
+
+    // --- Phase 3: Retained storage and adoption (§3.3, 3.4) ---
+
+    // allocate_adopted: Take ownership of foreign memory and wrap in retained_ptr.
+    // Assigns unique allocation_id; calls deleter on destruction.
+    // Supported deleters: nullptr (no-op), lambda, std::function.
+    // Throws std::invalid_argument if ptr is null or count is zero.
+    MEMORY_FORCE_INLINE static retained_ptr<T> allocate_adopted(
+        pointer                                            ptr,
+        size_type                                          count,
+        execution_context                                  ctx,
+        std::function<void(T*, size_t, execution_context const&)> deleter = nullptr)
+    {
+        if (ptr == nullptr || count == 0)
+        {
+            throw std::invalid_argument(
+                "allocate_adopted: ptr and count must be non-null and non-zero");
+        }
+
+        if (deleter == nullptr)
+        {
+            deleter = [](T*, size_t, execution_context const&) {};
+        }
+
+        return retained_ptr<T>::adopt(ptr, count, ctx, std::move(deleter));
+    }
+
+    // copy_async_retained: Enqueue a non-blocking copy using retained storage.
+    // Both endpoints are kept alive through operation completion via reference counting.
+    // Caller may drop retained_ptr instances; async operation holds references.
+    // Returns copy_token for completion monitoring.
+    MEMORY_FORCE_INLINE static copy_token copy_async_retained(
+        retained_ptr<T> const& from,
+        retained_ptr<T> const& to,
+        stream_t               stream = nullptr)
+    {
+        if (from.empty() || to.empty())
+        {
+            throw std::invalid_argument("copy_async_retained: source and destination must be non-empty");
+        }
+
+        copy_token token = copy_async(
+            from.data(), from.size(), to.data(), stream,
+            from.ctx().device_type, to.ctx().device_type,
+            from.ctx().device_index, to.ctx().device_index);
+
+        return token;
     }
 
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)

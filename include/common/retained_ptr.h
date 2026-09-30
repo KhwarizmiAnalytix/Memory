@@ -209,7 +209,7 @@ private:
                 {
                     cb_->deleter(cb_->data, cb_->capacity, cb_->ctx);
                 }
-                catch (...)
+                catch (...)  // NOLINT: intentionally swallow in destructor
                 {
                 }
             }
