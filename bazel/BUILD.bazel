@@ -71,3 +71,10 @@ config_setting(
     name = "disable_profiler",
     define_values = {"memory_enable_profiler": "false"},
 )
+
+# Escape hatch for magic_enum used in ThirdParty/logging.BUILD select().
+# Set --define=memory_enable_magic_enum=false to build without magic_enum.
+config_setting(
+    name = "disable_magic_enum",
+    define_values = {"memory_enable_magic_enum": "false"},
+)

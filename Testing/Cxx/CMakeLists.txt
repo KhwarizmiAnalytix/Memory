@@ -199,11 +199,14 @@ if(MEMORY_ENABLE_BENCHMARK)
 
     add_executable(${target_name} "${_bench_source}")
     target_include_directories(
-      ${target_name} PRIVATE "${_memory_src_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
+      ${target_name} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                              "${CMAKE_CURRENT_BINARY_DIR}/.."
     )
     if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
-      target_include_directories(${target_name} PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+      set(_bench_dep_includes ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+      list(REMOVE_ITEM _bench_dep_includes "${_memory_include_root}")
+      target_include_directories(${target_name} PRIVATE ${_bench_dep_includes})
+      unset(_bench_dep_includes)
     endif()
     target_link_libraries(
       ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory

@@ -71,12 +71,28 @@ new_local_repository(
 )
 
 # =============================================================================
+# magic_enum — vendored inside ThirdParty/Logging/ThirdParty/magic_enum
+# fmt        — vendored inside ThirdParty/Logging/ThirdParty/fmt
+# Both are required by @logging//:logging_lib (see ThirdParty/logging.BUILD).
+# =============================================================================
+new_local_repository(
+    name = "magic_enum",
+    path = "ThirdParty/Logging/ThirdParty/magic_enum",
+    build_file = "//ThirdParty:magic_enum.BUILD",
+)
+
+new_local_repository(
+    name = "fmt",
+    path = "ThirdParty/Logging/ThirdParty/fmt",
+    build_file = "//ThirdParty:fmt.BUILD",
+)
+
+# =============================================================================
 # Logging — required sibling dependency (https://github.com/KhwarizmiAnalytix/Logging)
 # =============================================================================
 # Git submodule ThirdParty/Logging. Overlay BUILD so we do not edit the
 # vendored tree, using the same local-repository-with-overlay technique
 # XSigma itself uses for its own ThirdParty/logging.BUILD.
-# magic_enum and fmt are now managed through Logging's own dependencies.
 
 load("//bazel:logging_repository.bzl", "local_logging_repository")
 
