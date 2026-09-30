@@ -54,6 +54,7 @@ cc_library(
     # "include/logger" stays: sources include its headers by bare name (e.g.
     # "logger_verbosity_enum.h" from within include/logger/logger.h itself).
     includes = [
+        "",
         "include/logger",
     ],
     linkopts = logging_linkopts() + select({

@@ -85,11 +85,7 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 // ============================================================================
 // Branch prediction hints
 // ============================================================================
-#if __cplusplus >= 202002L && MEMORY_HAVE_CPP_ATTRIBUTE(likely) &&                                 \
-    MEMORY_HAVE_CPP_ATTRIBUTE(unlikely)
-#define MEMORY_LIKELY(expr) (expr) [[likely]]
-#define MEMORY_UNLIKELY(expr) (expr) [[unlikely]]
-#elif defined(__GNUC__) || defined(__ICL) || defined(__clang__)
+#if defined(__GNUC__) || defined(__ICL) || defined(__clang__)
 #define MEMORY_LIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 1))
 #define MEMORY_UNLIKELY(expr) (__builtin_expect(static_cast<bool>(expr), 0))
 #else
