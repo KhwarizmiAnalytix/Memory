@@ -419,6 +419,7 @@ public:
                 (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
                 from_index != to_index)
             {
+                gpu::device_guard const peer_guard(to_index);
                 result = cudaMemcpyPeerAsync(
                     to, to_index, from, from_index, nbytes,
                     stream != nullptr ? static_cast<cudaStream_t>(stream)
@@ -591,6 +592,16 @@ public:
             from.data(), from.size(), to.data(), stream,
             from.ctx().device_type, to.ctx().device_type,
             from.ctx().device_index, to.ctx().device_index);
+
+        // Retain both endpoints by storing shared pointers in the token.
+        // The token will hold references until its last copy is destroyed.
+        struct retained_holder
+        {
+            retained_ptr<T> from;
+            retained_ptr<T> to;
+        };
+        auto holder = std::make_shared<retained_holder>(retained_holder{from, to});
+        token.set_retained(std::static_pointer_cast<void>(holder));
 
         return token;
     }

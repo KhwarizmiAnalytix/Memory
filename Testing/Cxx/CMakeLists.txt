@@ -10,6 +10,9 @@ add_subdirectory(
   "${CMAKE_CURRENT_SOURCE_DIR}/../PinnedRuntime" "${CMAKE_CURRENT_BINARY_DIR}/PinnedRuntime"
 )
 add_subdirectory(
+  "${CMAKE_CURRENT_SOURCE_DIR}/../CopyRuntime" "${CMAKE_CURRENT_BINARY_DIR}/CopyRuntime"
+)
+add_subdirectory(
   "${CMAKE_CURRENT_SOURCE_DIR}/../CudaCachingAllocator"
   "${CMAKE_CURRENT_BINARY_DIR}/CudaCachingAllocator"
 )

@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -17,6 +18,7 @@
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/gpu_runtime.h"
+#include "gpu/device_guard.h"
 #endif
 
 namespace memory
@@ -68,6 +70,7 @@ public:
             return completion_state::complete;
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        gpu::device_guard guard(ctx_.device_index, std::nothrow);
         // Phase 2 interim: check stream (Phase 2+ will use operation-specific events)
         cudaError_t const r = (ctx_.stream != nullptr)
                                   ? cudaStreamQuery(static_cast<cudaStream_t>(ctx_.stream))
@@ -76,8 +79,14 @@ public:
         {
             return completion_state::complete;
         }
-        // cudasErrorNotReady means stream is still working (not an error)
-        return completion_state::pending;
+        if (r == cudaErrorNotReady)
+        {
+            // Clear sticky error state so repeated queries work
+            (void)cudaGetLastError();
+            return completion_state::pending;
+        }
+        // Any other error is a real failure
+        return completion_state::failed;
 #else
         return completion_state::complete;
 #endif
@@ -96,6 +105,7 @@ public:
             return;
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        gpu::device_guard guard(ctx_.device_index, std::nothrow);
         if (ctx_.stream != nullptr)
         {
             cudaError_t result = cudaStreamSynchronize(static_cast<cudaStream_t>(ctx_.stream));
@@ -119,8 +129,13 @@ public:
 
     execution_context const& ctx() const noexcept { return ctx_; }
 
+    // Store retained pointers so they stay alive until token completion.
+    // Called by copy_async_retained; the payload is opaque (a holder for retained_ptr copies).
+    void set_retained(std::shared_ptr<void> retained) noexcept { retained_ = retained; }
+
 private:
-    execution_context ctx_{};
+    execution_context           ctx_{};
+    std::shared_ptr<void>       retained_;  // Holds retained_ptr copies for async retained operations
 };
 
 }  // namespace memory
