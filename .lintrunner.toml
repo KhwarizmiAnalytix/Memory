@@ -276,31 +276,6 @@ is_formatter = true
 # PYTHON TYPE & IMPORT CHECKING
 # ==============================================================================
 
-[[linter]]
-code = 'PYREFLY'
-include_patterns = ['**/*.py', 'Scripts/**/*.py']
-exclude_patterns = [
-    'ThirdParty/**',
-    '.git/**',
-    'build/**',
-    '__pycache__/**',
-]
-init_command = [
-    'python3',
-    '-m',
-    'lint_tool.adapters.pip_init',
-    '--dry-run={{DRYRUN}}',
-    'pyrefly>=0.0.50',
-]
-command = [
-    'python3',
-    '-m',
-    'lint_tool.adapters.pyrefly_linter',
-    '--config',
-    'pyproject.toml',
-    '--',
-    '@{{PATHSFILE}}',
-]
 
 [[linter]]
 code = 'IMPORT_LINTER'
@@ -322,6 +297,53 @@ command = [
     'python3',
     '-m',
     'lint_tool.adapters.import_linter',
+    '--',
+    '@{{PATHSFILE}}',
+]
+
+[[linter]]
+code = 'PYREFLY'
+include_patterns = ['**/*.py']
+exclude_patterns = [
+    'ThirdParty/**',
+    'Scripts/**',
+    '.git/**',
+    'build/**',
+    'build_*/**',
+    'bazel-*/**',
+    '__pycache__/**',
+]
+init_command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.pip_init',
+    '--dry-run={{DRYRUN}}',
+    'pyrefly>=0.0.50',
+]
+command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.pyrefly_linter',
+    '--config',
+    'pyproject.toml',
+]
+
+[[linter]]
+code = 'PYPIDEP'
+include_patterns = ['requirements.txt', 'requirements*.txt']
+exclude_patterns = [
+    'ThirdParty/**',
+    '.git/**',
+]
+command = [
+    'python3',
+    '-m',
+    'lint_tool.adapters.grep_linter',
+    '--pattern=^[a-zA-Z0-9\-_.]+[<>=~!]',
+    '--invert-match',
+    '--linter-name=PYPIDEP',
+    '--error-name=missing version specifier',
+    '--error-description=Package dependency must have a version specifier (e.g., ==1.0.0)',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -701,20 +723,6 @@ command = [
     '@{{PATHSFILE}}',
 ]
 
-[[linter]]
-code = 'PYPIDEP'
-include_patterns = ['pyproject.toml', 'setup.py', 'requirements*.txt']
-exclude_patterns = [
-    'ThirdParty/**',
-    '.git/**',
-]
-command = [
-    'python3',
-    '-m',
-    'lint_tool.adapters.pip_init',
-    '--',
-    '@{{PATHSFILE}}',
-]
 
 [[linter]]
 code = 'TYPEIGNORE'
