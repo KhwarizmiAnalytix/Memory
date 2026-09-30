@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Check for missing copyright headers in C++ files."""
 
 import argparse

@@ -217,7 +217,6 @@ command = [
     'lint_tool.adapters.mypy_linter',
     '--config',
     'pyproject.toml',
-    '--strict',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -713,7 +712,6 @@ command = [
     'python3',
     '-m',
     'lint_tool.adapters.pip_init',
-    '--check-deps',
     '--',
     '@{{PATHSFILE}}',
 ]

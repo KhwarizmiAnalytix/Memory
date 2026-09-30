@@ -1,3 +1,8 @@
+[project]
+name = "memory"
+version = "1.0.0"
+description = "Memory allocation library"
+
 [tool.mypy]
 python_version = "3.12"
 disallow_untyped_defs = false
