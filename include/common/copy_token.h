@@ -23,10 +23,11 @@ namespace memory
 {
 
 // Completion state for copy operations
-enum class completion_state : std::uint8_t {
-    pending = 0,   // Operation enqueued, awaiting completion
+enum class completion_state : std::uint8_t
+{
+    pending  = 0,  // Operation enqueued, awaiting completion
     complete = 1,  // Operation finished successfully
-    failed = 2     // Operation or completion tracking failed
+    failed   = 2   // Operation or completion tracking failed
 };
 
 // Completion token returned by allocator<T>::copy_async.
@@ -52,9 +53,9 @@ public:
 
     explicit copy_token(execution_context ctx) noexcept : ctx_(ctx) {}
 
-    copy_token(copy_token&&) noexcept            = default;
-    copy_token& operator=(copy_token&&) noexcept = default;
-    copy_token(copy_token const&) noexcept       = default;
+    copy_token(copy_token&&) noexcept                 = default;
+    copy_token& operator=(copy_token&&) noexcept      = default;
+    copy_token(copy_token const&) noexcept            = default;
     copy_token& operator=(copy_token const&) noexcept = default;
 
     // Query completion state without blocking.
@@ -84,10 +85,7 @@ public:
 
     // Returns true if the copy has already completed (or was a CPU copy).
     // Queries the operation's state without blocking.
-    bool ready() const noexcept
-    {
-        return state() == completion_state::complete;
-    }
+    bool ready() const noexcept { return state() == completion_state::complete; }
 
     // Blocks until the copy completes. No-op for CPU copies.
     // Throws std::runtime_error if the operation failed.
@@ -104,8 +102,7 @@ public:
             if (result != cudaSuccess)
             {
                 throw std::runtime_error(
-                    std::string("copy_token::wait() failed: ") +
-                    cudaGetErrorString(result));
+                    std::string("copy_token::wait() failed: ") + cudaGetErrorString(result));
             }
         }
         else
@@ -114,8 +111,7 @@ public:
             if (result != cudaSuccess)
             {
                 throw std::runtime_error(
-                    std::string("copy_token::wait() failed: ") +
-                    cudaGetErrorString(result));
+                    std::string("copy_token::wait() failed: ") + cudaGetErrorString(result));
             }
         }
 #endif
