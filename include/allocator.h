@@ -486,6 +486,10 @@ public:
 
     // copy_sync: blocking cross-device copy. Never returns until the transfer
     // is complete.  Equivalent to copy(..., stream=nullptr).
+    // Synchronous copy: blocks until transfer is complete and visible.
+    // For CPU↔CPU: uses memcpy (synchronous by nature)
+    // For GPU transfers: submits async work, waits for completion before returning
+    // Guarantees: After return, destination is stable and visible to consumers
     MEMORY_FORCE_INLINE static void copy_sync(
         const_pointer from,
         size_type     n,
@@ -495,7 +499,18 @@ public:
         int           from_index = 0,
         int           to_index   = 0)
     {
-        copy(from, n, to, from_type, to_type, from_index, to_index, nullptr);
+        // CPU↔CPU copy is inherently synchronous
+        if (from_type == device_enum::CPU && to_type == device_enum::CPU)
+        {
+            copy(from, n, to, from_type, to_type, from_index, to_index, nullptr);
+            return;
+        }
+
+        // GPU transfers: use async infrastructure with explicit wait
+        // Use nullptr stream (legacy default CUDA stream) for sync behavior
+        copy_token token = copy_async(from, n, to, nullptr, from_type, to_type,
+                                      from_index, to_index);
+        token.wait();  // Block until transfer completes
     }
 
     // copy_async: enqueue a non-blocking copy on @p stream and return a

@@ -1,5 +1,11 @@
 # CPU/GPU memory design review and delivery path
 
+Historical review with later status annotations. The
+[2026-09-30 implementation plan](memory_runtime_implementation_plan.md) supersedes
+the delivery sequence and completion claims below. In particular, implementation
+presence does not establish integration or acceptance; the new plan records the
+remaining copy-completion, retained-lifetime, telemetry, and workspace gaps.
+
 Reviewed 2026-09-28. Scope: this repository's current allocation, ownership,
 transfer, cache, NUMA, profiling, and test code. Downstream Tensor/Vectorization
 implementations were not inspected. This updates the priorities in the

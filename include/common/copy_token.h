@@ -7,6 +7,8 @@
 #pragma once
 
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 
 #include "common/execution_context.h"
 #include "common/memory_export.h"
@@ -19,14 +21,22 @@
 namespace memory
 {
 
+// Completion state for copy operations
+enum class completion_state {
+    pending,   // Operation enqueued, awaiting completion
+    complete,  // Operation finished successfully
+    failed     // Operation or completion tracking failed
+};
+
 // Completion token returned by allocator<T>::copy_async.
 //
 // The token records the execution context (backend, device, stream) the copy
-// was enqueued on.  Both GPU endpoints have record_stream called BEFORE the
-// copy is submitted, so the caching allocator defers their reuse until the
-// stream catches up regardless of whether the token is kept.  This guarantee
-// holds only for pointers that are live allocations in the caching allocator;
-// interior or foreign GPU pointers remain caller-managed (see copy_async).
+// was enqueued on and (for GPU ops) an operation-specific completion marker.
+// Both GPU endpoints have record_stream called BEFORE the copy is submitted,
+// so the caching allocator defers their reuse until the stream catches up
+// regardless of whether the token is kept.  This guarantee holds only for
+// pointers that are live allocations in the caching allocator; interior or
+// foreign GPU pointers remain caller-managed (see copy_async).
 //
 // For pageable (non-pinned) CPU endpoints the copy_async caller is responsible
 // for keeping the host buffer alive and unmodified until the copy completes.
@@ -43,43 +53,70 @@ public:
 
     copy_token(copy_token&&) noexcept            = default;
     copy_token& operator=(copy_token&&) noexcept = default;
-    copy_token(copy_token const&)                = default;
-    copy_token& operator=(copy_token const&)     = default;
+    copy_token(copy_token const&) noexcept       = default;
+    copy_token& operator=(copy_token const&) noexcept = default;
 
-    // Blocks until the copy's stream has completed all work enqueued before
-    // and including the copy_async call.  No-op for CPU copies.
-    void wait() const noexcept
+    // Query completion state without blocking.
+    // For CPU operations, always returns 'complete'.
+    // For GPU operations, queries the operation's event or stream.
+    completion_state state() const noexcept
     {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         if (!ctx_.is_gpu())
         {
-            return;
+            return completion_state::complete;
         }
-        if (ctx_.stream != nullptr)
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        // Phase 2 interim: check stream (Phase 2+ will use operation-specific events)
+        cudaError_t const r = (ctx_.stream != nullptr)
+                                  ? cudaStreamQuery(static_cast<cudaStream_t>(ctx_.stream))
+                                  : cudaStreamQuery(nullptr);
+        if (r == cudaSuccess)
         {
-            cudaStreamSynchronize(static_cast<cudaStream_t>(ctx_.stream));
+            return completion_state::complete;
         }
-        else
-        {
-            cudaDeviceSynchronize();
-        }
+        // cudasErrorNotReady means stream is still working (not an error)
+        return completion_state::pending;
+#else
+        return completion_state::complete;
 #endif
     }
 
     // Returns true if the copy has already completed (or was a CPU copy).
+    // Queries the operation's state without blocking.
     bool ready() const noexcept
     {
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        return state() == completion_state::complete;
+    }
+
+    // Blocks until the copy completes. No-op for CPU copies.
+    // Throws std::runtime_error if the operation failed.
+    void wait() const
+    {
         if (!ctx_.is_gpu())
         {
-            return true;
+            return;
         }
-        cudaError_t const r = (ctx_.stream != nullptr)
-                                  ? cudaStreamQuery(static_cast<cudaStream_t>(ctx_.stream))
-                                  : cudaStreamQuery(nullptr);
-        return r == cudaSuccess;
-#else
-        return true;
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        if (ctx_.stream != nullptr)
+        {
+            cudaError_t result = cudaStreamSynchronize(static_cast<cudaStream_t>(ctx_.stream));
+            if (result != cudaSuccess)
+            {
+                throw std::runtime_error(
+                    std::string("copy_token::wait() failed: ") +
+                    cudaGetErrorString(result));
+            }
+        }
+        else
+        {
+            cudaError_t result = cudaDeviceSynchronize();
+            if (result != cudaSuccess)
+            {
+                throw std::runtime_error(
+                    std::string("copy_token::wait() failed: ") +
+                    cudaGetErrorString(result));
+            }
+        }
 #endif
     }
 

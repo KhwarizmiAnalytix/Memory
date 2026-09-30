@@ -1,8 +1,10 @@
 # CPU/GPU memory foundation: review and implementation plan
 
-Historical review: several findings below have since been addressed. See the
-[2026-09-28 review and delivery sequence](cpu_gpu_memory_review.md) for current
-status, newly identified failures, and the next implementation milestones.
+Historical review: several findings below have since been addressed. The
+[2026-09-30 implementation plan](memory_runtime_implementation_plan.md) is the
+current roadmap and supersedes this delivery sequence and compatibility targets.
+The [2026-09-28 review](cpu_gpu_memory_review.md) preserves intermediate findings
+and validation history.
 
 Review date: 2026-09-22. Scope: this repository's allocation, ownership,
 copy, profiling, build, and test code. Downstream Tensor/Vectorization source
