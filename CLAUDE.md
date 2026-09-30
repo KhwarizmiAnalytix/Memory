@@ -12,15 +12,25 @@ cache (expandable segments, mutex dropped around malloc, process-wide
 CUDA caching allocator benchmarks (2026-09-29): direct malloc comparison,
 cold/warm path analysis, fragmentation resilience, multi-stream scaling.
 
-**Done (2026-09-30):** Phase 0–3 specifications complete (CPU-independent work):
-- Phase 0: README corrections + validation manifest template
-- Phase 1–2: Token lifecycle and error semantics (design spec)
-- Phase 2: copy_sync() completion and context semantics (design spec)
-- Phase 3: Storage identity, adoption, retained ownership (design spec)
-See `Docs/phase0_1_2_3_summary.md` for overview and implementation roadmap.
+**Done (2026-09-30):** Phase 0–3 specifications AND CPU-side implementations complete:
+- Phase 0: README corrections + validation manifest template ✓
+- Phase 1: Failure safety + error semantics (spec ✓, CPU tests ✓)
+- Phase 2: copy_sync() completion semantics (spec ✓, impl ✓, tests ✓)
+- Phase 3: Storage identity + adoption + retained operations (spec ✓, impl ✓, tests ✓)
+  - `allocation_id` type with process-wide uniqueness ✓
+  - `allocate_adopted()` factory for foreign memory ✓
+  - `copy_async_retained()` for retained transfers ✓
+  - `retained_operation_service` API skeleton ✓
+- All 206 tests passing (182 existing + 24 Phase 3 adoption/service)
+See `Docs/phase0_1_2_3_summary.md` for overview; commit d23b18b for Phase 3 impl.
 
-**Open:** 
-- GPU work: CUDA/HIP runtime tests; churn diagnosis (Phase 1); event-based completion (Phase 2)
+**Next (non-GPU):**
+- Phase 3 GPU: retained_operation_service polling thread (Phase 4)
+- Phase 1 diagnostics: cleanup hooks, quarantine states (optional)
+- Phase 2 GPU: device context activation (cudaSetDevice guards)
+
+**Open (GPU hardware required):** 
+- Phase 1 churn diagnosis; Phase 2 event-based completion; Phase 2 multi-stream ordering
 - Optional: graphs/MemPool; AllocConf; `cudaMallocAsync`; OOM stack capture
 - Known constraints: view does not refcount owner (by design, Phase 3 documents);
   Metal async / device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization
@@ -37,13 +47,14 @@ See the detailed phase plan in `Docs/memory_runtime_implementation_plan.md` for 
 - `Docs/phase3_storage_identity_spec.md` — `allocation_id`, adoption contract, retained ownership, borrowed pointer limits
 - `Docs/phase0_1_2_3_summary.md` — Summary, implementation sequence, and what's ready to start
 
-**Implementation priority (non-GPU first):**
-1. Phase 2 CPU-side: add operation-specific completion to `copy_token`, implement `copy_sync()`
-2. Phase 1 non-churn: add diagnostic cleanup hooks, test failure injection (no GPU required)
-3. Phase 3 design+CPU: implement `allocation_id` type, adoption factories
-4. Phase 1 GPU: churn diagnosis (needs CUDA/HIP debugger on self-hosted runners)
-5. Phase 2 GPU: validate events, multi-stream ordering
-6. Phases 4–8 build on Phases 1–3
+**Implementation progress (non-GPU first):**
+1. ✅ Phase 2 CPU-side: completion_state enum, copy_sync(), token state queries (DONE)
+2. ✅ Phase 1 non-churn: failure safety tests, overflow detection (DONE)
+3. ✅ Phase 3 design+CPU: allocation_id, allocate_adopted(), copy_async_retained() (DONE)
+4. Phase 4: retained_operation_service background polling thread (next)
+5. Phase 1 GPU: churn diagnosis (needs CUDA/HIP debugger on self-hosted runners)
+6. Phase 2 GPU: device context validation, event-based completion
+7. Phases 5–8 depend on Phases 1–4
 
 ---
 
