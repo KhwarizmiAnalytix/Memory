@@ -32,6 +32,7 @@ using cudaStream_t = void*;
 struct fake_event
 {
     cudaStream_t stream{nullptr};
+    bool         complete{false};
 };
 using cudaEvent_t = fake_event*;
 enum cudaMemcpyKind
@@ -64,6 +65,9 @@ inline int                                   host_allocations  = 0;
 inline int                                   host_frees        = 0;
 inline int                                   event_creates     = 0;
 inline int                                   event_destroys    = 0;
+inline int                                   event_records     = 0;
+inline int                                   event_queries     = 0;
+inline int                                   event_syncs       = 0;
 inline int                                   stream_queries    = 0;
 inline int                                   stream_syncs      = 0;
 inline int                                   device_syncs      = 0;
@@ -84,6 +88,9 @@ inline void reset()
     host_frees = 0;
     event_creates = 0;
     event_destroys = 0;
+    event_records = 0;
+    event_queries = 0;
+    event_syncs = 0;
     stream_queries = 0;
     stream_syncs = 0;
     device_syncs = 0;
@@ -224,27 +231,39 @@ inline cudaError_t cudaEventCreateWithFlags(cudaEvent_t* event, unsigned)
 inline cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream)
 {
     event->stream = stream;
+    event->complete =
+        fake_runtime::get_stream_state(stream) == fake_runtime::STREAM_READY;
+    ++fake_runtime::event_records;
     return 0;
 }
 
 inline cudaError_t cudaEventQuery(cudaEvent_t event)
 {
+    ++fake_runtime::event_queries;
     if (fake_runtime::fail_stream_query)
         return 3;
+    if (event->complete)
+        return cudaSuccess;
     auto state = fake_runtime::get_stream_state(event->stream);
     if (state == fake_runtime::STREAM_ERROR)
         return 3;
-    return (state == fake_runtime::STREAM_READY) ? cudaSuccess : cudaErrorNotReady;
+    if (state == fake_runtime::STREAM_READY)
+    {
+        event->complete = true;
+        return cudaSuccess;
+    }
+    return cudaErrorNotReady;
 }
 
 inline cudaError_t cudaEventSynchronize(cudaEvent_t event)
 {
-    ++fake_runtime::stream_syncs;
+    ++fake_runtime::event_syncs;
     if (fake_runtime::fail_stream_query)
         return 3;
     auto state = fake_runtime::get_stream_state(event->stream);
     if (state == fake_runtime::STREAM_ERROR)
         return 3;
+    event->complete = true;
     fake_runtime::set_stream_ready(event->stream, true);
     return 0;
 }

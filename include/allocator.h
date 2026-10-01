@@ -33,6 +33,7 @@
 #include "common/execution_context.h" // for execution_context
 #include "common/memory_macros.h"     // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
 #include "common/retained_ptr.h"      // for retained_ptr
+#include "common/retained_operation_service.h"
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
 // GPU caching allocator (CUDA, HIP, or Metal — compile-time exclusive).
@@ -380,6 +381,20 @@ public:
         int           to_index   = 0,
         stream_t      stream     = nullptr)
     {
+        copy_impl<true>(from, n, to, from_type, to_type, from_index, to_index, stream);
+    }
+
+    template <bool track_gpu_streams>
+    MEMORY_FORCE_INLINE static void copy_impl(
+        const_pointer from,
+        size_type     n,
+        pointer       to,
+        device_enum   from_type,
+        device_enum   to_type,
+        int           from_index,
+        int           to_index,
+        stream_t      stream)
+    {
         if (from == nullptr || to == nullptr || n == 0)
         {
             return;
@@ -405,13 +420,19 @@ public:
             // identity, not "no stream" (see cuda_caching_allocator::record_stream).
             // copy_sync passes stream=nullptr and is caller-responsible for blocking;
             // copy_async always passes a non-null stream.
-            if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
+            if constexpr (track_gpu_streams)
             {
-                record_stream(const_cast<pointer>(from), from_type, from_index, stream);
+                if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
+                {
+                    record_stream(const_cast<pointer>(from), from_type, from_index, stream);
+                }
             }
-            if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
+            if constexpr (track_gpu_streams)
             {
-                record_stream(to, to_type, to_index, stream);
+                if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
+                {
+                    record_stream(to, to_type, to_index, stream);
+                }
             }
 
             cudaError_t result = cudaSuccess;
@@ -534,7 +555,23 @@ public:
         int           from_index = 0,
         int           to_index   = 0)
     {
-        copy(from, n, to, from_type, to_type, from_index, to_index, stream);
+        return copy_async_impl<true>(
+            from, n, to, stream, from_type, to_type, from_index, to_index, {}, false);
+    }
+
+    template <bool track_gpu_streams>
+    MEMORY_FORCE_INLINE static copy_token copy_async_impl(
+        const_pointer from,
+        size_type     n,
+        pointer       to,
+        stream_t      stream,
+        device_enum   from_type,
+        device_enum   to_type,
+        int           from_index,
+        int           to_index,
+        std::shared_ptr<void> retained,
+        bool          register_with_service)
+    {
         // Build a context that identifies which device/stream to wait on.
         // Use is_gpu_device (enum-based) rather than is_active_gpu_device
         // (compile-time backend check) so the selection is based on whether the
@@ -545,7 +582,52 @@ public:
         ctx.device_type  = gpu_dev;
         ctx.device_index = gpu_idx;
         ctx.stream       = stream;
-        return copy_token(ctx);
+        copy_token token(ctx);
+        if (retained)
+        {
+            token.set_retained(std::move(retained));
+        }
+        token.prepare_event();
+        if (register_with_service)
+        {
+            retained_operation_service::instance().enqueue(token);
+        }
+
+        try
+        {
+            copy_impl<track_gpu_streams>(
+                from, n, to, from_type, to_type, from_index, to_index, stream);
+            token.record_event();
+        }
+        catch (...)
+        {
+            bool safe_to_release = true;
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+            if (ctx.is_gpu())
+            {
+                try
+                {
+                    gpu::device_guard const guard(ctx.device_index);
+                    safe_to_release =
+                        cudaStreamSynchronize(static_cast<cudaStream_t>(ctx.stream)) == cudaSuccess;
+                }
+                catch (...)
+                {
+                    safe_to_release = false;
+                }
+            }
+#endif
+            if (safe_to_release)
+            {
+                token.mark_complete();
+            }
+            else
+            {
+                token.mark_failed();
+            }
+            throw;
+        }
+        return token;
     }
 
     // --- Phase 3: Retained storage and adoption (§3.3, 3.4) ---
@@ -588,22 +670,23 @@ public:
             throw std::invalid_argument("copy_async_retained: source and destination must be non-empty");
         }
 
-        copy_token token = copy_async(
-            from.data(), from.size(), to.data(), stream,
-            from.ctx().device_type, to.ctx().device_type,
-            from.ctx().device_index, to.ctx().device_index);
+        if (from.size() != to.size())
+        {
+            throw std::invalid_argument(
+                "copy_async_retained: source and destination extents must match");
+        }
 
-        // Retain both endpoints by storing shared pointers in the token.
-        // The token will hold references until its last copy is destroyed.
         struct retained_holder
         {
             retained_ptr<T> from;
             retained_ptr<T> to;
         };
         auto holder = std::make_shared<retained_holder>(retained_holder{from, to});
-        token.set_retained(std::static_pointer_cast<void>(holder));
-
-        return token;
+        return copy_async_impl<false>(
+            from.data(), from.size(), to.data(), stream,
+            from.ctx().device_type, to.ctx().device_type,
+            from.ctx().device_index, to.ctx().device_index,
+            std::static_pointer_cast<void>(holder), true);
     }
 
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)

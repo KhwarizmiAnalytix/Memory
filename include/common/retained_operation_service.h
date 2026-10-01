@@ -22,25 +22,26 @@ namespace memory
 /**
  * @brief Manages lifetime of pending async operations with bounded queue.
  *
- * Phase 3 API skeleton: design only, no background polling thread yet.
+ * Retained async operations are registered before submission. The service
+ * polls operation-specific completion markers and keeps failed operations
+ * quarantined because their storage is not known to be safe to reuse.
  *
  * Usage:
  * ```cpp
  * auto token = allocator<T>::copy_async_retained(from, to);
- * auto& service = retained_operation_service::instance();
- * service.enqueue(std::move(token));  // Service keeps token alive
- * service.poll();  // Manually check for completion
+ * token.wait();  // Or let the service retain it after the token is discarded
  * ```
  *
  * Benefits:
  * - Prevents unbounded growth of pending operations
  * - Token destruction does not crash or leak
- * - Caller can opt-in for automatic cleanup
+ * - Blocking admission polls for its own capacity; no separate polling thread is required
  * - Diagnostic access to pending operation count
  *
  * Thread-safety: instance() is thread-safe; enqueue/poll use internal mutex.
  *
- * Scope: API skeleton only (Phase 3). Background polling thread (Phase 4+).
+ * shutdown() stops admission and drains; unresolved operations remain retained
+ * by the process-lifetime service after a timeout.
  */
 class MEMORY_API retained_operation_service
 {
@@ -78,12 +79,23 @@ public:
     // Diagnostics: return count of operations that failed (state == failed).
     size_t failed_count() const noexcept;
 
+    // Release all quarantined failed operations. Only call when you can accept
+    // that the underlying storage may be in an unknown state (e.g., after a
+    // device reset or process teardown).
+    void clear_failed() noexcept;
+
     // Drain all pending operations (called at shutdown).
     // Blocks until all complete or timeout expires.
     // Returns count of discarded operations (if timeout).
     size_t drain(std::chrono::milliseconds timeout = {});
 
-    // Reset service state (for testing).
+    // Stop accepting new operations and drain. Timed-out operations remain
+    // retained by the service; failed operations remain quarantined.
+    // Returns the number of still-pending operations.
+    size_t shutdown(std::chrono::milliseconds timeout = {});
+
+    // Wait for pending work and reopen admission (for testing). Failed
+    // operations remain quarantined and are not cleared.
     void reset() noexcept;
 
 private:
@@ -98,8 +110,9 @@ private:
     mutable std::mutex           mu_;
     std::condition_variable      cv_;          // Signals when space available or ops complete
     std::deque<pending_op>       pending_;
-    std::deque<completion_state> failed_;      // Track failed operations separately
+    std::deque<copy_token>       failed_;      // Quarantine failures with owners retained
     size_t                       max_pending_{0};  // 0 = unlimited
+    bool                         stopping_{false};
 };
 
 }  // namespace memory

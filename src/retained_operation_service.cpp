@@ -7,6 +7,8 @@
 #include "common/retained_operation_service.h"
 
 #include <condition_variable>
+#include <exception>
+#include <new>
 #include <stdexcept>
 #include <thread>
 
@@ -15,8 +17,12 @@ namespace memory
 
 retained_operation_service& retained_operation_service::instance() noexcept
 {
-    static retained_operation_service s_instance;
-    return s_instance;
+    static auto* s_instance = new (std::nothrow) retained_operation_service();
+    if (s_instance == nullptr)
+    {
+        std::terminate();
+    }
+    return *s_instance;
 }
 
 void retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
@@ -27,6 +33,10 @@ void retained_operation_service::enqueue(copy_token const& token, size_t priorit
     {
         return;
     }
+    if (stopping_)
+    {
+        throw std::runtime_error("retained_operation_service: service is shutting down");
+    }
 
     while (max_pending_ > 0 && pending_.size() >= max_pending_)
     {
@@ -36,8 +46,17 @@ void retained_operation_service::enqueue(copy_token const& token, size_t priorit
                 "retained_operation_service: max pending operations reached; "
                 "call poll() to drain or set_max_pending(0) for unlimited");
         }
-        // Wait for space to become available
-        cv_.wait(lock, [this]() { return max_pending_ == 0 || pending_.size() < max_pending_; });
+        lock.unlock();
+        poll();
+        lock.lock();
+        if (stopping_)
+        {
+            throw std::runtime_error("retained_operation_service: service is shutting down");
+        }
+        if (max_pending_ > 0 && pending_.size() >= max_pending_)
+        {
+            cv_.wait_for(lock, std::chrono::milliseconds(1));
+        }
     }
 
     pending_.push_back({token, priority});
@@ -61,7 +80,7 @@ size_t retained_operation_service::poll()
         else if (state == completion_state::failed)
         {
             ++completed;
-            failed_.push_back(state);
+            failed_.push_back(it->token);
             it = pending_.erase(it);
             // Notify waiters that space may be available
             cv_.notify_one();
@@ -136,6 +155,16 @@ size_t retained_operation_service::failed_count() const noexcept
     return failed_.size();
 }
 
+void retained_operation_service::clear_failed() noexcept
+{
+    std::deque<copy_token> to_release;
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        to_release.swap(failed_);
+    }
+    // Tokens released here outside the lock.
+}
+
 size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
 {
     auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -171,12 +200,44 @@ size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
     }
 }
 
+size_t retained_operation_service::shutdown(std::chrono::milliseconds timeout)
+{
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        stopping_ = true;
+    }
+    return drain(timeout);
+}
+
 void retained_operation_service::reset() noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
-    pending_.clear();
-    failed_.clear();
-    max_pending_ = 0;
+    std::deque<pending_op> to_drain;
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        to_drain.swap(pending_);
+        max_pending_ = 0;
+        stopping_ = false;
+    }
+
+    for (auto& op : to_drain)
+    {
+        try
+        {
+            op.token.wait();
+        }
+        catch (...)
+        {
+            try
+            {
+                std::unique_lock<std::mutex> lock(mu_);
+                failed_.push_back(op.token);
+            }
+            catch (...)  // NOLINT(bugprone-empty-catch)
+            {
+                // Silence exceptions during quarantine push; reset() must not throw
+            }
+        }
+    }
 }
 
 }  // namespace memory

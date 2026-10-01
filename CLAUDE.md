@@ -42,9 +42,22 @@ See commit bc8f808 for service backpressure; 0adb77d for Phase 2 GPU fixes.
 - Finding 8 in `cpu_gpu_memory_review.md` closed ✓
 - Full write-up + validation: `Docs/phase1_churn_diagnosis.md`
 
+**Done (2026-10-01, Phase 2.3 / Phase 3.5 token event + retained service fixes):**
+- `copy_token` refactored to `shared_ptr<shared_state>`: token copies share event and
+  retained payload; discard is safe (Phase 3.5) ✓
+- `prepare_event()` / `record_event()` introduce operation-specific completion markers;
+  `state()` and `wait()` query/sync the event, not the full stream (Phase 2.3) ✓
+- `wait()` null-stream regression fixed: restored `cudaDeviceSynchronize()` ✓
+- `retained_operation_service`: `shutdown()` added; `failed_` holds `copy_token` to
+  keep retained payloads alive in quarantine; `clear_failed()` for explicit release ✓
+- `reset()` deadlock fixed: pending ops moved out from under mutex before `wait()` ✓
+- `enqueue()` race fixed: `stopping_` re-checked after capacity poll re-acquires lock ✓
+- 7 new CopyRuntime tests; all 9 test suites pass on macOS/Metal/TBB (clang-tidy clean) ✓
+See commit for this session; `Docs/memory_runtime_implementation_plan.md` updated.
+
 **Next (non-GPU, 2026-10):**
 - Phase 3.5: retained_operation_service background polling thread
-- Phase 2 GPU: device context activation + failed-state reporting (tests passing)
+- Phase 2 GPU: device context activation (tests passing, hardware required for full gate)
 - Phase 1 diagnostics: cleanup hooks, quarantine counters (optional)
 
 **Open (GPU hardware required):** 

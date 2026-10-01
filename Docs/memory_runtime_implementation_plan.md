@@ -1,6 +1,6 @@
 # Memory runtime implementation plan
 
-Updated: 2026-09-30. Source baseline: `b4626e5` on local `main`.
+Updated: 2026-10-01. Source baseline: `b581cf5` on local `main`.
 
 This is the current implementation roadmap. It supersedes the delivery order and
 completion claims in the [September 22 plan](cpu_gpu_memory_plan.md) and the
@@ -8,9 +8,33 @@ completion claims in the [September 22 plan](cpu_gpu_memory_plan.md) and the
 The September 29 [benchmark analysis](cuda_benchmark_analysis.md) is historical
 measurement commentary, not evidence that the runtime is production-ready.
 
-This update changes documentation only. No new build, sanitizer, benchmark, or
-GPU runtime results are claimed. Findings below are either source observations
-at the baseline commit or explicitly identified reports from earlier reviews.
+**2026-10-01 update (Phase 2/3 token event + retained service fixes):**
+This update records CPU-side implementation and correctness fixes merged on
+2026-10-01. All 9 test suites pass on macOS/Metal/TBB (clang 22, clang-tidy,
+IWYU, coverage). No GPU hardware results are claimed.
+
+Changes:
+- `copy_token` refactored to `shared_ptr<shared_state>`: token copies now share
+  the same event and retained payload, making token discard safe (Phase 3.5).
+- `prepare_event()` / `record_event()`: operation-specific completion marker
+  introduced; `state()` and `wait()` query/sync the event rather than the full
+  stream (Phase 2.3). Tokens without an event retain stream-query compatibility.
+- `wait()` null-stream regression fixed: restored `cudaDeviceSynchronize()` when
+  `ctx.stream == nullptr` (was incorrectly calling `cudaStreamSynchronize(nullptr)`).
+- `retained_operation_service`: added `shutdown()` to stop admission and drain;
+  `failed_` now holds `copy_token` (not `completion_state`) to keep retained
+  payloads alive in quarantine; `clear_failed()` provides explicit quarantine
+  release (Phase 1.4 / Phase 3.5).
+- `reset()` deadlock fixed: pending ops are moved out from under the mutex before
+  `token.wait()` is called; quarantine push also happens outside the lock.
+- `enqueue()` race fixed: `stopping_` is re-checked after the capacity poll loop
+  re-acquires the mutex, so `shutdown()` racing with a blocking enqueue now
+  correctly throws rather than enqueuing into a shutting-down service.
+- New CopyRuntime tests: `BlockingEnqueuePollsForItsOwnCapacity`,
+  `ShutdownRejectsNewWorkAndResetReopensService`, `OperationEventIgnoresLaterStreamWork`,
+  `OperationEventWaitSynchronizesOnlyTheEvent`, `RetainedCopyValidatesExtentAndSupportsSlices`,
+  `RetainedCopySurvivesTokenDiscardUntilEventCompletes`, `FailedRetainedCopyIsQuarantined`.
+
 Downstream Tensor, LinearAlgebra, and Vectorization implementations have not been
 audited as part of this update.
 
