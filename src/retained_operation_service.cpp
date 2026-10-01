@@ -19,7 +19,7 @@ retained_operation_service& retained_operation_service::instance() noexcept
     return s_instance;
 }
 
-void retained_operation_service::enqueue(copy_token token, size_t priority, bool blocking)
+void retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
 {
     std::unique_lock<std::mutex> lock(mu_);
 
@@ -43,7 +43,7 @@ void retained_operation_service::enqueue(copy_token token, size_t priority, bool
     pending_.push_back({token, priority});
 }
 
-size_t retained_operation_service::poll() noexcept
+size_t retained_operation_service::poll()
 {
     std::unique_lock<std::mutex> lock(mu_);
     size_t                        completed = 0;
@@ -136,7 +136,7 @@ size_t retained_operation_service::failed_count() const noexcept
     return failed_.size();
 }
 
-size_t retained_operation_service::drain(std::chrono::milliseconds timeout) noexcept
+size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
 {
     auto deadline = std::chrono::steady_clock::now() + timeout;
 

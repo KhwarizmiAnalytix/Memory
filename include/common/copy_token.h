@@ -131,7 +131,7 @@ public:
 
     // Store retained pointers so they stay alive until token completion.
     // Called by copy_async_retained; the payload is opaque (a holder for retained_ptr copies).
-    void set_retained(std::shared_ptr<void> retained) noexcept { retained_ = retained; }
+    void set_retained(std::shared_ptr<void> retained) noexcept { retained_ = std::move(retained); }
 
 private:
     execution_context           ctx_{};

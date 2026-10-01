@@ -52,12 +52,12 @@ public:
     // If max_pending is reached and blocking=true, waits for space.
     // If max_pending is reached and blocking=false, throws std::runtime_error.
     // No-op if token is already complete (ready() returns true).
-    void enqueue(copy_token token, size_t priority = 0, bool blocking = true);
+    void enqueue(copy_token const& token, size_t priority = 0, bool blocking = true);
 
     // Poll pending operations; return count of newly completed.
     // Does NOT wait; returns immediately with completion count.
     // Removes completed tokens from queue.
-    size_t poll() noexcept;
+    size_t poll();
 
     // Block until all pending complete or timeout expires.
     // Returns count of completed operations.
@@ -81,7 +81,7 @@ public:
     // Drain all pending operations (called at shutdown).
     // Blocks until all complete or timeout expires.
     // Returns count of discarded operations (if timeout).
-    size_t drain(std::chrono::milliseconds timeout = {}) noexcept;
+    size_t drain(std::chrono::milliseconds timeout = {});
 
     // Reset service state (for testing).
     void reset() noexcept;
