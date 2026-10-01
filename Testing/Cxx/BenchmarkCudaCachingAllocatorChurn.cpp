@@ -13,7 +13,7 @@
 // --benchmark_min_time=0.05s --benchmark_repetitions=10 the cold path reaches
 // ~250 iterations/rep and the warm path ~20 000; those counts, across multiple
 // size variants and 10 reps each, reproduce the 30-40% crash rate documented
-// in Docs/cpu_gpu_memory_review.md item 8 and CLAUDE.md.
+// in Docs/memory_runtime_implementation_plan.md Appendix B.
 //
 // A Windows unhandled-exception filter is installed before benchmarks run (via
 // static initialisation of churn_crash_handler_installer_).  On crash it writes

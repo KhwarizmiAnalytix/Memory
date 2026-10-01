@@ -23,7 +23,7 @@ namespace memory::gpu
 // Template parameter Entry must be default-constructible and copy-assignable.
 // The ring is NOT thread-safe: callers must hold the allocator lock.
 //
-// Design contract (from cpu_gpu_memory_review.md Order 4):
+// Design contract (Docs/memory_runtime_implementation_plan.md §6.6):
 //   - No dynamic allocation during record() — storage reserved upfront.
 //   - Dropped entries increment a loss counter visible at snapshot time.
 //   - copy() produces a std::vector snapshot without clearing the ring.

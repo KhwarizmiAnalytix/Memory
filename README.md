@@ -1,5 +1,10 @@
 # Memory Library – GPU/CPU Allocation
 
+[![CI](https://github.com/KhwarizmiAnalytix/Memory/actions/workflows/ci.yml/badge.svg)](https://github.com/KhwarizmiAnalytix/Memory/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/KhwarizmiAnalytix/Memory/branch/main/graph/badge.svg)](https://codecov.io/gh/KhwarizmiAnalytix/Memory)
+[![License: GPL v3 / Commercial](https://img.shields.io/badge/license-GPL--3.0--or--later%20%2F%20commercial-blue.svg)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](CMakeLists.txt)
+
 **What it is:** Unified C++17/20 memory-allocation library for GPU and CPU with three ownership models and compile-time backend selection (CUDA, HIP, Metal, or CPU-only).
 
 **Key features:**
@@ -175,23 +180,30 @@ for (int iter = 0; iter < 1000; ++iter) {
 
 ## Architecture Overview
 
-See **[Dependency Graph](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE)** for visual architecture:
+The [design and implementation plan](Docs/memory_runtime_implementation_plan.md)
+is the single design document: architecture, contracts, performance rules,
+phased roadmap and current status.
+
+Current structure:
 
 ```
-allocator<T> (unified facade)
-  ├─ CPU path → cpu::memory_allocator (mimalloc/TBB/malloc)
-  └─ GPU path → caching_allocator_for_device()
-      ├─ [1st call] Register in global registry
-      └─ [cached] Thread-local device handle cache (LRU)
-          └─ cuda_caching_allocator (CUDA/HIP)
-             OR metal_caching_allocator (Metal)
+data_ptr<T> / retained_ptr<T> / data_view<T>
+  └─ allocator<T> (static facade)
+      ├─ CPU path → cpu::memory_allocator (mimalloc / TBB / platform aligned malloc)
+      └─ GPU path → gpu::caching_allocator_for_device(i)   (per-device registry)
+          ├─ cuda_caching_allocator (CUDA or HIP)
+          └─ metal_caching_allocator (Metal)
 ```
 
-**Key optimizations:**
-- Thread-local device cache (8-slot LRU) avoids mutex on 90%+ allocations
-- PyTorch-style segment cache (512B–20MiB segments)
-- Stream-aware reuse (CUDA events defer cross-stream reuse)
-- OOM recovery (flush cache + retry)
+**What the GPU cache does:**
+- PyTorch-style segment cache: 512 B request rounding; 2 MiB segments for small
+  requests, 20 MiB for 1–10 MiB, 2 MiB-rounded large segments
+- Per-stream free pools; cross-stream reuse deferred with CUDA/HIP events (`record_stream`)
+- OOM recovery: flush cached segments and retry once
+- Lock dropped around the driver `malloc`
+
+The plan's target architecture (§4) adds a byte-level `storage_handle` under the
+typed handles and removes the registry lookup from the free path.
 
 ---
 
@@ -336,6 +348,54 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 
 ---
 
+## Continuous integration and coverage
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and pull request to `main`, and on manual dispatch. One workflow badge covers the whole matrix. The [Codecov](https://codecov.io/gh/KhwarizmiAnalytix/Memory) badge is the Linux line-coverage number for first-party sources.
+
+| Job | Where | What it checks |
+|-----|--------|----------------|
+| **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none` |
+| **macOS CPU** | macOS, AppleClang | Release, CPU backend |
+| **Windows CPU** | Windows, MSVC | Release, CPU backend |
+| **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
+| **Sanitizers** | Ubuntu and macOS, Clang | ASan and UBSan, Debug, CPU backend |
+| **Coverage** | Ubuntu, macOS, Windows | Instrumented CPU-backend tests; HTML report uploaded as `coverage-html-<os>` |
+| **Linux CUDA** | Self-hosted NVIDIA GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
+| **Linux HIP** | Self-hosted AMD GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
+
+Hosted jobs exercise the CPU allocator. CUDA and HIP run on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) only while the repository variable `GPU_RUNNERS_AVAILABLE` is `true`. Metal stays a local Apple build.
+
+### Coverage
+
+`MEMORY_ENABLE_COVERAGE=ON` instruments the library and runs the CPU test suite. CI collects reports with [coverage-tool](https://github.com/KhwarizmiAnalytix/coverage-tool):
+
+| Platform | Compiler | Collector |
+|----------|----------|-----------|
+| Linux | gcc | gcov + lcov |
+| macOS | Homebrew LLVM clang | llvm-cov |
+| Windows | MSVC | OpenCppCoverage |
+
+Linux uploads `build/coverage_filtered.info` to Codecov. macOS and Windows keep HTML artifacts only. [`codecov.yml`](codecov.yml) ignores `ThirdParty/`, `Testing/`, and build trees. Project and patch status use an automatic target with a 1% threshold.
+
+Local Linux run, matching CI:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DMEMORY_GPU_BACKEND=none \
+  -DMEMORY_ENABLE_TESTING=ON \
+  -DMEMORY_ENABLE_BENCHMARK=OFF \
+  -DMEMORY_ENABLE_COVERAGE=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
+coverage-tool --build=build --compiler=gcc
+```
+
+Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. The reported percentage is CPU-backend coverage; CUDA, HIP, and Metal paths are outside that number.
+
+---
+
 ## Understanding the Code
 
 **For users:** See the [**Dependency Graph**](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE) for visual architecture
@@ -361,7 +421,7 @@ A: Use `data_ptr` by default (single owner). Switch to `retained_ptr` for:
 - Sharing across threads
 
 **Q: Does copying data_ptr allocate new memory?**
-A: Yes, copy = deep-clone. Use `move()` or `data_view` to avoid it.
+A: Copying is deleted (`data_ptr` is move-only). Call `clone()` for a deep copy; use `std::move()` or `data_view` otherwise.
 
 **Q: Can I mix CUDA and HIP?**
 A: No, choose one at build time (compile-time exclusive).
@@ -380,6 +440,6 @@ A: Allocators throw `std::bad_alloc`. Call `gpu::empty_cache(device_index)` to f
 ## Next Steps
 
 - Read test files in `Testing/Cxx/` for more examples
-- Check `Docs/` folder for detailed design documentation
+- Read the [design and implementation plan](Docs/memory_runtime_implementation_plan.md) for architecture, status and next work
 - Enable `-DMEMORY_HAS_PROFILER=1` to monitor memory usage
 - Use `gpu::memory_stats()` and `gpu::memory_snapshot()` for profiling

@@ -1,155 +1,19 @@
 # Memory
 
-Allocation paths used by `data_ptr` / `data_view` and GPU memory management.
-See root `/CLAUDE.md` for general coding/testing/build rules — this file only
-covers what's specific to this library. Design narrative, done/open list:
-`Docs/memory_design.md` §10.
+Repository-specific engineering guidance for allocation, ownership and GPU memory
+management. See root `/CLAUDE.md` for general coding/testing/build rules.
 
-**Done (2026-08):** unique `data_ptr` + `data_view`; CUDA/HIP/Metal segment
-cache (expandable segments, mutex dropped around malloc, process-wide
-`empty_cache` / stats / fraction); tensor device_index + stream;
-`assign_async` records expression sources. Tensor copy always clones.
-CUDA caching allocator benchmarks (2026-09-29): direct malloc comparison,
-cold/warm path analysis, fragmentation resilience, multi-stream scaling.
+[`Docs/memory_runtime_implementation_plan.md`](Docs/memory_runtime_implementation_plan.md)
+is the only design document: goals, target architecture (§4), contracts (§5),
+hot-path performance rules (§6), phased tasks (§7), validation manifest (§8) and
+status (§9). Historical review, churn and benchmark evidence is condensed in its
+appendices. Update it when implementation changes; do not add other design docs,
+Done/Next tables or phase specifications here or in `Docs/`.
 
-**Done (2026-09-30):** Phase 0–3 specifications AND CPU-side implementations complete:
-- Phase 0: README corrections + validation manifest template ✓
-- Phase 1: Failure safety + error semantics (spec ✓, CPU tests ✓)
-- Phase 2: copy_sync() completion semantics (spec ✓, impl ✓, tests ✓)
-- Phase 3: Storage identity + adoption + retained operations (spec ✓, impl ✓, tests ✓)
-  - `allocation_id` type with process-wide uniqueness ✓
-  - `allocate_adopted()` factory for foreign memory ✓
-  - `copy_async_retained()` for retained transfers ✓
-  - `retained_operation_service` API skeleton ✓
-- All 206 tests passing (182 existing + 24 Phase 3 adoption/service)
-See `Docs/phase0_1_2_3_summary.md` for overview; commit d23b18b for Phase 3 impl.
-
-**Done (2026-09-30, Phase 2 GPU no-hardware fixes):**
-- CopyRuntime shim: Testing/CopyRuntime/ for testing GPU code without hardware ✓
-- copy_token: failed-state reporting, device_guard on queries/sync ✓
-- allocator.h: peer-copy device_guard, copy_async_retained retention ✓
-- retained_operation_service: condition_variable backpressure, failed tracking ✓
-- All 11 CopyRuntime tests passing; no regression in 206 main tests ✓
-See commit bc8f808 for service backpressure; 0adb77d for Phase 2 GPU fixes.
-
-**Done (2026-09-30, Phase 1.1 churn-crash fix):**
-- Root cause: `get_free_block_locked` constructed stack-local `cache_block key` whose
-  `stream_uses` `std::set` head-node was allocated from a corrupted heap ✓
-- Fix: `block_search_key` + transparent `cache_block_comparator` eliminates `cache_block`
-  construction entirely from the lower_bound hot path; also nulled `src->prev`/`src->next`
-  before `delete src` in `try_merge_locked` ✓
-- Validated: 10-rep × 6-size churn benchmark clean; 255/255 tests pass ✓
-- Finding 8 in `cpu_gpu_memory_review.md` closed ✓
-- Full write-up + validation: `Docs/phase1_churn_diagnosis.md`
-
-**Done (2026-10-01, Phase 2.3 / Phase 3.5 token event + retained service fixes):**
-- `copy_token` refactored to `shared_ptr<shared_state>`: token copies share event and
-  retained payload; discard is safe (Phase 3.5) ✓
-- `prepare_event()` / `record_event()` introduce operation-specific completion markers;
-  `state()` and `wait()` query/sync the event, not the full stream (Phase 2.3) ✓
-- `wait()` null-stream regression fixed: restored `cudaDeviceSynchronize()` ✓
-- `retained_operation_service`: `shutdown()` added; `failed_` holds `copy_token` to
-  keep retained payloads alive in quarantine; `clear_failed()` for explicit release ✓
-- `reset()` deadlock fixed: pending ops moved out from under mutex before `wait()` ✓
-- `enqueue()` race fixed: `stopping_` re-checked after capacity poll re-acquires lock ✓
-- 7 new CopyRuntime tests; all 9 test suites pass on macOS/Metal/TBB (clang-tidy clean) ✓
-See commit for this session; `Docs/memory_runtime_implementation_plan.md` updated.
-
-**Next (non-GPU, 2026-10):**
-- Phase 3.5: retained_operation_service background polling thread
-- Phase 2 GPU: device context activation (tests passing, hardware required for full gate)
-- Phase 1 diagnostics: cleanup hooks, quarantine counters (optional)
-
-**Open (GPU hardware required):** 
-- Phase 1 churn fix validation (Linux ASan); Phase 2 event-based completion; Phase 2 multi-stream ordering
-- Optional: graphs/MemPool; AllocConf; `cudaMallocAsync`; OOM stack capture
-- Known constraints: view does not refcount owner (by design, Phase 3 documents);
-  Metal async / device 0 / no fp64; tensor defaults GPU 0; `empty_cache` not on Vectorization
-
-## Implementation roadmap and design specifications
-
-See the detailed phase plan in `Docs/memory_runtime_implementation_plan.md` for the complete architecture.
-
-**Phases 0–3 CPU-independent work (2026-09-30):**
-
-- `Docs/validation_manifest_template.md` — Use for every test run to record compiler, platform, GPU backend, hardware, and results
-- `Docs/phase1_2_token_error_spec.md` — Token state machine (pending/complete/failed), error types, and API contract
-- `Docs/phase2_copy_completion_spec.md` — `copy_sync()` semantics, operation-specific events (not stream queries), device context
-- `Docs/phase3_storage_identity_spec.md` — `allocation_id`, adoption contract, retained ownership, borrowed pointer limits
-- `Docs/phase0_1_2_3_summary.md` — Summary, implementation sequence, and what's ready to start
-
-**Implementation progress (non-GPU first):**
-1. ✅ Phase 2 CPU-side: completion_state enum, copy_sync(), token state queries (DONE)
-2. ✅ Phase 1 non-churn: failure safety tests, overflow detection (DONE)
-3. ✅ Phase 3 design+CPU: allocation_id, allocate_adopted(), copy_async_retained() (DONE)
-4. Phase 4: retained_operation_service background polling thread (next)
-5. Phase 1 GPU: churn diagnosis (needs CUDA/HIP debugger on self-hosted runners)
-6. Phase 2 GPU: device context validation, event-based completion
-7. Phases 5–8 depend on Phases 1–4
-
----
-
-## CPU Memory Allocation — Fragmentation & Backend Characteristics
-
-### Fragmentation Behavior (2026-09)
-
-CPU allocators exhibit different fragmentation profiles under stress:
-
-- **malloc (unaligned baseline)**: Coalesces adjacent free blocks across size
-  classes (glibc malloc behavior). Lower fragmentation under many-small-allocate
-  + selective-free patterns because segregated-list allocators cannot coalesce
-  across size boundaries.
-- **aligned_malloc / posix_memalign**: Segregated by alignment. Alignment requests
-  > default force elevated heap overhead; fragmentation increases with alignment
-  diversity.
-- **mimalloc**: Eager per-thread local heaps reduce lock contention. Supports
-  fast deallocation via segment reclamation. Fragmentation depends on thread
-  affinity and deallocation order; "use after free"-like leaks are possible if
-  pointers move between threads.
-- **TBB scalable_malloc**: Partitioned heap by CPU. Cache-friendly for scalable
-  workloads. Fragmentation grows with non-local access patterns (allocation
-  on CPU 0, deallocation on CPU 1).
-
-### Benchmark Alignment Fix (P0, 2026-09-29)
-
-Fixed `memory_interface_api` wrapper in BenchmarkCPUMemoryAllocators.cpp to
-forward alignment parameter to `cpu::memory_allocator::allocate()`. Previous
-implementation silently ignored alignment, causing unaligned benchmarks for the
-STL-style facade while other backends (mimalloc, TBB) received correct alignment.
-This masked alignment-specific performance characteristics and produced unfair
-comparisons.
-
-### Tuning Parameters for Mimalloc (P1 Investigation)
-
-Key environment variables for profiling:
-
-- `MIMALLOC_SHOW_STATS=1` — dump counters at exit (also available via
-  `memory::cpu::memory_allocator::stats_print()`)
-- `MIMALLOC_EAGER_REGION_DELAY=<ms>` — delay before regions are reclaimed
-  (default 100ms; set 0 for immediate reuse)
-- `MIMALLOC_RESET_DELAY=<ms>` — when to decommit pages (default 0)
-- `MIMALLOC_LARGE_OS_PAGES=1` — use huge pages (Linux/Windows; may require
-  elevated privileges)
-- `MIMALLOC_HEAP_DESTROY_DELAY=<ms>` — delay before heap cleanup on thread exit
-- `MIMALLOC_VERBOSE=1` — enable verbose output during initialization
-
-### Fragmentation Telemetry (P1 Roadmap)
-
-Add to profiler:
-
-- `fragmentation_ratio = (reserved - allocated) / reserved` per allocator
-- `peak_memory_reserved` tracking (similar to GPU `max_memory_reserved`)
-- Per-size-class allocation/deallocation counters (mimalloc via `mi_stats_*`)
-- Thread-local heap migration events (mimalloc/TBB)
-
-### Future Work (P2)
-
-- **NUMA-aware allocation**: For large blocks (>100MB), detect NUMA topology and
-  allocate on local node via `numa_alloc_local()` when available.
-- **Memory pooling**: Pre-allocate fixed-size pools for predictable allocation
-  patterns (e.g., model weights, activations).
-- **Adaptive backend selection**: Route allocations to mimalloc (low contention,
-  many threads), TBB (NUMA locality), or platform malloc (single-threaded)
+Use the plan's distinction between implemented, shim-tested and hardware-accepted
+behavior. Performance changes must cite a Phase 0/8 measurement and keep the §6.1
+hot-path invariant tests passing. When proposing designs, note the PyTorch/Eigen
+parallel as §2 does.
 
 ## What lives here (and why)
 
@@ -180,7 +44,8 @@ allocation paths:
     mutex dropped around driver
     malloc. HIP uses the same Impl via `gpu/gpu_runtime.h`.
   - Metal: `metal_caching_allocator` — same size classes on shared
-    `MTLBuffer`s / heaps (`record_stream` is a no-op for sync dispatch).
+    `MTLBuffer`s / heaps with explicit completion-token bookkeeping; actual
+    command-buffer integration and acceptance are tracked in the canonical plan.
     Kernel bind helpers live in `metal_buffer_allocator.{h,mm}`.
 - Shared size-class policy: `gpu/caching_allocator_config.h`.
 
@@ -219,10 +84,9 @@ behavior on the allocation path.
 
 ## Benchmark Documentation
 
-Performance analysis and baseline measurements:
-
-- `Docs/cpu_gpu_memory_review.md` — CPU/GPU memory allocation comparison, Order 0 baseline recordings
-- `Docs/cuda_benchmark_analysis.md` — CUDA caching allocator vs direct malloc: cold/warm paths,
-  multi-stream scaling, fragmentation resilience, throughput analysis
-- `Testing/Cxx/BenchmarkCudaCachingAllocator.cpp` — Benchmark suite: 14 test scenarios covering
-  allocation patterns, cache efficiency, and contention under concurrent streams
+- Measurement rules: plan §6.7; workloads and tuning tasks: plan Phase 0 and Phase 8.
+- Historical CUDA results (Debug, bounded iterations): plan Appendix C; raw data in
+  `Docs/cuda_baseline_2026-09-28.json`. Not acceptance evidence.
+- `Testing/Cxx/BenchmarkCudaCachingAllocator.cpp` — 14 scenarios: cold/warm, sizes,
+  cache efficiency, round-robin streams. `BenchmarkCudaCachingAllocatorChurn.cpp` —
+  churn reproduction (plan Appendix B).

@@ -23,7 +23,8 @@
 //   bin/benchmark_memory_cudacachingallocator --benchmark_repetitions=20 \
 //     --benchmark_report_aggregates_only=true --benchmark_out=cuda_baseline.json \
 //     --benchmark_out_format=json
-// See Docs/cpu_gpu_memory_review.md's Order 0 row for where recorded results live.
+// Recorded results: Docs/cuda_baseline_2026-09-28.json, summarized in
+// Docs/memory_runtime_implementation_plan.md Appendix C.
 
 #include <benchmark/benchmark.h>
 
@@ -90,8 +91,8 @@ void benchmark_cold_alloc_free(benchmark::State& state)
     state.SetBytesProcessed(static_cast<int64_t>(state.iterations() * size));
     state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
 }
-// Iterations bounded explicitly (see Docs/cpu_gpu_memory_review.md's new
-// finding on repeated-churn instability): letting Benchmark's own
+// Iterations bounded explicitly (see the churn record in
+// Docs/memory_runtime_implementation_plan.md Appendix B): letting Benchmark's own
 // convergence pick iteration counts here has been observed to run into the
 // tens/hundreds of thousands of real cudaMalloc/cudaFree round trips across
 // many short-lived allocator instances, which is the exact regime that

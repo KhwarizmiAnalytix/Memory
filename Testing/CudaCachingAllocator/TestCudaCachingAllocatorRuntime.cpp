@@ -19,7 +19,7 @@
 
 // Fault-injection regression coverage for gpu/cuda_caching_allocator.cpp,
 // compiled against Testing/CudaCachingAllocator/fake_runtime.h instead of a
-// real CUDA/HIP driver. See Docs/cpu_gpu_memory_review.md's Order 1 note and
+// real CUDA/HIP driver. See Docs/memory_runtime_implementation_plan.md Appendix A and
 // this suite's CMakeLists.txt for why this builds under the HIP labels.
 
 #include <gtest/gtest.h>
