@@ -1,6 +1,8 @@
 # Memory — design and implementation plan
 
-Updated: 2026-10-01. Source baseline: `becf3f2` (`main`).
+Updated: 2026-10-02. Source baseline: `27e5f38` (`main`). §3 inventory and
+problem evidence were taken at `becf3f2`; the status column in §3.3 and §6.1 and
+the review findings R1–R7 (§3.5) are at `27e5f38`.
 
 This is the only design document for Memory. It replaces the September plan, the
 Phase 0–3 summary, the token/error, copy-completion and storage-identity
@@ -151,24 +153,24 @@ lineage (PyTorch is BSD-3, Eigen is MPL-2).
 
 **Performance (hot path)**
 
-| # | Problem | Evidence | Fix (phase) |
-|---|---|---|---|
-| H1 | Every GPU allocate, free and `record_stream` takes a global registry mutex and does an `unordered_map` lookup. `device_handle_cache` was written to avoid this but is never called. README claims the opposite. | `cuda_caching_allocator.cpp:1530`; `allocator.h:210,253,362` | Lock-free per-device array; free via handle deleter (P2, P3) |
-| H2 | `record_stream` heap-allocates (`std::set<cudaStream_t>` node per stream use). | `cache_block::stream_uses` | Inline small set (P3) |
-| H3 | Block split/merge calls `new`/`delete cache_block`. | `cuda_caching_allocator.cpp:898,1013` | Metadata freelist (P3) |
-| H4 | Each async copy does `make_shared` (token state) + `cudaEventCreateWithFlags`, and token destruction calls `cudaEventDestroy`; retained copies add another `make_shared` and a global service mutex. | `copy_token.h:57,178,233`; `allocator.h:684` | Pooled events and token state (P3); per-device service shards if measured (P5) |
-| H5 | `memory_allocated()` etc. call `stats()`, which takes the device lock and scans both pools. | `cuda_caching_allocator.cpp:737` | O(1) lock-free counters (P3) |
-| H6 | With NUMA enabled, every CPU allocation calls `NUMAMove` (an `mbind` syscall that can move pages shared with unrelated allocations). | `memory_allocator.cpp:151` | Explicit NUMA placement resource only (P3) |
-| H7 | Free is unsized; backends that support sized free cannot use it. | `allocator<T>::free` ignores `count`; `data_ptr` passes 0 | Handle stores `nbytes` (P2/P3) |
-| H8 | Metal free/bind resolves interior pointers by scanning all live blocks. | `metal_caching_allocator.mm:558-560` | Handle carries `(buffer, offset)` (P3) |
+| # | Problem | Evidence | Fix (phase) | Status at `27e5f38` |
+|---|---|---|---|---|
+| H1 | Every GPU allocate, free and `record_stream` takes a global registry mutex and does an `unordered_map` lookup. `device_handle_cache` was written to avoid this but is never called. README claims the opposite. | `cuda_caching_allocator.cpp:1530`; `allocator.h:210,253,362` | Lock-free per-device array; free via handle deleter (P2, P3) | Implemented (3.1): `atomic<cache*>[16]` + `call_once`. `allocator<T>` still calls `caching_allocator_for_device` per op (now lock-free). No lock-count probe (R5) |
+| H2 | `record_stream` heap-allocates (`std::set<cudaStream_t>` node per stream use). | `cache_block::stream_uses` | Inline small set (P3) | Implemented (3.2): `inline_stream_set`, 4 inline slots. Not probe-tested (R5) |
+| H3 | Block split/merge calls `new`/`delete cache_block`. | `cuda_caching_allocator.cpp:898,1013` | Metadata freelist (P3) | Implemented (3.2): `block_freelist`. Not probe-tested (R5); churn interaction (R6) |
+| H4 | Each async copy does `make_shared` (token state) + `cudaEventCreateWithFlags`, and token destruction calls `cudaEventDestroy`; retained copies add another `make_shared` and a global service mutex. | `copy_token.h:57,178,233`; `allocator.h:684` | Pooled events and token state (P3); per-device service shards if measured (P5) | Open (3.4) |
+| H5 | `memory_allocated()` etc. call `stats()`, which takes the device lock and scans both pools. | `cuda_caching_allocator.cpp:737` | O(1) lock-free counters (P3) | Implemented (3.5): relaxed atomic loads for allocated/reserved and peaks. Metal parity not verified |
+| H6 | With NUMA enabled, every CPU allocation calls `NUMAMove` (an `mbind` syscall that can move pages shared with unrelated allocations). | `memory_allocator.cpp:151` | Explicit NUMA placement resource only (P3) | Open (3.6) |
+| H7 | Free is unsized; backends that support sized free cannot use it. | `allocator<T>::free` ignores `count`; `data_ptr` passes 0 | Handle stores `nbytes` (P2/P3) | Partial: `storage_handle` stores and passes `nbytes`; `allocator<T>::free` still passes 0; backend sized free not used (3.6) |
+| H8 | Metal free/bind resolves interior pointers by scanning all live blocks. | `metal_caching_allocator.mm:558-560` | Handle carries `(buffer, offset)` (P3) | Open (3.7) |
 
 **Correctness hazards in existing code**
 
 | # | Problem | Evidence | Fix (phase) |
 |---|---|---|---|
-| C1 | In Release, `deallocate`/`record_stream` on a pointer the cache does not own dereferences `end()` (undefined behavior). The header documents an exception. `LOGGING_CHECK_DEBUG` compiles to nothing under `NDEBUG`. | `cuda_caching_allocator.cpp:458-463, 524` | Release check + documented exception (P1) |
-| C2 | CPU alignment validation is Debug-only, although the September review recorded it as promoted to Release. | `memory_allocator.cpp:134` | Release check (P1) |
-| C3 | `gpu_workspace::rebind()` precondition is Debug-only (review said enforced); typed `acquire<T>(count)` multiplies unchecked. | `gpu_workspace.h:117-123,145` | Release check, checked multiply (P1) |
+| C1 | ~~In Release, `deallocate`/`record_stream` on a pointer the cache does not own dereferences `end()`.~~ **Corrected 2026-10-02:** the CUDA/HIP (`cuda_caching_allocator.cpp:552,618`) and Metal (`metal_caching_allocator.mm:240`) ownership checks are `LOGGING_CHECK`, which throws in every build type (present since `807f82c`). Remaining gap: it throws `logging::Error`, not the documented `invalid_argument`/`logic_error`, and there is no Release-build test. | `ThirdParty/Logging/include/util/exception.h:323` | Release test + exception-type decision (1.1) |
+| C2 | ~~CPU alignment validation is Debug-only.~~ **Corrected 2026-10-02:** `memory_allocator.cpp:134` is a Release `LOGGING_CHECK`. Same exception-type gap as C1; no Release test. | `memory_allocator.cpp:129-138` | Release test (1.2) |
+| C3 | ~~`gpu_workspace::rebind()` precondition is Debug-only; `acquire<T>` multiplies unchecked.~~ **Corrected 2026-10-02:** `rebind()` uses `LOGGING_CHECK`; `acquire<T>` checks overflow but throws `bad_alloc` where §5.1 requires `overflow_error`. | `gpu_workspace.h:117-123,145` | Exception type + Release test (1.2) |
 | C4 | `data_ptr` destructor swallows free failures silently, which leaks the buffer with no signal. | `data_ptr.h:124-133` | Diagnostic counter (P1) |
 | C5 | `allocate_adopted` defaults to `delete[]` for any foreign pointer. | `allocator.h:651-654` | Explicit deleter required (P1) |
 | C6 | `clone()` and copying constructors return after *submission*, not completion. | `data_ptr.h:145-148` | Complete-before-return (P4) |
@@ -183,11 +185,28 @@ lineage (PyTorch is BSD-3, Eigen is MPL-2).
   — neither exists; the retained copy is `copy_async_retained()` (A2).
 - README FAQ "copying `data_ptr` deep-clones" — copying is deleted; use `clone()`.
 - README project layout `include/memory/...` — headers live under `include/`.
-- September review: CPU alignment "promoted to `LOGGING_CHECK`", workspace
-  `rebind()` "CHECKs" — both are still Debug-only (C2, C3).
+- An earlier draft of this plan said CPU alignment and workspace `rebind()` checks
+  were still Debug-only (C2, C3). They are Release checks; what is missing is the
+  documented exception type and a Release-build test.
 - Benchmark analysis "production-ready", "Release 20–30% faster", "robust
   fragmentation handling" — not measured (Appendix C).
 - Churn report "closed" — patched, not root-caused (Appendix B).
+
+### 3.5 Review of P2 / P3.1 / P3.2 / P3.5 (at `27e5f38`, 2026-10-02)
+
+The storage core and the first hot-path changes landed before Phase 0 and Phase 1,
+against the order in §7. The work is sound in direction; these gaps keep it at
+**implemented**, not **tested** or **accepted**.
+
+| # | Finding | Evidence | Fix (task) |
+|---|---|---|---|
+| R1 | GPU `storage_handle` does not free itself: `deleter_` is null and only `data_ptr`/`retained_ptr` know to call `free_gpu_with_stream`. A GPU handle from the public `allocate_bytes` that is dropped directly leaks its block silently. Contradicts §1.3 "the handle remembers how to free itself". | `src/storage.cpp:86-91`; `storage_handle.h` comment | 2.10 |
+| R2 | No single storage core for shared ownership: `retained_ptr::release()` chooses among GPU-promotion, CPU raw deleter and the legacy `std::function` adoption deleter; `control_block` is not `shared_storage` around one `storage_handle`. Phase 2 gate "owners share one storage core" not met. | `retained_ptr.h:60-77, 231-262` | 2.4 (remaining) |
+| R3 | Zero-size `allocate_bytes` returns an empty handle with a fresh `allocation_id`; §5.1 says empty handles have an invalid id. A test (`TestPhase3Identity`) depends on the current behavior. | `src/storage.cpp:52-57` | 1.9 |
+| R4 | `data_ptr<T>` is 56 B (48 B handle + 8 B stream), not 48 B as §4.2 promised. Accepted if R1 moves the stream into the cache (then `data_ptr` returns to 48 B) or recorded as a deliberate size change. | `data_ptr.h:34` | 2.10 |
+| R5 | Gate tests check API behavior, not the §6.1 invariants: registry tests check same address / index bounds, not lock counts; no counting `operator new` exists, so "0 heap allocations" (3.2) is asserted, not measured; freelist and stats tests `GTEST_SKIP` without a GPU. No Phase 0 before/after numbers exist for 3.1/3.2/3.5 (§1.3 "measure before tuning"). | `TestPhase3Registry.cpp`; absence of 0.2/0.3 | 0.2, 0.3, then re-close 3.1/3.2/3.5 |
+| R6 | `block_freelist` recycles `cache_block` storage — the mechanism of churn hypothesis (B) in Appendix B — while the churn root cause (1.10) is open. The patch path changed without the predeclared stress rerun. | `cuda_caching_allocator.cpp:407-440, 1000, 1116` | 1.10 (now also depends on 3.2) |
+| R7 | Error types: Release checks throw `logging::Error`; `gpu_workspace::acquire<T>` throws `bad_alloc` on overflow. §5.2 and CLAUDE.md document `invalid_argument` / `logic_error` / `overflow_error`. Decide: map to std types, or make `logging::Error` the documented type. | C1–C3 | 1.1, 1.2 |
 
 ---
 
@@ -277,13 +296,17 @@ storage_handle adopt_bytes(void* ptr, std::size_t nbytes, device dev,
 - **CPU**: `deleter_ = cpu_free`, `ctx_ = nullptr`. Sized free when the backend
   supports it.
 - **GPU**: `ctx_` = the per-device cache (process lifetime), so free goes straight
-  to `cache->deallocate` with no registry lookup.
+  to `cache->deallocate` with no registry lookup. The deleter must be non-null:
+  the cache frees on the block's recorded allocation stream (PyTorch frees on
+  `block->stream`), so the handle needs no stream argument. Today (`27e5f38`) the
+  GPU deleter is null and the owner passes the stream (R1, task 2.10).
 - **Metal**: `ctx_` = cache; buffer and offset are recoverable without a scan.
 - **Adopted foreign memory**: caller's deleter and context; no `std::function`, no
   inferred `delete[]`. Callers needing captured state allocate their own context.
 
-`sizeof(storage_handle)` is 48 bytes, the same as today's `data_ptr<T>`, so the
-unique owner does not grow.
+`sizeof(storage_handle)` is 48 bytes (enforced by `static_assert`). `data_ptr<T>`
+was 48 bytes before P2; at `27e5f38` it is 56 bytes because it stores the stream
+beside the handle (R4). Task 2.10 restores 48 bytes or records the change.
 
 ### 4.3 Typed handles (L3)
 
@@ -449,15 +472,18 @@ These are the measurable design targets. Phase 0 records today's values; Phase 3
 makes the target column true and adds a test per row using the fake runtimes'
 driver-call counters and a counting `operator new` in the test binary.
 
-| Operation | Target | Today (`becf3f2`) |
-|---|---|---|
-| CPU allocate/free | 1 backend call; 0 Memory locks; 0 syscalls; profiler off = 1 relaxed load | NUMA build adds an `mbind` syscall per allocation (H6) |
-| GPU warm allocate | 1 per-device lock; 0 heap allocations; 0 driver calls; 0 registry locks | Global registry mutex (H1); `new cache_block` on split (H3) |
-| GPU free | 0 registry lookups; 1 per-device lock; 0 heap allocations; event record only for cross-stream uses | Registry mutex (H1) |
-| `record_stream` (≤ 4 streams) | 0 heap allocations | `std::set` node per stream (H2) |
-| Async copy, steady state | 1 memcpy submission + 1 event record; 0 heap allocations; 0 event create/destroy | `make_shared` + `cudaEventCreate` + `cudaEventDestroy` per copy (H4) |
-| `token.ready()` after terminal | 0 driver calls | Re-queries event every call |
-| Basic stats query | 0 locks; O(1) | Device lock + pool scan (H5) |
+| Operation | Target | Was (`becf3f2`) | Now (`27e5f38`) — source, not probe-tested |
+|---|---|---|---|
+| CPU allocate/free | 1 backend call; 0 Memory locks; 0 syscalls; profiler off = 1 relaxed load | NUMA build adds an `mbind` syscall per allocation (H6) | Unchanged (3.6) |
+| GPU warm allocate | 1 per-device lock; 0 heap allocations; 0 driver calls; 0 registry locks | Global registry mutex (H1); `new cache_block` on split (H3) | Lock-free registry load; freelist on split |
+| GPU free | 0 registry lookups; 1 per-device lock; 0 heap allocations; event record only for cross-stream uses | Registry mutex (H1) | `data_ptr`/`retained_ptr`: cache pointer from handle, 0 lookups; `allocator<T>::free`: lock-free lookup |
+| `record_stream` (≤ 4 streams) | 0 heap allocations | `std::set` node per stream (H2) | `inline_stream_set` (4 inline) |
+| Async copy, steady state | 1 memcpy submission + 1 event record; 0 heap allocations; 0 event create/destroy | `make_shared` + `cudaEventCreate` + `cudaEventDestroy` per copy (H4) | Unchanged (3.4) |
+| `token.ready()` after terminal | 0 driver calls | Re-queries event every call | Unchanged (1.4, 3.4) |
+| Basic stats query | 0 locks; O(1) | Device lock + pool scan (H5) | Relaxed atomic loads (CUDA/HIP) |
+
+No row is **tested** until the Phase 0.3 probes (counting `operator new`,
+fake-runtime driver and lock counters) exist and pass (R5).
 
 ### 6.2 CPU path
 
@@ -580,16 +606,16 @@ failure in code consumers already use.
 
 | ID | Task | Files | Depends | Exit | Was |
 |---|---|---|---|---|---|
-| 1.1 | Release-mode ownership checks in GPU `deallocate`/`record_stream` (and Metal equivalents); throw the documented exception | `src/gpu/*` | — | Shim: foreign pointer throws in a Release build | new (C1) |
-| 1.2 | Release-mode CPU alignment check; `gpu_workspace::rebind` precondition in Release; checked multiply in `acquire<T>` | `memory_allocator.cpp`, `gpu_workspace.h` | — | Release tests for each | new (C2, C3) |
+| 1.1 | Release-mode ownership checks in GPU `deallocate`/`record_stream` (and Metal equivalents); throw the documented exception. *Checks already present (C1); remaining: exception-type decision (R7) and Release test* | `src/gpu/*` | — | Shim: foreign pointer throws the documented type in a Release build | new (C1) |
+| 1.2 | Release-mode CPU alignment check; `gpu_workspace::rebind` precondition in Release; checked multiply in `acquire<T>`. *Checks already present (C2, C3); remaining: `overflow_error` in `acquire<T>`, exception type (R7), Release tests* | `memory_allocator.cpp`, `gpu_workspace.h` | — | Release tests for each | new (C2, C3) |
 | 1.3 | Cleanup diagnostic: non-allocating counter/hook, no allocator lock, defined handler lifetime; wire `data_ptr`/`retained_ptr`/pinned destructor failures to it | `common/*`, pinned | — | Injected destructor failure increments counter, does not escape | T30 (C4) |
 | 1.4 | Token terminal state: cached complete/failed on shared state; `wait()` agrees with `state()`; no unsynchronized public mutation (`mark_complete`/`mark_failed` become internal) | `copy_token.h` | — | Shim: forced failure, cancellation, two copies observe one result while later stream work is pending | T01 |
 | 1.5 | Pre-submission validation (extents, overflow, null, backend combination) with exact rollback | `allocator.h` copy path | 1.4 | Injected event-creation failure submits nothing, admission restored once | T03 |
 | 1.6 | Post-submission failure: wait on the submitting stream or quarantine; never recycle | `allocator.h`, service | 1.5 | Injected event-record failure retains the allocation | T04 |
 | 1.7 | Native-cache rollback exact across driver malloc, retry, metadata insert, device activation, event allocation; no stale map entries | `cuda_caching_allocator.cpp` | 1.3 | Each injected boundary restores budget once | T32 |
 | 1.8 | Adoption requires an explicit deleter; failure leaves caller owning the pointer; reject empty deleter and non-null zero capacity | `allocator.h`, `retained_ptr.h` | — | Adoption failure returns ownership once; deleter runs once | T20 (C5) |
-| 1.9 | Single `allocation_id`; moved-from handles invalid; remove production `reset()` | `storage_identity.h`, owners | — | Moved-from id invalid; nested-slice and reuse tests | T22 part (A6) |
-| 1.10 | Churn root cause with sanitizer/debugger; regression aimed at that cause; predeclared stress rerun | cache, Appendix B | 0.5, 1.7 | Manifest records cause and regression, or **held** | T33 (C8) |
+| 1.9 | Single `allocation_id`; moved-from and empty (incl. zero-size) handles invalid; remove production `reset()` | `storage_identity.h`, `src/storage.cpp`, owners | — | Moved-from and zero-size ids invalid; nested-slice and reuse tests | T22 part (A6, R3) |
+| 1.10 | Churn root cause with sanitizer/debugger; regression aimed at that cause; predeclared stress rerun, including with the 3.2 `block_freelist` (R6) | cache, Appendix B | 0.5, 1.7, 3.2 | Manifest records cause and regression, or **held** | T33 (C8) |
 
 **Gate:** no undefined behavior on documented error paths in Release; failures
 during cleanup are observable; churn has a recorded disposition (accepted or held).
@@ -603,14 +629,15 @@ lifetime twice.
 | ID | Task | Files | Depends | Exit | Was |
 |---|---|---|---|---|---|
 | 2.1 | `device` value type; `execution_context {device, stream}` with compatibility accessors; remove `device_option`; document legacy vs per-thread null stream (behavior in 4.3) | `common/device.h`, `execution_context.h` | — | Existing tests pass through accessors | new (A5, A8) |
-| 2.2 | `storage_handle` + `deleter_fn`; `allocate_bytes`/`adopt_bytes`; CPU, CUDA/HIP and Metal resources return handles | new `common/storage.h`, `src/*` | 1.8, 1.9 | `sizeof(storage_handle) == 48`; deleter runs exactly once | new (A1) |
-| 2.3 | `data_ptr<T>` on `storage_handle`; free via deleter; sized free | `data_ptr.h` | 2.2 | Free path: 0 registry lookups (fake-runtime probe) | new (H1, H7) |
-| 2.4 | `shared_storage` + `retained_ptr<T>` on it; `retained_ptr(data_ptr&&)`; `make_retained<T>`; fn-pointer deleter replaces `std::function` | `retained_ptr.h` | 2.2 | Promotion keeps the pointer; adoption deleter runs once after last owner | new (A2); resolves old 3.8 |
+| 2.2 | `storage_handle` + `deleter_fn`; `allocate_bytes`/`adopt_bytes`; CPU, CUDA/HIP and Metal resources return handles. *Implemented `27e5f38` (`common/storage_handle.h`, `src/storage.cpp`) ahead of 1.8/1.9; GPU deleter gap R1* | new `common/storage.h`, `src/*` | 1.8, 1.9 | `sizeof(storage_handle) == 48`; deleter runs exactly once | new (A1) |
+| 2.3 | `data_ptr<T>` on `storage_handle`; free via deleter; sized free. *Implemented `27e5f38`; GPU free via `free_gpu_with_stream`, not the deleter (R1); lookup probe pending 0.3* | `data_ptr.h` | 2.2 | Free path: 0 registry lookups (fake-runtime probe) | new (H1, H7) |
+| 2.4 | `shared_storage` + `retained_ptr<T>` on it; `retained_ptr(data_ptr&&)`; `make_retained<T>`; fn-pointer deleter replaces `std::function`. *Partial `27e5f38`: promotion ctor only; `shared_storage`, `make_retained`, removal of `std::function` path open (R2)* | `retained_ptr.h` | 2.2, 2.10 | Promotion keeps the pointer; adoption deleter runs once after last owner; `release()` has one free path | new (A2); resolves old 3.8 |
 | 2.5 | `data_view<T>` stores `storage_ref {base, id, device}` + stream; `borrow()` has invalid id | `data_view.h` | 2.3 | Slice of slice keeps base and id | new |
 | 2.6 | Byte copy router in `src/transfer.cpp`; public headers stop including vendor runtime headers; `stream_handle_t` opaque | `allocator.h`, new `src/transfer.cpp` | 1.6 | A consumer TU compiles with no CUDA headers on the include path | new (A3, A4) |
 | 2.7 | Remove/relocate per §4.6: SIMD helpers → Vectorization (deprecated forwarder), delete `cuda_caching_allocator_template` and `device_handle_cache`, move experimental headers | `allocator.h`, `gpu/*` | 2.3 | No production code references removed items | new (A7) |
 | 2.8 | `host_allocator<T>` (STL, aligned) and `std::pmr::memory_resource` adapters for CPU and `cpu_arena` | new `common/host_allocator.h` | 2.2 | `std::vector<T, host_allocator<T>>` and `std::pmr::vector` tests | new |
 | 2.9 | Typed storage constraint: trivially copyable/destructible element types, `alignof(T)` checked | owners | 2.3 | Unsupported type fails the documented constraint | T27 |
+| 2.10 | GPU `storage_handle` frees itself: non-null GPU deleter with `ctx_` = cache; cache frees on the block's recorded allocation stream; owners stop passing the stream on free; `data_ptr` back to 48 B or size change recorded | `src/storage.cpp`, `cuda_caching_allocator.cpp`, Metal, owners | 2.3 | Dropping a bare GPU handle from `allocate_bytes` returns the block to the cache (shim); free path 0 registry lookups | new (R1, R4) |
 
 **Gate:** all existing tests pass through compatibility wrappers; free never looks
 up a registry; owners share one storage core; vendor headers absent from L2/L3.
@@ -623,11 +650,11 @@ noise and turn its §6.1 probe from expected-fail to pass.
 
 | ID | Task | Files | Depends | Exit | Was |
 |---|---|---|---|---|---|
-| 3.1 | Lock-free per-device registry (`call_once`, process lifetime) + `memory::shutdown()` | `cuda_caching_allocator.cpp`, Metal | 2.3 | Warm allocate: 0 registry locks | new (H1) |
-| 3.2 | `cache_block` freelist; inline small stream set | `cuda_caching_allocator.cpp` | 1.7 | Warm alloc/free and `record_stream` (≤4): 0 heap allocations | new (H2, H3) |
+| 3.1 | Lock-free per-device registry (`call_once`, process lifetime) + `memory::shutdown()`. *Implemented `27e5f38` (`memory::gpu::shutdown()`); exit probe and Phase 0 numbers pending (R5)* | `cuda_caching_allocator.cpp`, Metal | 2.3 | Warm allocate: 0 registry locks | new (H1) |
+| 3.2 | `cache_block` freelist; inline small stream set. *Implemented `27e5f38` ahead of 1.7; exit probe, Phase 0 numbers and churn rerun pending (R5, R6)* | `cuda_caching_allocator.cpp` | 1.7 | Warm alloc/free and `record_stream` (≤4): 0 heap allocations | new (H2, H3) |
 | 3.3 | Event poll fast path: skip device guard when idle/matching; bounded polling with forced progress under pressure | same | 3.2 | Probe: no `cudaGetDevice` on idle warm path; pressure test still reclaims | new |
 | 3.4 | Pooled token state + per-device event pool for copy tokens; cache terminal results | `copy_token.h`, `src/transfer.cpp` | 1.4, 2.6 | Steady-state async copy: 0 heap allocations, 0 event create/destroy | new (H4) |
-| 3.5 | O(1) lock-free basic stats (allocated, reserved, cached, peaks) | cache, `unified_memory_stats.h` | 1.7 | `memory_allocated()` takes no lock and does not scan | T45 (H5) |
+| 3.5 | O(1) lock-free basic stats (allocated, reserved, cached, peaks). *Implemented `27e5f38` for CUDA/HIP allocated/reserved/peaks; cached and Metal parity open; tests skip without GPU (R5)* | cache, `unified_memory_stats.h` | 1.7 | `memory_allocated()` takes no lock and does not scan (shim test, no GPU required) | T45 (H5) |
 | 3.6 | CPU: unaligned fast path for small alignment; sized free; NUMA placement only through an explicit resource | `memory_allocator.cpp`, `numa.cpp` | 2.3 | 0 syscalls per CPU allocate with NUMA enabled; 0.1 numbers within noise or better | new (H6) |
 | 3.7 | Metal handle carries `(buffer, offset)`; remove interior scan | Metal sources | 2.2 | Free/bind O(1) in a Metal test (hardware for acceptance) | new (H8) |
 | 3.8 | Decide `allocated_blocks_` map type and `MEMORY_USE_FLAT_HASH` by measurement; wire or delete | cache, `memory_containers.h` | 0.2 | Decision recorded with numbers | new |
@@ -733,8 +760,17 @@ backend claim. Phase 9 features ship disabled or experimental.
 
 ### Next actions
 
-One engineer: **1.1** (Release UB fix), then **1.4**. Parallel starts: 0.1–0.3,
-0.5, 1.2, 1.3, 1.8, 1.9. No dates are assigned.
+P2.2–2.4 and P3.1/3.2/3.5 landed (`27e5f38`) before P0 and P1. Stop adding P3
+work until the evidence catches up (§3.5):
+
+1. **2.10** — GPU handle frees itself (R1); 2.4 builds on it.
+2. **0.2, 0.3** — fake-runtime benchmarks and invariant probes; record numbers at
+   `becf3f2` and `27e5f38` so 3.1/3.2/3.5 get before/after evidence (R5).
+3. **1.10** — churn ASan/stress rerun including the freelist (R6).
+4. **1.1, 1.2** — exception-type decision and Release tests (R7).
+5. **1.4**, then 1.5–1.9; finish **2.4** as `shared_storage` (R2).
+
+Parallel starts: 0.1, 0.5, 1.3, 1.8. No dates are assigned.
 
 ---
 
@@ -811,16 +847,16 @@ Reviewer / date / next required evidence:
 
 | Area | Implemented | Open (task) |
 |---|---|---|
-| Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`), `clone()`, views preserving base | Completed clone (4.6), moved-from id (1.9) |
-| Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`, `free_gpu_with_stream`; 0 registry lookups on GPU free (P2.3) | 2.5, 2.6, 2.7, 2.8, 2.9 |
-| Shared owner/adoption | `retained_ptr<T>` (P2.4: raw-field control block, promotion ctor); `allocate_adopted()` | Explicit deleter (1.8), 2.5 |
+| Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`, 56 B), `clone()`, views preserving base | Completed clone (4.6), moved-from/zero-size id (1.9), size (2.10) |
+| Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`, `free_gpu_with_stream`; owners free GPU memory with 0 registry lookups (P2.3, not probe-tested) | GPU handle has null deleter (2.10); 2.1 partial; 2.5–2.9 |
+| Shared owner/adoption | `retained_ptr<T>` (P2.4 partial: raw-field control block, promotion ctor, three free paths); `allocate_adopted()` | `shared_storage` + `make_retained` (2.4), explicit deleter (1.8), 2.5 |
 | Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events | Terminal state (1.4), validation/rollback (1.5–1.6), device/stream/ordering (4.1–4.5) |
 | Retained copy + service | Owners prepared and registered before submission; failed tokens retained; blocking admission polls; `shutdown()`; `clear_failed()` (unchecked) | 5.1–5.6 |
-| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5) | Release ownership checks (1.1), rollback (1.7), churn cause (1.10), hot path (3.3–3.4, 3.6–3.8) |
-| CPU path | mimalloc/TBB/platform dispatch, profiler hook | Release alignment check (1.2), NUMA/sized free (3.6) |
+| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5); Release ownership checks (throw `logging::Error`) | P3 probes and numbers (0.2, 0.3), exception type + Release test (1.1), rollback (1.7), churn cause incl. freelist (1.10), hot path (3.3–3.4, 3.6–3.8) |
+| CPU path | mimalloc/TBB/platform dispatch, profiler hook, Release alignment check | Release test + exception type (1.2), NUMA/sized free (3.6) |
 | Arenas/pinned/workspace | Implementations exist | 1.2, 6.1–6.4 |
 | Metal | Shared buffers, heap accounting, completion bookkeeping; lock-free registry + `shutdown()` (P3.1) | 3.7, 6.5 (hardware) |
-| Telemetry | Trace ring, extended schema, torch-named stats | 3.5, 7.1–7.4 |
+| Telemetry | Trace ring, extended schema, torch-named stats (basic queries O(1) on CUDA/HIP) | 3.5 remainder, 7.1–7.4 |
 | Experimental | Handle cache, async-pool wrapper, graph-pool skeleton | 2.7 relocate, Phase 9 |
 | Docs/CI | This plan; CPU, shim, sanitizer, coverage, Bazel jobs; GPU jobs skip without runners | 10.1, 10.5 |
 
@@ -833,7 +869,8 @@ Reviewer / date / next required evidence:
 | `becf3f2` (2026-10-01) | `setup.py config.build.test.benchmark.clangtidy.cppcheck.spell.iwyu.coverage.tbb.metal.vv` on macOS/Metal/TBB, clang 22 | 9/9 CTest suites passed; clang-tidy (warnings as errors) clean; line coverage 81.1 %, function 90.0 %; cppcheck step not executed by the script; no GPU hardware |
 | `becf3f2` (2026-10-01) | CUDA/HIP copy-runtime shim targets rebuilt and rerun | Both passed (18 cases each); deterministic runtimes, no vendor GPU |
 | P2+P3.1 (2026-10-02) | Windows build (clang); `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests` | 285 + 18 + 15 = 318 tests passed; P3.1: lock-free registry (9 gate tests), P2: storage core + promotion (20 gate tests); no GPU hardware |
-| P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran) |
+| P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran). Reported by the commit, not rerun; tests check API behavior, not §6.1 counts (R5); no churn rerun (R6) |
+| `27e5f38` (2026-10-02) | Source review of P2/P3 against §4–§6 | Findings R1–R7 (§3.5); C1–C3 found already Release-checked (corrected in §3.3). No build or test executed |
 
 ---
 
@@ -893,6 +930,9 @@ no new crash report.
 before delete do not prove stale accesses are gone. Task 1.10 requires a sanitizer
 or debugger run that identifies the cause, a targeted regression and the
 predeclared stress run. Until then the affected cache configuration is held.
+P3.2 (`27e5f38`) replaced `new`/`delete cache_block` with `block_freelist`
+recycling — the storage-reuse mechanism behind hypothesis (B) — so the stress
+run must cover the freelist build (R6).
 
 ## Appendix C — Historical CUDA benchmark results (2026-09-29)
 
