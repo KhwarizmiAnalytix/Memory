@@ -108,24 +108,4 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
     throw std::invalid_argument("allocate_bytes: unsupported device type");
 }
 
-void free_gpu_with_stream(void* cache_ctx, void* ptr, std::size_t nbytes,
-                           stream_handle_t stream) noexcept
-{
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
-    try
-    {
-        static_cast<gpu::caching_allocator*>(cache_ctx)->deallocate(ptr, nbytes, stream);
-    }
-    catch (...)
-    {
-        cleanup_diagnostic::record_failure();
-    }
-#else
-    (void)cache_ctx;
-    (void)ptr;
-    (void)nbytes;
-    (void)stream;
-#endif
-}
-
 }  // namespace memory

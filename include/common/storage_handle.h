@@ -96,9 +96,11 @@ public:
     device        dev()     const noexcept { return dev_;     }
     allocation_id id()      const noexcept { return id_;      }
     bool          empty()   const noexcept { return ptr_ == nullptr; }
-    // Raw cache pointer for GPU free path; nullptr for CPU/adopted allocations.
+    // Raw cache pointer stored at allocate time; used by the promotion
+    // constructor (retained_ptr) to populate control_block::fn_del_ctx.
     void*         ctx_raw()    const noexcept { return ctx_;     }
-    // Raw deleter function pointer; nullptr for GPU allocations (freed via stream).
+    // Raw deleter function pointer; used by the promotion constructor to
+    // populate control_block::fn_del.  Non-null for all allocate_bytes results.
     deleter_fn    fn_deleter() const noexcept { return deleter_; }
 
     // Disarm: returns the raw pointer and zeros the handle so the destructor
@@ -148,8 +150,9 @@ static_assert(sizeof(storage_handle) == 48,
 // Allocate nbytes bytes on the device described by ctx, with the given
 // alignment.  Returns an empty handle when nbytes == 0.
 // Throws: std::bad_alloc (OOM), std::invalid_argument (bad alignment / device).
-// GPU: calls caching_allocator_for_device() exactly once; stores the cache
-// pointer in ctx_ for use by free_gpu_with_stream() (0 registry lookups at free).
+// GPU: calls caching_allocator_for_device() exactly once; wires gpu_free_fn as
+// the deleter (looks up the allocation stream from the cache block and frees —
+// plan §2.10, R1). 0 registry lookups at free; the handle is self-freeing.
 MEMORY_API storage_handle allocate_bytes(std::size_t     nbytes,
                                           std::size_t     alignment,
                                           execution_context ctx);
@@ -169,14 +172,5 @@ inline storage_handle adopt_bytes(void*       ptr,
     }
     return storage_handle(ptr, nbytes, del, del_ctx, dev, next_allocation_id());
 }
-
-// Free a GPU allocation with the correct stream, using the cache pointer that
-// allocate_bytes stored in ctx_.  Must not be called for CPU allocations
-// (ctx_raw() is nullptr for those; the handle's deleter_ handles them).
-// Exceptions from the caching allocator are caught and counted.
-MEMORY_API void free_gpu_with_stream(void*           cache_ctx,
-                                      void*           ptr,
-                                      std::size_t     nbytes,
-                                      stream_handle_t stream) noexcept;
 
 }  // namespace memory

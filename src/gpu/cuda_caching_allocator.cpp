@@ -21,6 +21,7 @@
 
 #include "include/util/exception.h"
 
+#include "common/cleanup_diagnostic.h"
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
 #include "gpu/caching_allocator_config.h"

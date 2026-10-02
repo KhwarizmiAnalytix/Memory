@@ -848,7 +848,7 @@ Reviewer / date / next required evidence:
 | Area | Implemented | Open (task) |
 |---|---|---|
 | Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`, 56 B), `clone()`, views preserving base | Completed clone (4.6), moved-from/zero-size id (1.9), size (2.10) |
-| Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`, `free_gpu_with_stream`; owners free GPU memory with 0 registry lookups (P2.3, not probe-tested) | GPU handle has null deleter (2.10); 2.1 partial; 2.5–2.9 |
+| Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`; GPU handle carries `gpu_free_fn` + cache pointer; dropping a bare GPU handle returns block to pool (task 2.10, shim-tested) | `data_ptr` is 56 B (deliberate: stream kept for user-facing API, §3.5 R4); 2.1 partial; 2.5–2.9 |
 | Shared owner/adoption | `retained_ptr<T>` (P2.4 partial: raw-field control block, promotion ctor, three free paths); `allocate_adopted()` | `shared_storage` + `make_retained` (2.4), explicit deleter (1.8), 2.5 |
 | Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events | Terminal state (1.4), validation/rollback (1.5–1.6), device/stream/ordering (4.1–4.5) |
 | Retained copy + service | Owners prepared and registered before submission; failed tokens retained; blocking admission polls; `shutdown()`; `clear_failed()` (unchecked) | 5.1–5.6 |
@@ -871,6 +871,7 @@ Reviewer / date / next required evidence:
 | P2+P3.1 (2026-10-02) | Windows build (clang); `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests` | 285 + 18 + 15 = 318 tests passed; P3.1: lock-free registry (9 gate tests), P2: storage core + promotion (20 gate tests); no GPU hardware |
 | P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran). Reported by the commit, not rerun; tests check API behavior, not §6.1 counts (R5); no churn rerun (R6) |
 | `27e5f38` (2026-10-02) | Source review of P2/P3 against §4–§6 | Findings R1–R7 (§3.5); C1–C3 found already Release-checked (corrected in §3.3). No build or test executed |
+| `e7a14b1` + cleanup (2026-10-02) | Task 2.10 (R1): GPU self-freeing handle; dead code removal; `cleanup_diagnostic` missing include fixed | `DeallocateWithStreamLookupReturnsBlockToPool` + `BareStorageHandleFreesViaDeleter` passed (shim, no GPU hardware). R4: `data_ptr` stays 56 B — deliberate, stream required for user API. Stale `free_gpu_with_stream` declaration/stub removed from `storage_handle.h`, `retained_ptr.h`, `storage.cpp`, `Testing/CopyRuntime`. All 6 `MemoryCudaCachingAllocatorRuntimeTests` passed. |
 
 ---
 

@@ -28,6 +28,7 @@
 #include <thread>
 
 #include "fake_runtime.h"
+#include "common/storage_handle.h"
 #include "gpu/cuda_caching_allocator.h"
 
 using memory::gpu::cuda_caching_allocator;
@@ -148,4 +149,67 @@ TEST_F(CudaCachingAllocatorRuntime, SegmentAllocDeviceGuardThrowRollsBackPending
     EXPECT_NO_THROW(ptr = allocator.allocate(kSegmentSize));
     ASSERT_NE(nullptr, ptr);
     allocator.deallocate(ptr, kSegmentSize);
+}
+
+// ---------------------------------------------------------------------------
+// Task 2.10 / R1 gate tests (plan §2.10 exit criterion)
+// ---------------------------------------------------------------------------
+
+// deallocate_with_stream_lookup locates the block's allocation stream from the
+// cache's own bookkeeping and returns it to the free pool.  A second allocation
+// of the same size must reuse the recycled block (same pointer).
+TEST_F(CudaCachingAllocatorRuntime, DeallocateWithStreamLookupReturnsBlockToPool)
+{
+    cuda_caching_allocator allocator(0);
+    void* ptr = allocator.allocate(4096);
+    ASSERT_NE(nullptr, ptr);
+    EXPECT_EQ(4096u, allocator.bytes_allocated_now());
+
+    // Free via the stream-lookup path (no stream hint required by the caller).
+    allocator.deallocate_with_stream_lookup(ptr, 4096);
+    EXPECT_EQ(0u, allocator.bytes_allocated_now());
+
+    // The cache should hand the recycled block back on the next same-size request.
+    void* ptr2 = allocator.allocate(4096);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(ptr, ptr2);
+    allocator.deallocate(ptr2, 4096);
+}
+
+// A bare storage_handle wired with a gpu_free_fn-style deleter (plan §2.10,
+// R1) must return its block to the cache when it is destroyed, without the
+// caller supplying the allocation stream.  This exercises the path taken by
+// allocate_bytes() GPU handles in production.
+TEST_F(CudaCachingAllocatorRuntime, BareStorageHandleFreesViaDeleter)
+{
+    using memory::storage_handle;
+    using memory::device;
+    using memory::next_allocation_id;
+
+    // Local mirror of src/storage.cpp::gpu_free_fn (plan §2.10, R1).
+    auto gpu_free_fn = [](void* cache_ctx, void* p, std::size_t nb) noexcept {
+        static_cast<cuda_caching_allocator*>(cache_ctx)->deallocate_with_stream_lookup(p, nb);
+    };
+
+    cuda_caching_allocator allocator(0);
+    void* raw = allocator.allocate(8192);
+    ASSERT_NE(nullptr, raw);
+    EXPECT_EQ(8192u, allocator.bytes_allocated_now());
+
+    {
+        // Build a handle that owns this block.
+        storage_handle h(raw, 8192,
+                         static_cast<memory::deleter_fn>(gpu_free_fn),
+                         static_cast<void*>(&allocator),
+                         device::cuda(0),
+                         next_allocation_id());
+        // Handle goes out of scope here → destructor → gpu_free_fn → deallocate_with_stream_lookup.
+    }
+    EXPECT_EQ(0u, allocator.bytes_allocated_now());
+
+    // Cache recycled the block: second same-size alloc returns same pointer.
+    void* ptr2 = allocator.allocate(8192);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(raw, ptr2);
+    allocator.deallocate(ptr2, 8192);
 }

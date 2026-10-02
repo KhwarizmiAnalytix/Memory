@@ -32,11 +32,10 @@ class retained_ptr;
  * Unique owning typed buffer (P2: backed by storage_handle).
  *
  * Layout: storage_handle handle_ (48 B) + stream_handle_t stream_ (8 B) = 56 B.
- *
- * GPU free path: data_ptr calls free_gpu_with_stream(handle_.ctx_raw(), …,
- * stream_) directly (0 calls to caching_allocator_for_device at free time),
- * then handle_.release() disarms the storage_handle so its destructor is a
- * no-op.  CPU free: handle_.~storage_handle() calls cpu_free_fn via deleter_.
+ * stream_ is kept separate because it is needed for the user-facing API
+ * (stream(), record_stream(), clone(), context()); the free path no longer
+ * requires it — handle_'s destructor calls gpu_free_fn which looks up the
+ * allocation stream from the cache block (plan §2.10, R1).
  */
 template <typename value_t>
 struct data_ptr

@@ -21,14 +21,6 @@
 namespace memory
 {
 
-// Forward declarations so retained_ptr.h needs no GPU or storage_handle headers:
-// free_gpu_with_stream is defined in storage.cpp and declared in storage_handle.h,
-// but retained_ptr::release() calls it for the GPU promotion path.
-MEMORY_API void free_gpu_with_stream(void*           cache_ctx,
-                                      void*           ptr,
-                                      std::size_t     nbytes,
-                                      stream_handle_t stream) noexcept;
-
 // Forward declaration: definition is in data_ptr.h (which includes retained_ptr.h
 // transitively).  The promotion constructor body is defined out-of-class in data_ptr.h
 // after both types are complete.
