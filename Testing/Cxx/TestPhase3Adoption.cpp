@@ -45,16 +45,30 @@ TEST_F(Phase3Adoption, allocate_adopted_basic)
 
 TEST_F(Phase3Adoption, allocate_adopted_null_pointer_throws)
 {
+    auto no_op = [](T*, size_t, execution_context const&) {};
     EXPECT_THROW(
-        allocator<T>::allocate_adopted(nullptr, 100, execution_context::cpu()),
+        allocator<T>::allocate_adopted(nullptr, 100, execution_context::cpu(), no_op),
         std::invalid_argument);
 }
 
 TEST_F(Phase3Adoption, allocate_adopted_zero_count_throws)
 {
-    T* raw_ptr = new T[100];
+    T*   raw_ptr = new T[100];
+    auto no_op   = [](T*, size_t, execution_context const&) {};
     EXPECT_THROW(
-        allocator<T>::allocate_adopted(raw_ptr, 0, execution_context::cpu()),
+        allocator<T>::allocate_adopted(raw_ptr, 0, execution_context::cpu(), no_op),
+        std::invalid_argument);
+    delete[] raw_ptr;
+}
+
+TEST_F(Phase3Adoption, allocate_adopted_null_deleter_throws)
+{
+    // P1.8: explicit deleter is required; null deleter must throw.
+    T* raw_ptr = new T[10];
+    EXPECT_THROW(
+        allocator<T>::allocate_adopted(
+            raw_ptr, 10, execution_context::cpu(),
+            std::function<void(T*, size_t, execution_context const&)>{}),
         std::invalid_argument);
     delete[] raw_ptr;
 }
@@ -76,14 +90,17 @@ TEST_F(Phase3Adoption, allocate_adopted_with_custom_deleter)
     EXPECT_EQ(deleter_called, 1);
 }
 
-TEST_F(Phase3Adoption, allocate_adopted_with_default_deleter)
+TEST_F(Phase3Adoption, allocate_adopted_with_noop_deleter)
 {
+    // Caller takes ownership of raw_ptr; no-op deleter signals intent explicitly.
     T* raw_ptr = new T[30];
     {
-        auto adopted =
-            allocator<T>::allocate_adopted(raw_ptr, 30, execution_context::cpu());
+        auto adopted = allocator<T>::allocate_adopted(
+            raw_ptr, 30, execution_context::cpu(),
+            [](T*, size_t, execution_context const&) { /* caller manages lifetime */ });
         EXPECT_EQ(adopted.size(), 30);
     }
+    delete[] raw_ptr;
 }
 
 TEST_F(Phase3Adoption, allocate_adopted_copy_increments_refcount)

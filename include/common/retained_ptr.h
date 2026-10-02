@@ -12,12 +12,28 @@
 #include <functional>
 #include <utility>
 
+#include "common/cleanup_diagnostic.h"
+#include "common/deleter_fn.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
 #include "common/storage_identity.h"
 
 namespace memory
 {
+
+// Forward declarations so retained_ptr.h needs no GPU or storage_handle headers:
+// free_gpu_with_stream is defined in storage.cpp and declared in storage_handle.h,
+// but retained_ptr::release() calls it for the GPU promotion path.
+MEMORY_API void free_gpu_with_stream(void*           cache_ctx,
+                                      void*           ptr,
+                                      std::size_t     nbytes,
+                                      stream_handle_t stream) noexcept;
+
+// Forward declaration: definition is in data_ptr.h (which includes retained_ptr.h
+// transitively).  The promotion constructor body is defined out-of-class in data_ptr.h
+// after both types are complete.
+template <typename T>
+struct data_ptr;
 
 // Shared-ownership typed buffer.  Multiple retained_ptr instances may reference
 // the same underlying allocation through a reference-counted control block.
@@ -40,15 +56,24 @@ class retained_ptr
 public:
     using element_type = T;
 
-    // Per-allocation control block; one heap allocation per adopt() call.
+    // Per-allocation control block; one heap allocation per adopt() or promotion.
     struct control_block
     {
         std::atomic<int32_t> ref_count{1};
-        T*                   data{nullptr};      // allocation base
+        T*                   base{nullptr};      // allocation base
         size_t               capacity{0};        // element count at base
+        std::size_t          nbytes{0};          // byte count (promotion path)
+        stream_handle_t      stream{nullptr};    // GPU free stream (promotion path)
+        // Promotion path: fn_del/fn_del_ctx hold the raw deleter extracted from
+        // storage_handle at promotion time.  GPU allocations set fn_del_ctx to
+        // the cache pointer and fn_del to nullptr; CPU sets fn_del to cpu_free_fn.
+        // Adopt() path: both are null; the std::function deleter below is used.
+        deleter_fn           fn_del{nullptr};
+        void*                fn_del_ctx{nullptr};
         execution_context    ctx{};
         storage_identity     identity{};
-        // Deleter: called with (base, capacity, ctx) when ref_count hits 0.
+        // Adopt() path deleter: called with (base, capacity, ctx) when ref drops to 0.
+        // Non-null only for adopt(); nullptr for the promotion path.
         std::function<void(T*, size_t, execution_context const&)> deleter;
 
         control_block()                              = default;
@@ -59,6 +84,11 @@ public:
     // --- Construction / Adoption ---
 
     retained_ptr() noexcept = default;
+
+    // Promote unique ownership to shared: transfers data_ptr<T> storage into a
+    // new control block without reallocation.  Defined out-of-class in data_ptr.h
+    // after both types are complete.
+    explicit retained_ptr(data_ptr<T>&& dp);
 
     // Adopt foreign memory: the supplied deleter takes ownership of storage.
     // The returned retained_ptr owns a single reference; callers may then
@@ -75,7 +105,7 @@ public:
             return {};
         }
         control_block* cb  = new control_block();
-        cb->data           = data;
+        cb->base           = data;
         cb->capacity       = capacity;
         cb->ctx            = ctx;
         cb->deleter        = std::move(deleter);
@@ -168,8 +198,8 @@ public:
     bool   empty() const noexcept { return data_ == nullptr || size_ == 0; }
     explicit operator bool() const noexcept { return data_ != nullptr; }
 
-    // Allocation base (always cb_->data, independent of slice offset).
-    T* base() const noexcept { return cb_ ? cb_->data : nullptr; }
+    // Allocation base (always cb_->base, independent of slice offset).
+    T* base() const noexcept { return cb_ ? cb_->base : nullptr; }
 
     storage_identity const& identity() const noexcept
     {
@@ -203,14 +233,34 @@ private:
         }
         if (cb_->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1)
         {
-            if (cb_->deleter && cb_->data)
+            // Promotion path (from data_ptr<T>): raw deleter extracted at promotion.
+            // GPU: fn_del is null; fn_del_ctx is the cache pointer.
+            // CPU: fn_del is cpu_free_fn; fn_del_ctx is nullptr.
+            if (cb_->fn_del_ctx != nullptr && cb_->ctx.is_gpu() && cb_->nbytes > 0)
+            {
+                // GPU promotion: free with the correct stream (0 registry lookups).
+                free_gpu_with_stream(cb_->fn_del_ctx,
+                                     static_cast<void*>(cb_->base),
+                                     cb_->nbytes,
+                                     cb_->stream);
+            }
+            else if (cb_->fn_del != nullptr && cb_->base != nullptr)
+            {
+                // CPU promotion: call the raw deleter.
+                cb_->fn_del(cb_->fn_del_ctx,
+                            static_cast<void*>(cb_->base),
+                            cb_->nbytes);
+            }
+            // Adopt path: user-supplied std::function deleter.
+            else if (cb_->deleter && cb_->base)
             {
                 try
                 {
-                    cb_->deleter(cb_->data, cb_->capacity, cb_->ctx);
+                    cb_->deleter(cb_->base, cb_->capacity, cb_->ctx);
                 }
-                catch (...)  // NOLINT: intentionally swallow in destructor
+                catch (...)
                 {
+                    cleanup_diagnostic::record_failure();
                 }
             }
             delete cb_;
@@ -221,7 +271,7 @@ private:
     }
 
     control_block* cb_{nullptr};
-    T*             data_{nullptr};  // view start (may be offset from cb_->data)
+    T*             data_{nullptr};  // view start (may be offset from cb_->base)
     size_t         size_{0};        // view element count
 };
 

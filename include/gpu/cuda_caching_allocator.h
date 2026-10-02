@@ -214,6 +214,15 @@ public:
      */
     MEMORY_API unified_cache_stats stats() const;
 
+    // O(1) lock-free reads of the four basic counters (plan §6.1, P3.5).
+    // Each is a single relaxed atomic load — no mutex acquired.  For a
+    // consistent full snapshot (bytes_cached, cache_blocks, inactive_split),
+    // use stats() instead.
+    MEMORY_API size_t bytes_allocated_now()      const noexcept;
+    MEMORY_API size_t peak_bytes_allocated_now() const noexcept;
+    MEMORY_API size_t bytes_reserved_now()       const noexcept;
+    MEMORY_API size_t peak_bytes_reserved_now()  const noexcept;
+
     /**
      * @brief Enable or disable the allocation-history ring
      *        (`torch.cuda.memory._record_memory_history`).
@@ -251,20 +260,36 @@ private:
 };
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+/// Maximum device indices the process-wide registry supports (plan §6.3).
+inline constexpr int kMaxDevices = 16;
+
 /**
  * @brief Returns the process-wide caching allocator for a CUDA/HIP device.
  *
- * Lazily creates one cuda_caching_allocator per device index and returns the
- * shared instance. The registry lives inside the Memory library so that all
- * translation units (and all libraries linking Memory) share the same
- * per-device allocators.
+ * Lock-free on the warm path: a non-null atomic load returns immediately with
+ * no mutex acquired.  The first call per device uses std::call_once to create
+ * the allocator exactly once; subsequent calls are pure load+branch (§6.3,
+ * P3.1: 0 registry locks on warm allocate).
  *
- * @param device_index CUDA/HIP device index (must be valid for the host)
- * @return Reference to the shared caching allocator for the device
+ * The allocator is a process-lifetime singleton (intentional leak, §6.3) so
+ * it outlives any static-storage destructor that may still hold a reference.
  *
- * **Thread Safety**: Thread-safe; creation is serialized internally
+ * @param device_index CUDA/HIP device index in [0, kMaxDevices).
+ * @return Reference to the shared caching allocator for the device.
+ * @throws std::out_of_range if device_index is out of [0, kMaxDevices).
  */
 MEMORY_API cuda_caching_allocator& caching_allocator_for_device(int device_index);
+
+/**
+ * @brief Flush cached segments for all initialized CUDA/HIP devices.
+ *
+ * Calls empty_cache() on every per-device allocator that has been initialized,
+ * in device-index order (0 → kMaxDevices-1), releasing unreferenced backing
+ * memory back to the driver.  Does not destroy the allocators (they remain
+ * valid for the process lifetime).  Safe to call at any point; a no-op if no
+ * device has been initialized yet.
+ */
+MEMORY_API void shutdown();
 #endif
 
 /**

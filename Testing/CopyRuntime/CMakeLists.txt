@@ -11,6 +11,7 @@ foreach(_backend IN ITEMS Cuda Hip)
     ${_target}
     TestCopyRuntime.cpp
     "${_copy_src}/retained_operation_service.cpp"
+    gpu_stubs.cpp
   )
   target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_include_directories(${_target} PRIVATE "${_copy_include}")

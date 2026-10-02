@@ -63,24 +63,37 @@ public:
 
     // Query completion state without blocking.
     // For CPU operations, always returns 'complete'.
-    // For allocator-submitted GPU operations, queries the operation's event. Tokens
-    // constructed directly without an event retain stream-query compatibility.
+    // For allocator-submitted GPU operations, queries the operation's event.
+    // Terminal states (complete, failed) are cached: once observed they are
+    // returned immediately without a driver call on subsequent queries.
     completion_state state() const noexcept
     {
-        if (state_ && state_->canceled.load(std::memory_order_acquire))
-        {
-            return completion_state::complete;
-        }
-        if (state_ && state_->forced_failed.load(std::memory_order_acquire))
-        {
-            return completion_state::failed;
-        }
         if (!state_ || !state_->ctx.is_gpu())
         {
             return completion_state::complete;
         }
+
+        // Fast path: return cached terminal state.
+        auto const cached = state_->cached_terminal.load(std::memory_order_acquire);
+        if (cached != completion_state::pending)
+        {
+            return cached;
+        }
+
+        if (state_->canceled.load(std::memory_order_acquire))
+        {
+            state_->cached_terminal.store(completion_state::complete, std::memory_order_release);
+            return completion_state::complete;
+        }
+        if (state_->forced_failed.load(std::memory_order_acquire))
+        {
+            state_->cached_terminal.store(completion_state::failed, std::memory_order_release);
+            return completion_state::failed;
+        }
+
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         gpu::device_guard guard(state_->ctx.device_index, std::nothrow);
+        completion_state result = completion_state::pending;
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
@@ -90,25 +103,37 @@ public:
             cudaError_t const r = cudaEventQuery(state_->event);
             if (r == cudaSuccess)
             {
-                return completion_state::complete;
+                result = completion_state::complete;
             }
-            return r == cudaErrorNotReady ? completion_state::pending : completion_state::failed;
+            else if (r != cudaErrorNotReady)
+            {
+                result = completion_state::failed;
+            }
         }
-
-        // Compatibility for externally constructed tokens without an event.
-        cudaError_t const r = cudaStreamQuery(static_cast<cudaStream_t>(state_->ctx.stream));
-        if (r == cudaSuccess)
+        else
         {
-            return completion_state::complete;
+            // Compatibility for externally constructed tokens without an event.
+            cudaError_t const r = cudaStreamQuery(static_cast<cudaStream_t>(state_->ctx.stream));
+            if (r == cudaSuccess)
+            {
+                result = completion_state::complete;
+            }
+            else if (r == cudaErrorNotReady)
+            {
+                // Clear sticky error state so repeated queries work
+                (void)cudaGetLastError();
+            }
+            else
+            {
+                result = completion_state::failed;
+            }
         }
-        if (r == cudaErrorNotReady)
+        // Cache terminal results so future calls skip the driver.
+        if (result != completion_state::pending)
         {
-            // Clear sticky error state so repeated queries work
-            (void)cudaGetLastError();
-            return completion_state::pending;
+            state_->cached_terminal.store(result, std::memory_order_release);
         }
-        // Any other error is a real failure
-        return completion_state::failed;
+        return result;
 #else
         return completion_state::complete;
 #endif
@@ -209,6 +234,7 @@ public:
     {
         if (state_)
         {
+            state_->cached_terminal.store(completion_state::complete, std::memory_order_release);
             state_->canceled.store(true, std::memory_order_release);
             state_->retained.reset();
         }
@@ -218,6 +244,7 @@ public:
     {
         if (state_)
         {
+            state_->cached_terminal.store(completion_state::failed, std::memory_order_release);
             state_->forced_failed.store(true, std::memory_order_release);
         }
     }
@@ -246,6 +273,8 @@ private:
         std::atomic<bool>             event_recorded{false};
         std::atomic<bool>             canceled{false};
         std::atomic<bool>             forced_failed{false};
+        // Terminal state cache: once complete or failed, no more driver calls.
+        std::atomic<completion_state> cached_terminal{completion_state::pending};
     };
 
     void ensure_state()

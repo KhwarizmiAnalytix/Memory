@@ -23,6 +23,7 @@
 #import <Metal/Metal.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -32,6 +33,7 @@
 #include <new>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -235,12 +237,12 @@ struct metal_caching_allocator::Impl
         std::scoped_lock const lock(mutex_);
 
         auto it = allocated_blocks_.find(ptr);
-        LOGGING_CHECK_DEBUG(
+        LOGGING_CHECK(
             it != allocated_blocks_.end(),
             "metal_caching_allocator does not own the provided pointer");
 
         cache_block* block = it->second;
-        LOGGING_CHECK_DEBUG(block->allocated, "metal_caching_allocator detected a double free");
+        LOGGING_CHECK(block->allocated, "metal_caching_allocator detected a double free");
 
         allocated_blocks_.erase(it);
         block->allocated = false;
@@ -535,6 +537,12 @@ struct metal_caching_allocator::Impl
         copy.inactive_split_bytes.store(split_bytes, std::memory_order_relaxed);
         return copy;
     }
+
+    // O(1) lock-free reads for the four basic stats (plan §6.1, P3.5).
+    size_t bytes_allocated_now()      const noexcept { return stats_.bytes_allocated.load(std::memory_order_relaxed); }
+    size_t peak_bytes_allocated_now() const noexcept { return stats_.peak_bytes_allocated.load(std::memory_order_relaxed); }
+    size_t bytes_reserved_now()       const noexcept { return stats_.bytes_reserved.load(std::memory_order_relaxed); }
+    size_t peak_bytes_reserved_now()  const noexcept { return stats_.peak_bytes_reserved.load(std::memory_order_relaxed); }
 
     int device() const { return device_; }
 
@@ -1019,6 +1027,11 @@ unified_cache_stats metal_caching_allocator::stats() const
     return impl_->stats();
 }
 
+size_t metal_caching_allocator::bytes_allocated_now()      const noexcept { return impl_->bytes_allocated_now(); }
+size_t metal_caching_allocator::peak_bytes_allocated_now() const noexcept { return impl_->peak_bytes_allocated_now(); }
+size_t metal_caching_allocator::bytes_reserved_now()       const noexcept { return impl_->bytes_reserved_now(); }
+size_t metal_caching_allocator::peak_bytes_reserved_now()  const noexcept { return impl_->peak_bytes_reserved_now(); }
+
 void metal_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
 {
     impl_->record_memory_history(enabled, max_entries);
@@ -1050,18 +1063,50 @@ void metal_caching_allocator::mark_completion(void* command_buffer_token)
     impl_->mark_completion(command_buffer_token);
 }
 
+namespace
+{
+// Process-lifetime per-device Metal registry (plan §6.3, P3.1).
+// Only device index 0 is valid today (MTLCreateSystemDefaultDevice), but the
+// registry supports kMaxDevices slots for forward compatibility.
+std::once_flag                           s_device_once[kMaxDevices];
+std::atomic<metal_caching_allocator*>    s_device_cache[kMaxDevices]{};
+}  // namespace
+
 metal_caching_allocator& metal_caching_allocator_for_device(int device_index)
 {
-    static std::mutex                                                        registry_mutex;
-    static std::unordered_map<int, std::unique_ptr<metal_caching_allocator>> registry;
-
-    std::scoped_lock const lock(registry_mutex);
-    auto&                  entry = registry[device_index];
-    if (entry == nullptr)
+    if (device_index < 0 || device_index >= kMaxDevices)
     {
-        entry = std::make_unique<metal_caching_allocator>(device_index);
+        throw std::out_of_range(
+            "metal_caching_allocator_for_device: device_index " +
+            std::to_string(device_index) + " out of range [0, " +
+            std::to_string(kMaxDevices) + ")");
     }
-    return *entry;
+    // Fast path: no lock on the warm path (0 registry locks, plan §6.1).
+    metal_caching_allocator* p = s_device_cache[device_index].load(std::memory_order_acquire);
+    if (p != nullptr)
+    {
+        return *p;
+    }
+    // Slow path (first call for this device): initialize exactly once.
+    std::call_once(s_device_once[device_index], [device_index]() {
+        // Intentional leak: allocators outlive all static-storage destructors.
+        auto* a = new metal_caching_allocator(device_index);
+        s_device_cache[device_index].store(a, std::memory_order_release);
+    });
+    return *s_device_cache[device_index].load(std::memory_order_acquire);
+}
+
+void shutdown()
+{
+    // Release cached segments back to Metal in device-index order (§6.3).
+    for (int i = 0; i < kMaxDevices; ++i)
+    {
+        metal_caching_allocator* p = s_device_cache[i].load(std::memory_order_acquire);
+        if (p != nullptr)
+        {
+            p->empty_cache();
+        }
+    }
 }
 
 }  // namespace gpu

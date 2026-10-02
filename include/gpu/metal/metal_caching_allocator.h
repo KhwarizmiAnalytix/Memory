@@ -123,6 +123,12 @@ public:
 
     MEMORY_API unified_cache_stats stats() const;
 
+    // O(1) lock-free reads of the four basic counters (plan §6.1, P3.5).
+    MEMORY_API size_t bytes_allocated_now()      const noexcept;
+    MEMORY_API size_t peak_bytes_allocated_now() const noexcept;
+    MEMORY_API size_t bytes_reserved_now()       const noexcept;
+    MEMORY_API size_t peak_bytes_reserved_now()  const noexcept;
+
     MEMORY_API void record_memory_history(
         bool enabled, size_t max_entries = kDefaultMemoryHistoryEntries);
 
@@ -184,14 +190,28 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+/// Maximum device indices the process-wide Metal registry supports (plan §6.3).
+inline constexpr int kMaxDevices = 16;
+
 /**
- * @brief Process-wide caching allocator for a Metal device index
+ * @brief Process-wide caching allocator for a Metal device index.
  *
- * Lazily creates one metal_caching_allocator per device (only index 0 is
- * valid today — MTLCreateSystemDefaultDevice). Lives in the Memory library
- * so all linkers share one registry.
+ * Lock-free on the warm path: a non-null atomic load returns immediately with
+ * no mutex acquired.  Only device index 0 is valid today
+ * (MTLCreateSystemDefaultDevice).  Lives in the Memory library so all linkers
+ * share one registry.  Allocators are process-lifetime singletons (§6.3).
+ *
+ * @param device_index Metal device index in [0, kMaxDevices).
+ * @throws std::out_of_range if device_index is out of [0, kMaxDevices).
  */
 MEMORY_API metal_caching_allocator& metal_caching_allocator_for_device(int device_index);
+
+/**
+ * @brief Flush cached segments for all initialized Metal devices.
+ *
+ * Same contract as the CUDA/HIP shutdown() (§6.3).
+ */
+MEMORY_API void shutdown();
 
 }  // namespace gpu
 }  // namespace memory

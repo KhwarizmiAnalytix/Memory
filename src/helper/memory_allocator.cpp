@@ -126,12 +126,12 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    LOGGING_CHECK_DEBUG(
+    LOGGING_CHECK(
         static_cast<std::ptrdiff_t>(nbytes) > 0,
         "cpu allocate() called with negative or zero size: {}",
         nbytes);
 
-    LOGGING_CHECK_DEBUG(
+    LOGGING_CHECK(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,

@@ -69,11 +69,14 @@ public:
         return allocation_id(val);
     }
 
-    // Reset for testing only
+#if !defined(NDEBUG) || defined(MEMORY_GOOGLE_TEST)
+    // Reset for test teardown only. Must not be called in production code:
+    // ID reuse breaks the "one ID per allocation lifetime" invariant (§5.1).
     void reset() noexcept
     {
         counter_.store(1, std::memory_order_relaxed);
     }
+#endif
 
 private:
     allocation_id_generator() noexcept : counter_(1) {}

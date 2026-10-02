@@ -66,33 +66,18 @@ namespace memory::gpu
 MEMORY_FORCE_INLINE void empty_cache(int device_index = 0)
 { caching_allocator_for_device(device_index).empty_cache(); }
 
+// O(1) lock-free basic stats (plan §6.1, P3.5): direct atomic reads, no mutex.
 MEMORY_FORCE_INLINE size_t memory_allocated(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index)
-        .stats()
-        .bytes_allocated.load(std::memory_order_relaxed);
-}
+{ return caching_allocator_for_device(device_index).bytes_allocated_now(); }
 
 MEMORY_FORCE_INLINE size_t max_memory_allocated(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index)
-        .stats()
-        .peak_bytes_allocated.load(std::memory_order_relaxed);
-}
+{ return caching_allocator_for_device(device_index).peak_bytes_allocated_now(); }
 
 MEMORY_FORCE_INLINE size_t memory_reserved(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index)
-        .stats()
-        .bytes_reserved.load(std::memory_order_relaxed);
-}
+{ return caching_allocator_for_device(device_index).bytes_reserved_now(); }
 
 MEMORY_FORCE_INLINE size_t max_memory_reserved(int device_index = 0)
-{
-    return caching_allocator_for_device(device_index)
-        .stats()
-        .peak_bytes_reserved.load(std::memory_order_relaxed);
-}
+{ return caching_allocator_for_device(device_index).peak_bytes_reserved_now(); }
 
 MEMORY_FORCE_INLINE unified_cache_stats memory_stats(int device_index = 0)
 { return caching_allocator_for_device(device_index).stats(); }

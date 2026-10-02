@@ -142,7 +142,7 @@ public:
     // work through acquire() on the new stream.
     void rebind(execution_context ctx)
     {
-        LOGGING_CHECK_DEBUG(
+        LOGGING_CHECK(
             cursor_ == 0,
             "gpu_workspace::rebind called while slices are still acquired (cursor > 0); "
             "call release() before rebind()");

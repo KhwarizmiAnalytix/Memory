@@ -5,11 +5,11 @@
 #include <utility>
 
 #include "allocator.h"
+#include "common/cleanup_diagnostic.h"
 #include "common/data_view.h"
-#include "common/device.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
-#include "common/storage_identity.h"
+#include "common/storage_handle.h"
 
 // Trivial accessors (data/begin/end/size) are called from CUDA kernel argument
 // structs via tensor's __host__ __device__ accessors.  Annotate them so Clang
@@ -22,10 +22,21 @@
 
 namespace memory
 {
+
+// Forward declaration so retained_ptr<T> can be befriended (definition is in
+// retained_ptr.h, included transitively through allocator.h above).
+template <typename T>
+class retained_ptr;
+
 /**
- * Unique owning typed buffer. Move transfers ownership; copying is deleted.
- * Use clone() for explicit deep-copy. data_view<T> is a non-owning window
- * over a data_ptr buffer.
+ * Unique owning typed buffer (P2: backed by storage_handle).
+ *
+ * Layout: storage_handle handle_ (48 B) + stream_handle_t stream_ (8 B) = 56 B.
+ *
+ * GPU free path: data_ptr calls free_gpu_with_stream(handle_.ctx_raw(), …,
+ * stream_) directly (0 calls to caching_allocator_for_device at free time),
+ * then handle_.release() disarms the storage_handle so its destructor is a
+ * no-op.  CPU free: handle_.~storage_handle() calls cpu_free_fn via deleter_.
  */
 template <typename value_t>
 struct data_ptr
@@ -35,18 +46,15 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr() = default;
 
-    // Allocate from execution context (preferred API)
+    // Allocate from execution context (preferred API).
+    // Zero size: no memory allocated, but a unique allocation_id is still assigned.
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
-        : size_(size), ctx_(ctx), aligned_(true), id_(next_allocation_id())
+        : stream_(ctx.stream)
     {
-        if (size == 0)
-        {
-            return;
-        }
-        data_ = allocator_t::allocate(size, ctx);
+        handle_ = allocate_bytes(size * sizeof(value_t), allocator_t::alignment_bytes, ctx);
     }
 
-    // Allocate from separate device/stream parameters (backward compatible)
+    // Allocate from separate device/stream parameters (backward compatible).
     MEMORY_FORCE_INLINE data_ptr(
         size_t size, device_enum type, int device_index = 0, stream_t stream = nullptr)
         : data_ptr(size, execution_context{type, device_index, stream})
@@ -62,9 +70,10 @@ struct data_ptr
         stream_t       stream       = nullptr)
         : data_ptr(size, type, device_index, stream)
     {
-        if (data != nullptr && data_ != nullptr && size != 0)
+        if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy(data, size, data_, type, type, device_index, device_index, stream);
+            allocator_t::copy(data, size, this->data(), type, type,
+                              device_index, device_index, stream);
         }
     }
 
@@ -78,9 +87,10 @@ struct data_ptr
         stream_t       stream     = nullptr)
         : data_ptr(size, to_type, to_index, stream)
     {
-        if (data != nullptr && data_ != nullptr && size != 0)
+        if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy(data, size, data_, from_type, to_type, from_index, to_index, stream);
+            allocator_t::copy(data, size, this->data(), from_type, to_type,
+                              from_index, to_index, stream);
         }
     }
 
@@ -93,9 +103,9 @@ struct data_ptr
     data_ptr& operator=(data_ptr const&) = delete;
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
-        : data_(rhs.data_), size_(rhs.size_), ctx_(rhs.ctx_), aligned_(rhs.aligned_), id_(rhs.id_)
+        : handle_(std::move(rhs.handle_)), stream_(rhs.stream_)
     {
-        rhs.clear_handle();
+        rhs.stream_ = nullptr;
     }
 
     MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr&& rhs)
@@ -105,12 +115,9 @@ struct data_ptr
             return *this;
         }
         release_owned();
-        data_    = rhs.data_;
-        size_    = rhs.size_;
-        ctx_     = rhs.ctx_;
-        aligned_ = rhs.aligned_;
-        id_      = rhs.id_;
-        rhs.clear_handle();
+        handle_ = std::move(rhs.handle_);
+        stream_ = rhs.stream_;
+        rhs.stream_ = nullptr;
         return *this;
     }
 
@@ -118,7 +125,7 @@ struct data_ptr
     // caching allocator's deallocate()/insert_events_locked() can throw (an
     // ownership-check failure, or a CUDA/HIP driver error surfaced while
     // recording a cross-stream event), and an exception leaving an implicitly
-    // noexcept function calls std::terminate immediately -- not only during
+    // noexcept function calls std::terminate immediately — not only during
     // unwinding. There is no safe recovery from a driver error at this point,
     // so the buffer is abandoned (leaked) rather than crashing the process.
     MEMORY_FORCE_INLINE ~data_ptr()
@@ -129,7 +136,10 @@ struct data_ptr
         }
         catch (...)
         {
+            cleanup_diagnostic::record_failure();
         }
+        // handle_ destructs here: for CPU it calls cpu_free_fn; for GPU the
+        // handle was already released by release_owned() so it is a no-op.
     }
 
     MEMORY_FORCE_INLINE data_view<value_t> view() const noexcept
@@ -144,62 +154,94 @@ struct data_ptr
 
     MEMORY_FORCE_INLINE data_ptr clone() const
     {
-        return data_ptr(data_, size_, ctx_.device_type, ctx_.device_index, ctx_.stream);
+        if (handle_.empty()) return {};
+        return data_ptr(data(), size(), handle_.dev().type,
+                        static_cast<int>(handle_.dev().index), stream_);
     }
 
-    // Handle constness: a const data_ptr does not freeze the buffer (same as std::span<T>).
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data() const { return data_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get() const { return data_; }
+    // Accessors — all derived from handle_ and stream_.
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data()  const
+    {
+        return static_cast<value_t*>(handle_.get());
+    }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get()   const { return data(); }
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* begin() const { return data(); }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() const { return data() + size_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end()   const
+    {
+        return data() + size();
+    }
 
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const { return size_; }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool   is_aligned() const { return aligned_; }
-    MEMORY_FORCE_INLINE int                          device_index() const { return ctx_.device_index; }
-    MEMORY_FORCE_INLINE device_enum                  device() const { return ctx_.device_type; }
-    MEMORY_FORCE_INLINE stream_t                     stream() const { return ctx_.stream; }
-    MEMORY_FORCE_INLINE execution_context            context() const { return ctx_; }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const
+    {
+        return handle_.empty() ? 0 : handle_.nbytes() / sizeof(value_t);
+    }
+    // Aligned when constructed (includes zero-size); false for default-constructed.
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool is_aligned() const
+    {
+        return handle_.id().valid();
+    }
 
-    // Unique allocation identifier (survives address reuse and slicing)
-    MEMORY_FORCE_INLINE allocation_id                id() const { return id_; }
+    MEMORY_FORCE_INLINE int          device_index() const
+    {
+        return static_cast<int>(handle_.dev().index);
+    }
+    MEMORY_FORCE_INLINE device_enum  device()  const { return handle_.dev().type;  }
+    MEMORY_FORCE_INLINE stream_t     stream()  const { return static_cast<stream_t>(stream_); }
+    MEMORY_FORCE_INLINE execution_context context() const
+    {
+        return execution_context{handle_.dev().type,
+                                 static_cast<int>(handle_.dev().index),
+                                 stream_};
+    }
+
+    MEMORY_FORCE_INLINE allocation_id id() const { return handle_.id(); }
 
     MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
     {
-        allocator_t::record_stream(data_, ctx_.device_type, ctx_.device_index, stream);
+        allocator_t::record_stream(data(), handle_.dev().type,
+                                   static_cast<int>(handle_.dev().index), stream);
     }
 
+    // Grant retained_ptr<T> access to handle_ and stream_ for the promotion
+    // constructor (defined in data_ptr.h after retained_ptr<T> is complete).
+    template <typename U>
+    friend class retained_ptr;
     friend struct data_view<value_t>;
 
 private:
+    // Free existing GPU allocation with the correct stream; for CPU the
+    // storage_handle's own destructor (via deleter_) handles deallocation
+    // so this is a no-op on the CPU path.
     MEMORY_FORCE_INLINE void release_owned()
     {
-        if (data_ != nullptr)
+        if (handle_.empty())
         {
-            allocator_t::free(data_, ctx_.device_type, ctx_.device_index, 0, ctx_.stream);
-            data_ = nullptr;
+            return;
         }
+        if (handle_.dev().is_gpu() && handle_.ctx_raw() != nullptr)
+        {
+            // GPU: 0 registry lookups — use the cache pointer stored at alloc time.
+            free_gpu_with_stream(handle_.ctx_raw(), handle_.get(),
+                                 handle_.nbytes(), stream_);
+            (void)handle_.release();  // disarm: handle_ dtor will be a no-op
+        }
+        // CPU: deleter_ is set; handle_ destructs naturally after this function
+        // returns (either in the move-assign path via ~storage_handle() via
+        // operator=(storage_handle&&), or via data_ptr's own destructor).
     }
 
-    MEMORY_FORCE_INLINE void clear_handle() noexcept
-    {
-        data_    = nullptr;
-        size_    = 0;
-        ctx_     = execution_context::cpu();
-        aligned_ = false;
-    }
-
-    value_t*         data_{nullptr};
-    size_t           size_{0};
-    execution_context ctx_{execution_context::cpu()};
-    bool             aligned_{false};
-    allocation_id    id_{};  // Unique per allocation lifetime
+    storage_handle  handle_{};
+    stream_handle_t stream_{nullptr};
 };
 
-// Handle-based copy_async: both endpoints are data_ptr base allocations so
-// record_stream is guaranteed to find them in the caching allocator (no
-// interior or foreign pointer risk). sizeof(Src) must equal sizeof(Dst);
-// element counts must match. The caller must keep both data_ptrs alive until
-// token.wait() returns — the token does not retain them.
+// ---------------------------------------------------------------------------
+// Free function: handle-based copy_async
+// ---------------------------------------------------------------------------
+
+// Both endpoints are data_ptr base allocations so record_stream is guaranteed
+// to find them in the caching allocator (no interior or foreign pointer risk).
+// sizeof(Src) must equal sizeof(Dst); element counts must match.  The caller
+// must keep both data_ptrs alive until token.wait() returns.
 template <typename Src, typename Dst>
 MEMORY_FORCE_INLINE copy_token copy_async(
     data_ptr<Src> const&                from,
@@ -213,8 +255,6 @@ MEMORY_FORCE_INLINE copy_token copy_async(
     {
         throw std::invalid_argument("copy_async: element count mismatch between endpoints");
     }
-    // Byte-level copy via allocator<uint8_t> so the two element types need not
-    // be the same type — only the same size (checked above via static_assert).
     return allocator<uint8_t>::copy_async(
         reinterpret_cast<const uint8_t*>(from.data()),
         from.size() * sizeof(Src),
@@ -226,10 +266,14 @@ MEMORY_FORCE_INLINE copy_token copy_async(
         to.device_index());
 }
 
+// ---------------------------------------------------------------------------
+// Out-of-class definitions: data_view constructors from data_ptr
+// ---------------------------------------------------------------------------
+
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
-    : data_view(owner.data_, owner.size_, owner.ctx_.device_type, owner.ctx_.device_index,
-                owner.ctx_.stream, owner.data_)
+    : data_view(owner.data(), owner.size(), owner.device(), owner.device_index(),
+                owner.stream(), owner.data())
 {
 }
 
@@ -239,4 +283,41 @@ MEMORY_FORCE_INLINE data_view<value_t>::data_view(
     : data_view(data_view(owner).subview(offset, count))
 {
 }
+
+// ---------------------------------------------------------------------------
+// Out-of-class definition: retained_ptr<T>(data_ptr<T>&&) promotion ctor
+// ---------------------------------------------------------------------------
+// Both retained_ptr<T> (included through allocator.h → retained_ptr.h) and
+// data_ptr<T> are complete at this point, so the body can reference both.
+
+template <typename T>
+retained_ptr<T>::retained_ptr(data_ptr<T>&& dp)
+{
+    if (dp.handle_.empty())
+    {
+        return;
+    }
+    auto* cb       = new control_block();
+    cb->base       = static_cast<T*>(dp.handle_.get());
+    cb->capacity   = dp.handle_.nbytes() / sizeof(T);
+    cb->nbytes     = dp.handle_.nbytes();
+    cb->stream     = dp.stream_;
+    cb->ctx        = execution_context{dp.handle_.dev().type,
+                                       static_cast<int>(dp.handle_.dev().index),
+                                       dp.stream_};
+    cb->identity.alloc_id = dp.handle_.id().value;
+    cb->identity.base     = dp.handle_.get();
+    cb->identity.capacity = dp.handle_.nbytes();
+    // Extract the raw deleter and cache context from the storage_handle before
+    // disarming it.  GPU: fn_del_ctx = cache ptr, fn_del = nullptr.
+    //                CPU: fn_del_ctx = nullptr,   fn_del = cpu_free_fn.
+    cb->fn_del_ctx = dp.handle_.ctx_raw();
+    cb->fn_del     = dp.handle_.fn_deleter();
+    (void)dp.handle_.release();   // disarm: ownership transferred to control_block
+    dp.stream_     = nullptr;
+    cb_            = cb;
+    data_          = cb->base;
+    size_          = cb->capacity;
+}
+
 }  // namespace memory

@@ -150,8 +150,9 @@ public:
 #endif
 
     static constexpr size_type scalar_size    = sizeof(value_type);
-    static constexpr size_type alignment_size = alignment / scalar_size;
-    static constexpr size_type alignment_mask = alignment_size - 1;
+    static constexpr size_type alignment_bytes = alignment;
+    static constexpr size_type alignment_size  = alignment / scalar_size;
+    static constexpr size_type alignment_mask  = alignment_size - 1;
 
     /**
      * @brief Allocate memory from execution context (preferred API)
@@ -640,7 +641,7 @@ public:
         pointer                                            ptr,
         size_type                                          count,
         execution_context                                  ctx,
-        std::function<void(T*, size_t, execution_context const&)> deleter = nullptr)
+        std::function<void(T*, size_t, execution_context const&)> deleter)
     {
         if (ptr == nullptr || count == 0)
         {
@@ -648,9 +649,11 @@ public:
                 "allocate_adopted: ptr and count must be non-null and non-zero");
         }
 
-        if (deleter == nullptr)
+        if (!deleter)
         {
-            deleter = [](T* p, size_t, execution_context const&) { delete[] p; };
+            throw std::invalid_argument(
+                "allocate_adopted: an explicit deleter is required; "
+                "pass a no-op lambda to adopt without taking ownership");
         }
 
         return retained_ptr<T>::adopt(ptr, count, ctx, std::move(deleter));

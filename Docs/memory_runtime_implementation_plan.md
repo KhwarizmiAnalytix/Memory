@@ -805,20 +805,21 @@ Reviewer / date / next required evidence:
 
 ## 9. Status and evidence
 
-### 9.1 Status by area (at `becf3f2`)
+### 9.1 Status by area (at `main`, 2026-10-02)
 
 "Implemented" means present in source; it is not acceptance.
 
 | Area | Implemented | Open (task) |
 |---|---|---|
-| Unique/borrowed owners | Move-only `data_ptr`, `clone()`, views preserving base | Storage core (2.2–2.5), completed clone (4.6), moved-from id (1.9) |
-| Shared owner/adoption | `retained_ptr`, slices, `allocate_adopted()` | Explicit deleter (1.8), promotion/factory (2.4) |
+| Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`), `clone()`, views preserving base | Completed clone (4.6), moved-from id (1.9) |
+| Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`, `free_gpu_with_stream`; 0 registry lookups on GPU free (P2.3) | 2.5, 2.6, 2.7, 2.8, 2.9 |
+| Shared owner/adoption | `retained_ptr<T>` (P2.4: raw-field control block, promotion ctor); `allocate_adopted()` | Explicit deleter (1.8), 2.5 |
 | Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events | Terminal state (1.4), validation/rollback (1.5–1.6), device/stream/ordering (4.1–4.5) |
 | Retained copy + service | Owners prepared and registered before submission; failed tokens retained; blocking admission polls; `shutdown()`; `clear_failed()` (unchecked) | 5.1–5.6 |
-| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch | Release ownership checks (1.1), rollback (1.7), churn cause (1.10), hot path (3.1–3.5) |
+| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5) | Release ownership checks (1.1), rollback (1.7), churn cause (1.10), hot path (3.3–3.4, 3.6–3.8) |
 | CPU path | mimalloc/TBB/platform dispatch, profiler hook | Release alignment check (1.2), NUMA/sized free (3.6) |
 | Arenas/pinned/workspace | Implementations exist | 1.2, 6.1–6.4 |
-| Metal | Shared buffers, heap accounting, completion bookkeeping | 3.7, 6.5 (hardware) |
+| Metal | Shared buffers, heap accounting, completion bookkeeping; lock-free registry + `shutdown()` (P3.1) | 3.7, 6.5 (hardware) |
 | Telemetry | Trace ring, extended schema, torch-named stats | 3.5, 7.1–7.4 |
 | Experimental | Handle cache, async-pool wrapper, graph-pool skeleton | 2.7 relocate, Phase 9 |
 | Docs/CI | This plan; CPU, shim, sanitizer, coverage, Bazel jobs; GPU jobs skip without runners | 10.1, 10.5 |
@@ -831,6 +832,8 @@ Reviewer / date / next required evidence:
 | `b581cf5` (2026-10-01) | Debug/Metal build; five shim suites + main suite | Shims passed; main suite 224 passed, 7 skipped, 24 failed due to Metal device access in that session |
 | `becf3f2` (2026-10-01) | `setup.py config.build.test.benchmark.clangtidy.cppcheck.spell.iwyu.coverage.tbb.metal.vv` on macOS/Metal/TBB, clang 22 | 9/9 CTest suites passed; clang-tidy (warnings as errors) clean; line coverage 81.1 %, function 90.0 %; cppcheck step not executed by the script; no GPU hardware |
 | `becf3f2` (2026-10-01) | CUDA/HIP copy-runtime shim targets rebuilt and rerun | Both passed (18 cases each); deterministic runtimes, no vendor GPU |
+| P2+P3.1 (2026-10-02) | Windows build (clang); `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests` | 285 + 18 + 15 = 318 tests passed; P3.1: lock-free registry (9 gate tests), P2: storage core + promotion (20 gate tests); no GPU hardware |
+| P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran) |
 
 ---
 
