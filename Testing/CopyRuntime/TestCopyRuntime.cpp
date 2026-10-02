@@ -5,7 +5,10 @@
  */
 
 #include <gtest/gtest.h>
+#include <atomic>
+#include <cstdlib>
 #include <memory>
+#include <new>
 
 // Include fake runtime first
 #include "fake_runtime.h"
@@ -19,6 +22,27 @@
 #endif
 
 using namespace memory;
+
+namespace
+{
+std::atomic<bool>   g_count_new{false};
+std::atomic<size_t> g_new_calls{0};
+}  // namespace
+
+void* operator new(std::size_t n)
+{
+    if (g_count_new.load(std::memory_order_relaxed))
+    {
+        g_new_calls.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (void* p = std::malloc(n ? n : 1))
+    {
+        return p;
+    }
+    throw std::bad_alloc();
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
 class CopyTokenTest : public ::testing::Test
 {
@@ -421,3 +445,67 @@ TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
     EXPECT_EQ(releases, 0);
 }
 #endif
+
+#if MEMORY_HAS_CUDA
+// Phase 0.3 probes (plan §6.1). Counting operator new + fake-runtime counters.
+TEST_F(CopyTokenTest, ProbeTokenReadyAfterTerminalMakesNoDriverCalls)
+{
+    using T = float;
+    auto  stream = reinterpret_cast<void*>(3);
+    fake_runtime::set_stream_ready(stream, true);
+    execution_context ctx;
+    ctx.device_type = device_enum::CUDA;
+    ctx.stream      = stream;
+    auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
+    auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto dst = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto token = allocator<T>::copy_async_retained(src, dst, stream);
+    ASSERT_TRUE(token.ready());  // reach terminal
+    int const queries = fake_runtime::event_queries + fake_runtime::stream_queries;
+    for (int i = 0; i < 100; ++i)
+    {
+        (void)token.ready();
+    }
+    EXPECT_EQ(queries, fake_runtime::event_queries + fake_runtime::stream_queries);
+}
+
+TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
+{
+    using T = float;
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    auto stream = reinterpret_cast<void*>(3);
+    fake_runtime::set_stream_ready(stream, true);
+    execution_context ctx;
+    ctx.device_type = device_enum::CUDA;
+    ctx.stream      = stream;
+    auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
+    auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto dst = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    for (int i = 0; i < 20; ++i)  // warm
+    {
+        (void)allocator<T>::copy_async_retained(src, dst, stream);
+        (void)service.poll();
+    }
+    int const creates0 = fake_runtime::event_creates;
+    g_new_calls = 0;
+    g_count_new = true;
+    for (int i = 0; i < 100; ++i)
+    {
+        (void)allocator<T>::copy_async_retained(src, dst, stream);
+        (void)service.poll();
+    }
+    g_count_new = false;
+    size_t const heap    = g_new_calls.load();
+    int const    creates = fake_runtime::event_creates - creates0;
+    RecordProperty("retained_copy_heap_allocations_per_100", static_cast<int>(heap));
+    RecordProperty("retained_copy_event_creates_per_100", creates);
+    // Target (§6.1, task 3.4): 0 heap allocations, 0 event create/destroy.
+    if (heap != 0 || creates != 0)
+    {
+        GTEST_SKIP() << "expected-fail (plan 3.4): " << heap << " heap allocations and " << creates
+                     << " event creates per 100 retained copies";
+    }
+    (void)service.shutdown(std::chrono::milliseconds(100));
+}
+#endif  // MEMORY_HAS_CUDA

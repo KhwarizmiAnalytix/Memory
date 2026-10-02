@@ -252,4 +252,29 @@ if(MEMORY_ENABLE_BENCHMARK)
       message(STATUS "${target_name}: LibTorch comparison benchmark ENABLED")
     endif()
   endforeach()
+
+  # Phase 0 baseline harnesses (plan §7, tasks 0.1/0.4): custom main(), raw samples,
+  # JSON + manifest. Not Google Benchmark; not registered with CTest (run manually).
+  foreach(_p0 IN ITEMS Phase0CpuBaseline Phase0CudaColdWarm)
+    string(TOLOWER "${_p0}" _p0_lower)
+    set(_p0_target "benchmark_memory_${_p0_lower}")
+    add_executable(${_p0_target} "${CMAKE_CURRENT_SOURCE_DIR}/${_p0}.cpp")
+    target_include_directories(
+      ${_p0_target} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
+                            "${CMAKE_CURRENT_BINARY_DIR}/.."
+    )
+    if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
+      set(_p0_dep_includes ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
+      list(REMOVE_ITEM _p0_dep_includes "${_memory_include_root}")
+      target_include_directories(${_p0_target} PRIVATE ${_p0_dep_includes})
+      unset(_p0_dep_includes)
+    endif()
+    target_link_libraries(${_p0_target} PRIVATE Memory::Memory)
+    if(MEMORY_DEPENDENCY_LIBS)
+      target_link_libraries(${_p0_target} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
+    endif()
+    if(COMMAND memory_set_target_output_directories)
+      memory_set_target_output_directories(${_p0_target})
+    endif()
+  endforeach()
 endif()

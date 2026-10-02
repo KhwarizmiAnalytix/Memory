@@ -45,3 +45,20 @@ add_test(
 set_tests_properties(
   MemoryCudaCachingAllocatorRuntimeTests PROPERTIES TIMEOUT 60 LABELS "Memory;Unit;RuntimeShim"
 )
+
+# Phase 0 (tasks 0.2/0.3): host-overhead baseline under the fake runtime. Manual run only.
+add_executable(
+  MemoryGpuShimBenchPhase0 Phase0GpuShimBench.cpp
+  "${_cca_src}/gpu/cuda_caching_allocator.cpp"
+  "${_cca_src}/profiler/unified_memory_stats.cpp"
+)
+target_include_directories(MemoryGpuShimBenchPhase0 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_cca_include}")
+target_compile_features(MemoryGpuShimBenchPhase0 PRIVATE cxx_std_20)
+target_compile_definitions(
+  MemoryGpuShimBenchPhase0 PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=1
+                                   MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
+)
+target_link_libraries(MemoryGpuShimBenchPhase0 PRIVATE Logging::Logging)
+if(MSVC)
+  target_compile_options(MemoryGpuShimBenchPhase0 PRIVATE /Zc:__cplusplus)
+endif()

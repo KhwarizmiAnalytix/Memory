@@ -28,3 +28,17 @@ foreach(_backend IN ITEMS Cuda Hip)
   add_test(NAME ${_target} COMMAND ${_target})
   set_tests_properties(${_target} PROPERTIES TIMEOUT 30 LABELS "Memory;Unit;RuntimeShim")
 endforeach()
+
+# Phase 0 (tasks 0.2/0.3) host-overhead baseline under the deterministic shim.
+# Manual run only; not a CTest case. CUDA labels: the HIP variant shares the code.
+add_executable(
+  MemoryCopyShimBenchPhase0
+  Phase0CopyShimBench.cpp
+  "${_copy_src}/retained_operation_service.cpp"
+)
+target_include_directories(MemoryCopyShimBenchPhase0 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_copy_include}")
+target_include_directories(MemoryCopyShimBenchPhase0 SYSTEM PRIVATE "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include")
+target_compile_features(MemoryCopyShimBenchPhase0 PRIVATE cxx_std_17)
+target_compile_definitions(
+  MemoryCopyShimBenchPhase0 PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_METAL=0 MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0
+)

@@ -335,3 +335,24 @@ TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
     allocator.deallocate(p, 4096);
     EXPECT_THROW(allocator.deallocate(p, 4096), logging::exception);
 }
+
+// §6.1 "GPU free": event record only for cross-stream uses and 0 heap allocations.
+// Today a cross-stream free allocates (event bookkeeping); recorded as expected-fail.
+TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
+{
+    cuda_caching_allocator allocator(0);
+    allocator.deallocate(allocator.allocate(4096), 4096);
+    size_t heap = 0;
+    {
+        new_probe probe;
+        for (int i = 0; i < 10; ++i)
+        {
+            void* p = allocator.allocate(4096);
+            allocator.record_stream(p, rt::stream(1));
+            allocator.deallocate(p, 4096);
+        }
+        heap = probe.count();
+    }
+    RecordProperty("cross_stream_free_heap_allocations_per_10", static_cast<int>(heap));
+    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.2/3.3): " << heap << " heap allocations / 10 cross-stream pairs";
+}
