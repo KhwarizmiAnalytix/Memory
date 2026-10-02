@@ -30,6 +30,18 @@ void cpu_free_fn(void* /*ctx*/, void* ptr, std::size_t nbytes) noexcept
     memory::cpu::memory_allocator::free(ptr, nbytes);
 }
 
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+// GPU free callback wired into every GPU storage_handle created by allocate_bytes.
+// ctx is the cache pointer (obtained at allocate time); this deleter can be called
+// by the handle's destructor without requiring the owner to know the stream.
+// The cache looks up the allocation stream from the cache_block and deallocates
+// using that stream (plan §2.10, R1).
+void gpu_free_fn(void* cache_ctx, void* ptr, std::size_t nbytes) noexcept
+{
+    static_cast<gpu::caching_allocator*>(cache_ctx)->deallocate_with_stream_lookup(ptr, nbytes);
+}
+#endif
+
 // Guard: is `t` the GPU backend that was compiled in?
 constexpr bool is_active_gpu(device_enum t) noexcept
 {
@@ -74,8 +86,8 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
     if (is_active_gpu(ctx.device_type))
     {
         // Obtain the per-device cache ONCE; store its address in ctx_ so the
-        // free path (free_gpu_with_stream) can reach it directly without a
-        // second registry lookup (plan §4.3, P2.3 gate: 0 lookups on free).
+        // free path can reach it directly without a registry lookup
+        // (plan §4.3, P2.3 gate: 0 lookups on free).
         gpu::caching_allocator& cache =
             gpu::caching_allocator_for_device(ctx.device_index);
         void* ptr = cache.allocate(nbytes, ctx.stream);
@@ -83,10 +95,11 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
         {
             throw std::bad_alloc{};
         }
-        // deleter_ is nullptr: GPU free requires the stream, which is held by
-        // data_ptr.  data_ptr calls free_gpu_with_stream(ctx_raw(), ..., stream_)
-        // explicitly before the handle destructs.
-        return storage_handle(ptr, nbytes, nullptr,
+        // GPU free: deleter_ = gpu_free_fn (looks up the allocation stream
+        // from the cache_block and deallocates). The cache pointer is stored
+        // in ctx_ so the deleter can reach the cache without a registry lookup
+        // (plan §2.10, R1: GPU handle frees itself).
+        return storage_handle(ptr, nbytes, &gpu_free_fn,
                               static_cast<void*>(&cache),
                               dev, next_allocation_id());
     }

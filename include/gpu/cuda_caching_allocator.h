@@ -119,6 +119,21 @@ public:
     MEMORY_API void deallocate(void* ptr, size_t size, stream_type stream = nullptr);
 
     /**
+     * @brief Deallocate GPU memory by looking up the allocation stream
+     *
+     * Looks up the stream from the cache_block (the allocation stream recorded
+     * at allocate time) and deallocates. Suitable for use as a deleter function
+     * pointer when the stream is not available to the caller (e.g. in a
+     * storage_handle deleter).
+     *
+     * @param ptr Pointer to memory to deallocate
+     * @param nbytes Size of memory block (unused; kept for deleter compatibility)
+     * @throws std::invalid_argument if ptr is not owned by this allocator
+     * @throws std::logic_error if double free detected
+     */
+    MEMORY_API void deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept;
+
+    /**
      * @brief Record a cross-stream use of a live allocation (PyTorch recordStream)
      *
      * Declares that the memory is (or will be) used on @p stream. When the

@@ -590,6 +590,69 @@ struct cuda_caching_allocator::Impl
         trim_cache_locked();
     }
 
+    void deallocate_with_stream_lookup(void* ptr, size_t /*nbytes*/) noexcept
+    {
+        if (ptr == nullptr)
+        {
+            return;
+        }
+
+        try
+        {
+            std::scoped_lock const lock(mutex_);
+            process_events_locked();
+
+            auto it = allocated_blocks_.find(ptr);
+            if (it == allocated_blocks_.end())
+            {
+                // Not owned by this allocator; silently ignore rather than throw
+                // (this is a deleter path in a destructor, so throwing is unsafe).
+                cleanup_diagnostic::record_failure();
+                return;
+            }
+
+            cache_block* block = it->second;
+            if (!block->allocated)
+            {
+                // Double free detected; silently ignore.
+                cleanup_diagnostic::record_failure();
+                return;
+            }
+
+            // Look up the allocation stream from the block and deallocate.
+            // Since we're deallocating on the same stream it was allocated on,
+            // there are no new cross-stream uses to record beyond what was already
+            // recorded via record_stream().
+
+            allocated_blocks_.erase(it);
+            block->allocated = false;
+            stats_.successful_frees++;
+            stats_.bytes_allocated -= block->size;
+            record_trace_locked(
+                gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
+#if MEMORY_HAS_PROFILER
+            report_event_locked(ptr, -static_cast<int64_t>(block->size));
+#endif
+
+            // No additional stream hints provided by this deleter path, so just
+            // check if prior record_stream() calls created any cross-stream uses.
+            if (!block->stream_uses.empty())
+            {
+                insert_events_locked(block);
+            }
+            else
+            {
+                free_block_locked(block);
+            }
+
+            trim_cache_locked();
+        }
+        catch (...)
+        {
+            cleanup_diagnostic::record_failure();
+        }
+    }
+
     void add_free_memory_callback(cuda_caching_allocator::free_memory_callback callback)
     {
         std::scoped_lock const lock(mutex_);
@@ -1552,6 +1615,11 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
 {
     impl_->deallocate(ptr, size, stream);
+}
+
+void cuda_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept
+{
+    impl_->deallocate_with_stream_lookup(ptr, nbytes);
 }
 
 void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)

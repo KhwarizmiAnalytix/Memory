@@ -97,6 +97,14 @@ public:
     MEMORY_API void deallocate(void* ptr, size_t size, stream_type stream = nullptr);
 
     /**
+     * @brief Deallocate GPU memory (Metal version; no stream lookup needed)
+     *
+     * For Metal v1, this is identical to deallocate(ptr, nbytes, nullptr).
+     * Provided for API compatibility with cuda_caching_allocator.
+     */
+    MEMORY_API void deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept;
+
+    /**
      * @brief Record a cross-stream use (no-op for Metal v1 — sync dispatch only)
      */
     MEMORY_API void record_stream(void* ptr, stream_type stream);

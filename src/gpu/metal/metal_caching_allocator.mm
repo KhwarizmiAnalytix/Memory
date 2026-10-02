@@ -972,6 +972,11 @@ void metal_caching_allocator::deallocate(void* ptr, size_t size, stream_type str
     impl_->deallocate(ptr, size, stream);
 }
 
+void metal_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept
+{
+    impl_->deallocate(ptr, nbytes, nullptr);
+}
+
 void metal_caching_allocator::record_stream(void* ptr, stream_type stream)
 {
     impl_->record_stream(ptr, stream);

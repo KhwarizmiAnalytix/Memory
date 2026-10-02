@@ -121,13 +121,13 @@ struct data_ptr
         return *this;
     }
 
-    // Destructors are implicitly noexcept: release_owned() reaching the GPU
-    // caching allocator's deallocate()/insert_events_locked() can throw (an
-    // ownership-check failure, or a CUDA/HIP driver error surfaced while
-    // recording a cross-stream event), and an exception leaving an implicitly
-    // noexcept function calls std::terminate immediately — not only during
-    // unwinding. There is no safe recovery from a driver error at this point,
-    // so the buffer is abandoned (leaked) rather than crashing the process.
+    // Destructors are implicitly noexcept: the GPU deleter (gpu_free_fn) is
+    // called from handle_'s destructor, which can reach the GPU caching
+    // allocator's deallocate_with_stream_lookup()/insert_events_locked()
+    // and may throw (ownership-check failure, or CUDA/HIP driver error
+    // recording a cross-stream event). An exception leaving an implicitly
+    // noexcept function calls std::terminate — no safe recovery from driver
+    // errors at this point. Failures are counted in cleanup_diagnostic instead.
     MEMORY_FORCE_INLINE ~data_ptr()
     {
         try
@@ -138,8 +138,8 @@ struct data_ptr
         {
             cleanup_diagnostic::record_failure();
         }
-        // handle_ destructs here: for CPU it calls cpu_free_fn; for GPU the
-        // handle was already released by release_owned() so it is a no-op.
+        // handle_ destructs here: its deleter (cpu_free_fn or gpu_free_fn)
+        // is called, freeing the memory. No explicit free call needed.
     }
 
     MEMORY_FORCE_INLINE data_view<value_t> view() const noexcept
@@ -209,25 +209,14 @@ struct data_ptr
     friend struct data_view<value_t>;
 
 private:
-    // Free existing GPU allocation with the correct stream; for CPU the
-    // storage_handle's own destructor (via deleter_) handles deallocation
-    // so this is a no-op on the CPU path.
+    // Release is now a no-op: the storage_handle destructor invokes the deleter
+    // (either cpu_free_fn or gpu_free_fn) which handles deallocation.
+    // This function exists for API compatibility and future per-handle cleanup.
     MEMORY_FORCE_INLINE void release_owned()
     {
-        if (handle_.empty())
-        {
-            return;
-        }
-        if (handle_.dev().is_gpu() && handle_.ctx_raw() != nullptr)
-        {
-            // GPU: 0 registry lookups — use the cache pointer stored at alloc time.
-            free_gpu_with_stream(handle_.ctx_raw(), handle_.get(),
-                                 handle_.nbytes(), stream_);
-            (void)handle_.release();  // disarm: handle_ dtor will be a no-op
-        }
-        // CPU: deleter_ is set; handle_ destructs naturally after this function
-        // returns (either in the move-assign path via ~storage_handle() via
-        // operator=(storage_handle&&), or via data_ptr's own destructor).
+        // The handle's destructor will call its deleter (which is never null
+        // for allocations from allocate_bytes). No explicit free call needed.
+        // See storage_handle comments for GPU deleter (plan §2.10, R1).
     }
 
     storage_handle  handle_{};
@@ -309,8 +298,9 @@ retained_ptr<T>::retained_ptr(data_ptr<T>&& dp)
     cb->identity.base     = dp.handle_.get();
     cb->identity.capacity = dp.handle_.nbytes();
     // Extract the raw deleter and cache context from the storage_handle before
-    // disarming it.  GPU: fn_del_ctx = cache ptr, fn_del = nullptr.
-    //                CPU: fn_del_ctx = nullptr,   fn_del = cpu_free_fn.
+    // disarming it (plan §2.10, R1).
+    // GPU: fn_del_ctx = cache ptr, fn_del = gpu_free_fn (looks up the stream).
+    // CPU: fn_del_ctx = nullptr,   fn_del = cpu_free_fn.
     cb->fn_del_ctx = dp.handle_.ctx_raw();
     cb->fn_del     = dp.handle_.fn_deleter();
     (void)dp.handle_.release();   // disarm: ownership transferred to control_block

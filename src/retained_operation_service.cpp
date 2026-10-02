@@ -17,12 +17,21 @@ namespace memory
 
 retained_operation_service& retained_operation_service::instance() noexcept
 {
-    static auto* s_instance = new (std::nothrow) retained_operation_service();
-    if (s_instance == nullptr)
+    // condition_variable construction can throw system_error. nothrow new only
+    // turns allocation failure into nullptr. Either failure terminates.
+    try
+    {
+        static auto* const s_instance = new (std::nothrow) retained_operation_service();
+        if (s_instance == nullptr)
+        {
+            std::terminate();
+        }
+        return *s_instance;
+    }
+    catch (...)
     {
         std::terminate();
     }
-    return *s_instance;
 }
 
 void retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
@@ -157,12 +166,20 @@ size_t retained_operation_service::failed_count() const noexcept
 
 void retained_operation_service::clear_failed() noexcept
 {
-    std::deque<copy_token> to_release;
+    // deque construction allocates a container proxy and may throw.
+    try
     {
-        std::unique_lock<std::mutex> lock(mu_);
-        to_release.swap(failed_);
+        std::deque<copy_token> to_release;
+        {
+            std::unique_lock<std::mutex> lock(mu_);
+            to_release.swap(failed_);
+        }
+        // Tokens released here outside the lock.
     }
-    // Tokens released here outside the lock.
+    catch (...)
+    {
+        std::terminate();
+    }
 }
 
 size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
@@ -211,32 +228,40 @@ size_t retained_operation_service::shutdown(std::chrono::milliseconds timeout)
 
 void retained_operation_service::reset() noexcept
 {
-    std::deque<pending_op> to_drain;
+    // deque construction allocates a container proxy and may throw.
+    try
     {
-        std::unique_lock<std::mutex> lock(mu_);
-        to_drain.swap(pending_);
-        max_pending_ = 0;
-        stopping_ = false;
-    }
-
-    for (auto& op : to_drain)
-    {
-        try
+        std::deque<pending_op> to_drain;
         {
-            op.token.wait();
+            std::unique_lock<std::mutex> lock(mu_);
+            to_drain.swap(pending_);
+            max_pending_ = 0;
+            stopping_ = false;
         }
-        catch (...)
+
+        for (auto& op : to_drain)
         {
             try
             {
-                std::unique_lock<std::mutex> lock(mu_);
-                failed_.push_back(op.token);
+                op.token.wait();
             }
-            catch (...)  // NOLINT(bugprone-empty-catch)
+            catch (...)
             {
-                // Silence exceptions during quarantine push; reset() must not throw
+                try
+                {
+                    std::unique_lock<std::mutex> lock(mu_);
+                    failed_.push_back(op.token);
+                }
+                catch (...)  // NOLINT(bugprone-empty-catch)
+                {
+                    // Silence exceptions during quarantine push; reset() must not throw
+                }
             }
         }
+    }
+    catch (...)
+    {
+        std::terminate();
     }
 }
 

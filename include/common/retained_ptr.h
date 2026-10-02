@@ -234,19 +234,13 @@ private:
         if (cb_->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1)
         {
             // Promotion path (from data_ptr<T>): raw deleter extracted at promotion.
-            // GPU: fn_del is null; fn_del_ctx is the cache pointer.
-            // CPU: fn_del is cpu_free_fn; fn_del_ctx is nullptr.
-            if (cb_->fn_del_ctx != nullptr && cb_->ctx.is_gpu() && cb_->nbytes > 0)
+            // GPU: fn_del = gpu_free_fn (looks up stream); fn_del_ctx = cache ptr.
+            // CPU: fn_del = cpu_free_fn; fn_del_ctx = nullptr.
+            // (plan §2.10, R1)
+            if (cb_->fn_del != nullptr && cb_->base != nullptr)
             {
-                // GPU promotion: free with the correct stream (0 registry lookups).
-                free_gpu_with_stream(cb_->fn_del_ctx,
-                                     static_cast<void*>(cb_->base),
-                                     cb_->nbytes,
-                                     cb_->stream);
-            }
-            else if (cb_->fn_del != nullptr && cb_->base != nullptr)
-            {
-                // CPU promotion: call the raw deleter.
+                // Promotion path: call the raw deleter (either gpu_free_fn or cpu_free_fn).
+                // gpu_free_fn will look up the stream from the cache block.
                 cb_->fn_del(cb_->fn_del_ctx,
                             static_cast<void*>(cb_->base),
                             cb_->nbytes);

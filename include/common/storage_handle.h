@@ -23,11 +23,11 @@ namespace memory
 // 48-byte owning raw-byte handle (c10::DataPtr analogue, plan §4.2).
 // Move-only; no heap allocation in the handle itself.
 //
-// GPU allocations:
-//   deleter_ = nullptr (GPU free requires the stream, see free_gpu_with_stream).
+// GPU allocations (plan §2.10, R1):
+//   deleter_ = gpu_free_fn (looks up the allocation stream from the cache_block).
 //   ctx_     = pointer to the gpu::caching_allocator, obtained once at allocate time.
-//              data_ptr uses ctx_raw() to call free_gpu_with_stream directly, bypassing
-//              the caching_allocator registry mutex+map (0 registry lookups on free).
+//              gpu_free_fn uses ctx_ to reach the cache without a registry lookup
+//              (0 registry lookups on free). Dropping a bare GPU handle frees it.
 //
 // CPU allocations:
 //   deleter_ = cpu_free_fn (calls cpu::memory_allocator::free).
