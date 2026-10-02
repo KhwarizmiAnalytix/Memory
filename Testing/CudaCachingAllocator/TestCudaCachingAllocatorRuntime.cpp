@@ -213,3 +213,101 @@ TEST_F(CudaCachingAllocatorRuntime, BareStorageHandleFreesViaDeleter)
     EXPECT_EQ(raw, ptr2);
     allocator.deallocate(ptr2, 8192);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 0.3 hot-path probes (plan §6.1): counting operator new + fake-runtime
+// driver counters. Heap counts include everything the allocator does.
+// ---------------------------------------------------------------------------
+namespace
+{
+std::atomic<bool>   g_count_new{false};
+std::atomic<size_t> g_new_calls{0};
+}  // namespace
+
+void* operator new(std::size_t n)
+{
+    if (g_count_new.load(std::memory_order_relaxed))
+    {
+        g_new_calls.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (void* p = std::malloc(n ? n : 1))
+    {
+        return p;
+    }
+    throw std::bad_alloc();
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+
+namespace
+{
+struct new_probe
+{
+    new_probe()
+    {
+        g_new_calls = 0;
+        g_count_new = true;
+    }
+    ~new_probe() { g_count_new = false; }
+    size_t count() const { return g_new_calls.load(); }
+};
+}  // namespace
+
+TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
+{
+    cuda_caching_allocator allocator(0);
+    allocator.deallocate(allocator.allocate(4096), 4096);  // warm the pool
+    int const malloc_before = rt::malloc_calls;
+    size_t    heap          = 0;
+    {
+        new_probe probe;
+        for (int i = 0; i < 100; ++i)
+        {
+            void* p = allocator.allocate(4096);
+            allocator.deallocate(p, 4096);
+        }
+        heap = probe.count();
+    }
+    RecordProperty("warm_alloc_free_heap_allocations_per_100", static_cast<int>(heap));
+    EXPECT_EQ(malloc_before, rt::malloc_calls) << "warm alloc/free must make 0 driver calls";
+    // Expected-fail until 3.8 (allocated_blocks_ node) and the free-pool set node
+    // are removed from the warm path: 3 heap allocations per alloc/free pair today.
+    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.8): " << heap << " heap allocations / 100 pairs";
+}
+
+TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
+{
+    cuda_caching_allocator allocator(0);
+    allocator.deallocate(allocator.allocate(4096), 4096);
+    size_t heap = 0;
+    {
+        new_probe probe;
+        void*     a = allocator.allocate(512);
+        void*     b = allocator.allocate(512);
+        allocator.deallocate(a, 512);
+        allocator.deallocate(b, 512);
+        heap = probe.count();
+    }
+    RecordProperty("split_heap_allocations", static_cast<int>(heap));
+    // Expected-fail: freelist covers cache_block, but pool set / map nodes still allocate.
+    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.8): " << heap << " heap allocations on split";
+}
+
+TEST_F(CudaCachingAllocatorRuntime, ProbeRecordStreamUpToFourStreamsNoHeap)
+{
+    cuda_caching_allocator allocator(0);
+    allocator.deallocate(allocator.allocate(4096), 4096);
+    void*  p    = allocator.allocate(4096);
+    size_t heap = 0;
+    {
+        new_probe probe;
+        for (size_t s = 1; s <= 4; ++s)
+        {
+            allocator.record_stream(p, rt::stream(s));
+        }
+        heap = probe.count();
+    }
+    allocator.deallocate(p, 4096);
+    RecordProperty("record_stream_4_heap_allocations", static_cast<int>(heap));
+    EXPECT_EQ(0u, heap) << "record_stream up to 4 streams must not allocate (inline_stream_set)";
+}
