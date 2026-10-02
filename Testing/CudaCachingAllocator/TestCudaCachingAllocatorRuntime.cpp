@@ -29,7 +29,9 @@
 
 #include "fake_runtime.h"
 #include "common/storage_handle.h"
+#include "common/cleanup_diagnostic.h"
 #include "gpu/cuda_caching_allocator.h"
+#include "include/util/exception.h"
 
 using memory::gpu::cuda_caching_allocator;
 namespace rt = fake_runtime;
@@ -310,4 +312,26 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeRecordStreamUpToFourStreamsNoHeap)
     allocator.deallocate(p, 4096);
     RecordProperty("record_stream_4_heap_allocations", static_cast<int>(heap));
     EXPECT_EQ(0u, heap) << "record_stream up to 4 streams must not allocate (inline_stream_set)";
+}
+
+// Task 1.1 / R7: ownership violations throw logging::exception in every build
+// type (this target compiles with NDEBUG), and never corrupt the cache.
+TEST_F(CudaCachingAllocatorRuntime, ForeignPointerDeallocateAndRecordStreamThrowLoggingException)
+{
+    cuda_caching_allocator allocator(0);
+    int                    foreign = 0;
+    EXPECT_THROW(allocator.deallocate(&foreign, 16), logging::exception);
+    EXPECT_THROW(allocator.record_stream(&foreign, rt::stream(1)), logging::exception);
+    // Destructor path is noexcept: a foreign pointer is counted, never thrown.
+    auto const before = memory::cleanup_diagnostic::failure_count();
+    EXPECT_NO_THROW(allocator.deallocate_with_stream_lookup(&foreign, 16));
+    EXPECT_EQ(before + 1, memory::cleanup_diagnostic::failure_count());
+}
+
+TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
+{
+    cuda_caching_allocator allocator(0);
+    void*                  p = allocator.allocate(4096);
+    allocator.deallocate(p, 4096);
+    EXPECT_THROW(allocator.deallocate(p, 4096), logging::exception);
 }

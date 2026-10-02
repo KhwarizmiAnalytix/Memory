@@ -206,7 +206,7 @@ against the order in §7. The work is sound in direction; these gaps keep it at
 | R4 | `data_ptr<T>` is 56 B (48 B handle + 8 B stream), not 48 B as §4.2 promised. Accepted if R1 moves the stream into the cache (then `data_ptr` returns to 48 B) or recorded as a deliberate size change. | `data_ptr.h:34` | 2.10 |
 | R5 | Gate tests check API behavior, not the §6.1 invariants: registry tests check same address / index bounds, not lock counts; no counting `operator new` exists, so "0 heap allocations" (3.2) is asserted, not measured; freelist and stats tests `GTEST_SKIP` without a GPU. No Phase 0 before/after numbers exist for 3.1/3.2/3.5 (§1.3 "measure before tuning"). | `TestPhase3Registry.cpp`; absence of 0.2/0.3 | 0.2, 0.3, then re-close 3.1/3.2/3.5 |
 | R6 | `block_freelist` recycles `cache_block` storage — the mechanism of churn hypothesis (B) in Appendix B — while the churn root cause (1.10) is open. The patch path changed without the predeclared stress rerun. | `cuda_caching_allocator.cpp:407-440, 1000, 1116` | 1.10 (now also depends on 3.2) |
-| R7 | Error types: Release checks throw `logging::Error`; `gpu_workspace::acquire<T>` throws `bad_alloc` on overflow. §5.2 and CLAUDE.md document `invalid_argument` / `logic_error` / `overflow_error`. Decide: map to std types, or make `logging::Error` the documented type. | C1–C3 | 1.1, 1.2 |
+| R7 | Error types: Release checks throw `logging::Error`; `gpu_workspace::acquire<T>` throws `bad_alloc` on overflow. §5.2 and CLAUDE.md document `invalid_argument` / `logic_error` / `overflow_error`. **Decided 2026-10-02:** `logging::exception` is the documented type for precondition/lifecycle violations (§5.2); no source change. | C1–C3 | 1.1, 1.2 |
 
 ---
 
@@ -407,10 +407,13 @@ failure is a failure, never a successful query on the wrong device.
 | Event query/wait or device activation | Persist failed state with diagnostic context; keep potentially unsafe owners. |
 | Destructor / cleanup | No throw; quarantine unsafe state; increment the cleanup diagnostic. A swallowed exception is not a successful cleanup. |
 
-Exception types: `invalid_argument` (bad input), `overflow_error` (checked
-arithmetic), `bad_alloc` (exhaustion, after flush-and-retry), `logic_error`
-(lifecycle misuse, double free), `runtime_error` (backend failure, shutdown,
-queue full).
+Exception types (R7 decision, 2026-10-02): `logging::exception` (precondition and
+lifecycle violations raised by `LOGGING_CHECK`: foreign pointer, double free, bad
+alignment or device; thrown in every build type), `invalid_argument` (bad
+caller input validated by the API), `overflow_error` (checked arithmetic),
+`bad_alloc` (exhaustion, after flush-and-retry), `runtime_error` (backend
+failure, shutdown, queue full). Destructor/deleter paths never throw: they
+count in `cleanup_diagnostic`.
 
 Streams: legacy and per-thread default streams have distinct cache identities, or
 the unsupported mode is rejected before submission. A null stream is never
@@ -871,6 +874,7 @@ Reviewer / date / next required evidence:
 | P2+P3.1 (2026-10-02) | Windows build (clang); `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests` | 285 + 18 + 15 = 318 tests passed; P3.1: lock-free registry (9 gate tests), P2: storage core + promotion (20 gate tests); no GPU hardware |
 | P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran). Reported by the commit, not rerun; tests check API behavior, not §6.1 counts (R5); no churn rerun (R6) |
 | `27e5f38` (2026-10-02) | Source review of P2/P3 against §4–§6 | Findings R1–R7 (§3.5); C1–C3 found already Release-checked (corrected in §3.3). No build or test executed |
+| 1.1 (2026-10-02) | Release-build shim tests (NDEBUG): foreign pointer `deallocate`/`record_stream` and double free throw `logging::exception`; `deallocate_with_stream_lookup` on a foreign pointer does not throw and increments `cleanup_diagnostic` | Passed on CUDA/HIP shim; Metal equivalent not run (no Apple hardware this session) |
 | `bea5e2c` (2026-10-02) | Task 0.3 probes (`Probe*` in `Testing/CudaCachingAllocator`; counting `operator new` + fake-runtime driver counters), Windows/clang Release | Warm GPU alloc/free: 0 driver calls (pass) but **3 heap allocations per pair** (target 0; expected-fail, owner 3.8 + free-pool `std::set` node); block split: **7** heap allocations (target 0; expected-fail); `record_stream` ≤ 4 streams: 0 (pass). Lock/registry-lookup counts not yet probed. §6.1 "Now" claims for warm allocate/free were wrong (R5 confirmed) |
 | `e7a14b1` + cleanup (2026-10-02) | Task 2.10 (R1): GPU self-freeing handle; dead code removal; `cleanup_diagnostic` missing include fixed | `DeallocateWithStreamLookupReturnsBlockToPool` + `BareStorageHandleFreesViaDeleter` passed (shim, no GPU hardware). R4: `data_ptr` stays 56 B — deliberate, stream required for user API. Stale `free_gpu_with_stream` declaration/stub removed from `storage_handle.h`, `retained_ptr.h`, `storage.cpp`, `Testing/CopyRuntime`. All 6 `MemoryCudaCachingAllocatorRuntimeTests` passed. |
 
