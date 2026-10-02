@@ -1,8 +1,9 @@
 # Memory — design and implementation plan
 
-Updated: 2026-10-02. Source baseline: `27e5f38` (`main`). §3 inventory and
+Updated: 2026-10-02. Source baseline: `d1c21ff` (`main`). §3 inventory and
 problem evidence were taken at `becf3f2`; the status column in §3.3 and §6.1 and
-the review findings R1–R7 (§3.5) are at `27e5f38`.
+the review findings R1–R7 (§3.5) are at `27e5f38`; R1, R4 and R7 were resolved
+afterwards (§3.5, §9.2).
 
 This is the only design document for Memory. It replaces the September plan, the
 Phase 0–3 summary, the token/error, copy-completion and storage-identity
@@ -168,9 +169,9 @@ lineage (PyTorch is BSD-3, Eigen is MPL-2).
 
 | # | Problem | Evidence | Fix (phase) |
 |---|---|---|---|
-| C1 | ~~In Release, `deallocate`/`record_stream` on a pointer the cache does not own dereferences `end()`.~~ **Corrected 2026-10-02:** the CUDA/HIP (`cuda_caching_allocator.cpp:552,618`) and Metal (`metal_caching_allocator.mm:240`) ownership checks are `LOGGING_CHECK`, which throws in every build type (present since `807f82c`). Remaining gap: it throws `logging::Error`, not the documented `invalid_argument`/`logic_error`, and there is no Release-build test. | `ThirdParty/Logging/include/util/exception.h:323` | Release test + exception-type decision (1.1) |
-| C2 | ~~CPU alignment validation is Debug-only.~~ **Corrected 2026-10-02:** `memory_allocator.cpp:134` is a Release `LOGGING_CHECK`. Same exception-type gap as C1; no Release test. | `memory_allocator.cpp:129-138` | Release test (1.2) |
-| C3 | ~~`gpu_workspace::rebind()` precondition is Debug-only; `acquire<T>` multiplies unchecked.~~ **Corrected 2026-10-02:** `rebind()` uses `LOGGING_CHECK`; `acquire<T>` checks overflow but throws `bad_alloc` where §5.1 requires `overflow_error`. | `gpu_workspace.h:117-123,145` | Exception type + Release test (1.2) |
+| C1 | ~~In Release, `deallocate`/`record_stream` on a pointer the cache does not own dereferences `end()`.~~ **Corrected 2026-10-02:** the CUDA/HIP (`cuda_caching_allocator.cpp:552,618`) and Metal (`metal_caching_allocator.mm:240`) ownership checks are `LOGGING_CHECK`, which throws in every build type (present since `807f82c`). **Resolved 2026-10-02:** `logging::exception` is the documented type (R7); Release shim tests added (CUDA/HIP; Metal not run). | `ThirdParty/Logging/include/util/exception.h:323` | Done for CUDA/HIP (1.1); Metal test open |
+| C2 | ~~CPU alignment validation is Debug-only.~~ **Corrected 2026-10-02:** `memory_allocator.cpp:134` is a Release `LOGGING_CHECK`. **Resolved 2026-10-02:** documented type decided (R7); Release test `InvalidAlignmentThrowsInRelease`. | `memory_allocator.cpp:129-138` | Done (1.2) |
+| C3 | ~~`gpu_workspace::rebind()` precondition is Debug-only; `acquire<T>` multiplies unchecked.~~ **Corrected 2026-10-02:** `rebind()` uses `LOGGING_CHECK`; `acquire<T>` checked overflow but threw `bad_alloc`. **Resolved 2026-10-02:** throws `overflow_error`; Release tests added. | `gpu_workspace.h:117-123,145` | Done (1.2) |
 | C4 | `data_ptr` destructor swallows free failures silently, which leaks the buffer with no signal. | `data_ptr.h:124-133` | Diagnostic counter (P1) |
 | C5 | `allocate_adopted` defaults to `delete[]` for any foreign pointer. | `allocator.h:651-654` | Explicit deleter required (P1) |
 | C6 | `clone()` and copying constructors return after *submission*, not completion. | `data_ptr.h:145-148` | Complete-before-return (P4) |
@@ -200,10 +201,10 @@ against the order in §7. The work is sound in direction; these gaps keep it at
 
 | # | Finding | Evidence | Fix (task) |
 |---|---|---|---|
-| R1 | GPU `storage_handle` does not free itself: `deleter_` is null and only `data_ptr`/`retained_ptr` know to call `free_gpu_with_stream`. A GPU handle from the public `allocate_bytes` that is dropped directly leaks its block silently. Contradicts §1.3 "the handle remembers how to free itself". | `src/storage.cpp:86-91`; `storage_handle.h` comment | 2.10 |
+| R1 | GPU `storage_handle` does not free itself: `deleter_` is null and only `data_ptr`/`retained_ptr` know to call `free_gpu_with_stream`. A GPU handle from the public `allocate_bytes` that is dropped directly leaks its block silently. Contradicts §1.3 "the handle remembers how to free itself". **Resolved 2026-10-02 (`e7a14b1`, `bea5e2c`):** `gpu_free_fn` deleter, shim gate tests pass. | `src/storage.cpp:86-91`; `storage_handle.h` comment | 2.10 |
 | R2 | No single storage core for shared ownership: `retained_ptr::release()` chooses among GPU-promotion, CPU raw deleter and the legacy `std::function` adoption deleter; `control_block` is not `shared_storage` around one `storage_handle`. Phase 2 gate "owners share one storage core" not met. | `retained_ptr.h:60-77, 231-262` | 2.4 (remaining) |
 | R3 | Zero-size `allocate_bytes` returns an empty handle with a fresh `allocation_id`; §5.1 says empty handles have an invalid id. A test (`TestPhase3Identity`) depends on the current behavior. | `src/storage.cpp:52-57` | 1.9 |
-| R4 | `data_ptr<T>` is 56 B (48 B handle + 8 B stream), not 48 B as §4.2 promised. Accepted if R1 moves the stream into the cache (then `data_ptr` returns to 48 B) or recorded as a deliberate size change. | `data_ptr.h:34` | 2.10 |
+| R4 | `data_ptr<T>` is 56 B (48 B handle + 8 B stream), not 48 B as §4.2 promised. Accepted if R1 moves the stream into the cache (then `data_ptr` returns to 48 B) or recorded as a deliberate size change. **Resolved 2026-10-02:** deliberate 56 B; the stream stays for `stream()`, `record_stream()`, `clone()`, and the free path no longer needs it. | `data_ptr.h:34` | 2.10 |
 | R5 | Gate tests check API behavior, not the §6.1 invariants: registry tests check same address / index bounds, not lock counts; no counting `operator new` exists, so "0 heap allocations" (3.2) is asserted, not measured; freelist and stats tests `GTEST_SKIP` without a GPU. No Phase 0 before/after numbers exist for 3.1/3.2/3.5 (§1.3 "measure before tuning"). | `TestPhase3Registry.cpp`; absence of 0.2/0.3 | 0.2, 0.3, then re-close 3.1/3.2/3.5 |
 | R6 | `block_freelist` recycles `cache_block` storage — the mechanism of churn hypothesis (B) in Appendix B — while the churn root cause (1.10) is open. The patch path changed without the predeclared stress rerun. | `cuda_caching_allocator.cpp:407-440, 1000, 1116` | 1.10 (now also depends on 3.2) |
 | R7 | Error types: Release checks throw `logging::Error`; `gpu_workspace::acquire<T>` throws `bad_alloc` on overflow. §5.2 and CLAUDE.md document `invalid_argument` / `logic_error` / `overflow_error`. **Decided 2026-10-02:** `logging::exception` is the documented type for precondition/lifecycle violations (§5.2); no source change. | C1–C3 | 1.1, 1.2 |
@@ -595,7 +596,7 @@ and the invariants in §6.1 need a recorded starting point.
 |---|---|---|---|---|---|
 | 0.1 | CPU microbenchmarks: facade vs raw backend call for mimalloc, TBB, platform; sizes 16 B–64 MiB; 1/2/8/32 threads; cross-thread free | `Testing/Cxx/Benchmark*` | — | JSON + manifest with p50/p95/p99 | — |
 | 0.2 | GPU host-overhead benchmarks under the fake runtimes: warm alloc/free, split/merge, `record_stream`, async copy + token, retained copy, `memory_allocated()` | `Testing/CudaCachingAllocator`, `Testing/CopyRuntime` | — | Runs on any machine; raw samples recorded | — |
-| 0.3 | Invariant probes: counting `operator new` + fake-runtime driver counters; record §6.1 "today" column as tests marked expected-fail | test support | — | Probe tests report current counts | — |
+| 0.3 | Invariant probes: counting `operator new` + fake-runtime driver counters; record §6.1 "today" column as tests marked expected-fail | test support | — | Probe tests report current counts. *Implemented `144c172` for GPU cache heap/driver counts (2 expected-fail: warm alloc/free 3, split 7); registry-lookup/lock probes, copy-token and CPU probes open* | — |
 | 0.4 | Audit existing CUDA benchmarks (timing boundary, thread vs stream, unsupported ratios); one cold/warm series writing a full manifest | `BenchmarkCudaCachingAllocator.cpp` | — | Debug-to-Release estimates labelled as unmeasured | T50 |
 | 0.5 | Churn reproduction protocol: historical and uncapped commands, sizes, repetitions, seeds, stop rule, dump collection | Appendix B, manifest | — | Another developer can run it from text alone | T31 |
 | 0.6 | Support matrix generated from executed manifests only (compile / shim / hardware) | this file §9 | — | No cell without a manifest | T61 |
@@ -764,14 +765,24 @@ backend claim. Phase 9 features ship disabled or experimental.
 ### Next actions
 
 P2.2–2.4 and P3.1/3.2/3.5 landed (`27e5f38`) before P0 and P1. Stop adding P3
-work until the evidence catches up (§3.5):
+work until the evidence catches up (§3.5).
 
-1. **2.10** — GPU handle frees itself (R1); 2.4 builds on it.
-2. **0.2, 0.3** — fake-runtime benchmarks and invariant probes; record numbers at
-   `becf3f2` and `27e5f38` so 3.1/3.2/3.5 get before/after evidence (R5).
-3. **1.10** — churn ASan/stress rerun including the freelist (R6).
-4. **1.1, 1.2** — exception-type decision and Release tests (R7).
-5. **1.4**, then 1.5–1.9; finish **2.4** as `shared_storage` (R2).
+Done since the review: **2.10** (R1, R4), **1.1/1.2** (R7; Metal 1.1 test not run),
+and the GPU-cache part of **0.3**. Remaining, in order:
+
+1. **0.3 remainder, 0.2** — registry-lookup/lock probes, copy-token and CPU
+   probes; fake-runtime benchmarks with numbers at `becf3f2` and `27e5f38` so
+   3.1/3.2/3.5 get before/after evidence (R5).
+2. **3.8** — remove the 3 heap allocations per warm alloc/free pair and 7 per
+   split that the 0.3 probes found (`allocated_blocks_` node, free-pool `std::set`
+   node); the expected-fail probes become the exit tests.
+3. **1.10** — churn ASan/stress rerun including the freelist (R6); needs 0.5 and 1.7.
+4. **1.4**, then 1.5–1.9; finish **2.4** as `shared_storage` (R2).
+5. Metal ownership-check Release test (1.1 remainder) when Apple hardware is available.
+
+Also open: `retained_operation_service.cpp` exception-safety edits landed in
+`e7a14b1` outside task 2.10; they belong to C7 / Phase 5 and still need their own
+review and test.
 
 Parallel starts: 0.1, 0.5, 1.3, 1.8. No dates are assigned.
 
@@ -855,8 +866,8 @@ Reviewer / date / next required evidence:
 | Shared owner/adoption | `retained_ptr<T>` (P2.4 partial: raw-field control block, promotion ctor, three free paths); `allocate_adopted()` | `shared_storage` + `make_retained` (2.4), explicit deleter (1.8), 2.5 |
 | Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events | Terminal state (1.4), validation/rollback (1.5–1.6), device/stream/ordering (4.1–4.5) |
 | Retained copy + service | Owners prepared and registered before submission; failed tokens retained; blocking admission polls; `shutdown()`; `clear_failed()` (unchecked) | 5.1–5.6 |
-| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5); Release ownership checks (throw `logging::Error`) | P3 probes and numbers (0.2, 0.3), exception type + Release test (1.1), rollback (1.7), churn cause incl. freelist (1.10), hot path (3.3–3.4, 3.6–3.8) |
-| CPU path | mimalloc/TBB/platform dispatch, profiler hook, Release alignment check | Release test + exception type (1.2), NUMA/sized free (3.6) |
+| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5); Release ownership checks (throw `logging::exception`, tested on the CUDA/HIP shim) | P3 probes and numbers (0.2, 0.3 remainder), Metal Release test (1.1), rollback (1.7), churn cause incl. freelist (1.10), hot path (3.3–3.4, 3.6–3.8) |
+| CPU path | mimalloc/TBB/platform dispatch, profiler hook, Release alignment check (tested) | NUMA/sized free (3.6) |
 | Arenas/pinned/workspace | Implementations exist | 1.2, 6.1–6.4 |
 | Metal | Shared buffers, heap accounting, completion bookkeeping; lock-free registry + `shutdown()` (P3.1) | 3.7, 6.5 (hardware) |
 | Telemetry | Trace ring, extended schema, torch-named stats (basic queries O(1) on CUDA/HIP) | 3.5 remainder, 7.1–7.4 |
