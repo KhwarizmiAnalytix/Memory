@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  */
 
+#include <limits>
+#include <stdexcept>
+
 #include "MemoryTest.h"
 #include "common/execution_context.h"
 #include "gpu/gpu_workspace.h"
@@ -57,10 +60,8 @@ MEMORYTEST(GpuWorkspace, rebind_while_acquired_throws)
 #endif
     gpu_workspace ws{4096, execution_context::cuda(0)};
     (void)ws.acquire(256);
-#ifndef NDEBUG
-    // LOGGING_CHECK_DEBUG: only active in debug builds.
-    ASSERT_ANY_THROW(ws.rebind(execution_context::cuda(0)));
-#endif
+    // LOGGING_CHECK: active in every build type (Release included).
+    ASSERT_THROW(ws.rebind(execution_context::cuda(0)), logging::exception);
     // release() before rebind: no throw.
     ws.release();
     ws.rebind(execution_context::cuda(0));
@@ -102,3 +103,12 @@ MEMORYTEST(GpuWorkspace, gpu_acquire_returns_non_null)
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+
+MEMORYTEST(GpuWorkspace, acquire_count_overflow_throws_overflow_error)
+{
+    gpu_workspace ws;
+    constexpr size_t kHuge = std::numeric_limits<size_t>::max() / sizeof(double) + 1;
+    ASSERT_THROW((void)ws.acquire<double>(kHuge), std::overflow_error);
+    END_TEST();
+}
+

@@ -118,7 +118,7 @@ public:
     {
         if (sizeof(T) != 0 && count > std::numeric_limits<size_t>::max() / sizeof(T))
         {
-            throw std::bad_alloc();
+            throw std::overflow_error("gpu_workspace::acquire<T>: count * sizeof(T) overflows size_t");
         }
         return static_cast<T*>(acquire(count * sizeof(T)));
     }

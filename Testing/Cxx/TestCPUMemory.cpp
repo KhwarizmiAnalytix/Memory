@@ -177,6 +177,15 @@ MEMORYTEST(MemoryPortTest, IsValidAlignment)
     LOGGING_LOG_INFO("Memory port is_valid_alignment tests completed successfully");
 }
 
+// Task 1.2 / C2: invalid alignment is rejected in every build type (LOGGING_CHECK).
+MEMORYTEST(MemoryPortTest, InvalidAlignmentThrowsInRelease)
+{
+    EXPECT_THROW((void)cpu::memory_allocator::allocate(64, 3), logging::exception);
+    EXPECT_THROW((void)cpu::memory_allocator::allocate(64, 0), logging::exception);
+    EXPECT_THROW((void)cpu::memory_allocator::allocate(64, sizeof(void*) / 2), logging::exception);
+    END_TEST();
+}
+
 // Test the default_alignment() accessor
 MEMORYTEST(MemoryPortTest, DefaultAlignment)
 {
