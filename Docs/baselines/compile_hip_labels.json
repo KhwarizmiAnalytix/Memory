@@ -1,0 +1,15 @@
+{
+  "manifest": {
+    "suite": "hip_labelled_shim_build",
+    "backend": "hip",
+    "evidence": "compile",
+    "git_sha": "fd1deb1",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryCopyHipRuntimeTests.exe",
+    "recorded": "2026-10-03 00:16:32",
+    "binary_mtime": "2026-10-02 23:18:46"
+  },
+  "result": {
+    "built": true
+  }
+}

@@ -5,9 +5,13 @@
  */
 
 #include "MemoryTest.h"
+#include "common/cleanup_diagnostic.h"
 #include "common/retained_ptr.h"
 #include "common/execution_context.h"
 
+#include <functional>
+#include <limits>
+#include <stdexcept>
 #include <string>
 
 using namespace memory;
@@ -46,11 +50,17 @@ MEMORYTEST(RetainedPtr, adopt_single_owner)
     END_TEST();
 }
 
-MEMORYTEST(RetainedPtr, adopt_null_yields_empty)
+// Task 1.8: a null base with zero capacity is the only "empty" adoption; the
+// deleter is discarded unused.
+MEMORYTEST(RetainedPtr, adopt_null_with_zero_capacity_yields_empty)
 {
+    int calls = 0;
     retained_ptr<int> rp = retained_ptr<int>::adopt(
-        nullptr, 4, execution_context::cpu(), nullptr);
+        nullptr, 0, execution_context::cpu(),
+        [&calls](int*, size_t, execution_context const&) { ++calls; });
     EXPECT_TRUE(rp.empty());
+    rp = {};
+    EXPECT_EQ(calls, 0);
     END_TEST();
 }
 
@@ -158,5 +168,112 @@ MEMORYTEST(RetainedPtr, assign_copy_and_move)
     c = std::move(b);
     EXPECT_TRUE(b.empty());
     EXPECT_EQ(c.use_count(), 2);
+    END_TEST();
+}
+
+// Task 1.3: a deleter that throws during the last release must not escape the
+// destructor; it is counted instead.
+MEMORYTEST(RetainedPtr, throwing_deleter_is_counted_not_thrown)
+{
+    auto const before =
+        cleanup_diagnostic::failure_count(cleanup_source::retained_ptr);
+    EXPECT_NO_THROW({
+        int*              raw = new int[4]{};
+        retained_ptr<int> rp  = retained_ptr<int>::adopt(
+            raw, 4, execution_context::cpu(),
+            [](int* p, size_t, execution_context const&)
+            {
+                delete[] p;
+                throw std::runtime_error("injected deleter failure");
+            });
+    });
+    EXPECT_EQ(
+        before + 1, cleanup_diagnostic::failure_count(cleanup_source::retained_ptr));
+    END_TEST();
+}
+
+// Task 1.8: every rejected adoption leaves the caller owning the pointer and
+// never runs the deleter.
+MEMORYTEST(RetainedPtr, adopt_rejects_null_base_with_capacity)
+{
+    int calls = 0;
+    EXPECT_THROW(
+        retained_ptr<int>::adopt(
+            nullptr, 4, execution_context::cpu(),
+            [&calls](int*, size_t, execution_context const&) { ++calls; }),
+        std::invalid_argument);
+    EXPECT_EQ(calls, 0);
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, adopt_rejects_empty_deleter_and_caller_keeps_ownership)
+{
+    int* raw = new int[4]{};
+    EXPECT_THROW(
+        retained_ptr<int>::adopt(
+            raw, 4, execution_context::cpu(),
+            std::function<void(int*, size_t, execution_context const&)>{}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        retained_ptr<int>::adopt(
+            nullptr, 0, execution_context::cpu(),
+            std::function<void(int*, size_t, execution_context const&)>{}),
+        std::invalid_argument);
+    raw[0] = 7;  // still ours and still valid
+    delete[] raw;
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, adopt_rejects_non_null_zero_capacity_and_caller_keeps_ownership)
+{
+    int  calls = 0;
+    int* raw   = new int[4]{};
+    EXPECT_THROW(
+        retained_ptr<int>::adopt(
+            raw, 0, execution_context::cpu(),
+            [&calls](int* p, size_t, execution_context const&)
+            {
+                ++calls;
+                delete[] p;
+            }),
+        std::invalid_argument);
+    EXPECT_EQ(calls, 0);  // not freed behind the caller's back
+    delete[] raw;         // caller frees exactly once
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, adopt_rejects_byte_count_overflow)
+{
+    int  calls = 0;
+    int  value = 0;
+    EXPECT_THROW(
+        retained_ptr<int>::adopt(
+            &value, std::numeric_limits<size_t>::max() / 2, execution_context::cpu(),
+            [&calls](int*, size_t, execution_context const&) { ++calls; }),
+        std::overflow_error);
+    EXPECT_EQ(calls, 0);
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, adopted_deleter_runs_exactly_once_across_copies_and_slices)
+{
+    int calls = 0;
+    {
+        int*              raw = new int[8]{};
+        retained_ptr<int> rp  = retained_ptr<int>::adopt(
+            raw, 8, execution_context::cpu(),
+            [&calls](int* p, size_t n, execution_context const&)
+            {
+                EXPECT_EQ(n, 8U);
+                ++calls;
+                delete[] p;
+            });
+        auto copy  = rp;
+        auto slice = rp.slice(2, 3);
+        rp         = {};
+        copy       = {};
+        EXPECT_EQ(calls, 0);
+    }
+    EXPECT_EQ(calls, 1);
     END_TEST();
 }

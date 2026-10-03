@@ -1,0 +1,26 @@
+=== Churn Crash Report ===
+Time           : Sat Oct  3 00:03:24 2026
+Exception code : 0xC0000005
+Exception addr : 00007FFDB120B16E
+Access type    : read
+Fault address  : 0xffffffffffffffff
+
+Stack trace (innermost first):
+  #00  memory::gpu::shutdown+52366  (0x00007ffdb120b16e)
+  #01  memory::gpu::cuda_caching_allocator::~cuda_caching_allocator+21  (0x00007ffdb11f9d95)
+  #02  0x00007ff72677179c  (no symbol)
+  #03  benchmark::internal::BenchmarkInstance::Run+348  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_api_internal.cc:99]  (0x00007ffd63e951ac)
+  #04  benchmark::internal::`anonymous namespace'::RunInThread+144  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_runner.cc:155]  (0x00007ffd63ea9c50)
+  #05  std::_Func_impl_no_alloc<`lambda at C:\dev\Memory\ThirdParty\benchmark\src\benchmark_runner.cc:340:29',void,int>::_Do_call+55  [C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\include\functional:880]  (0x00007ffd63eaaef7)
+  #06  benchmark::internal::`anonymous namespace'::ThreadRunnerDefault::RunThreads+202  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_runner.cc:215]  (0x00007ffd63eaacfa)
+  #07  benchmark::internal::BenchmarkRunner::DoNIterations+772  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_runner.cc:340]  (0x00007ffd63ea8e84)
+  #08  benchmark::internal::BenchmarkRunner::DoOneRepetition+293  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_runner.cc:514]  (0x00007ffd63eaa435)
+  #09  benchmark::RunSpecifiedBenchmarks+3111  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark.cc:653]  (0x00007ffd63e83797)
+  #10  benchmark::RunSpecifiedBenchmarks+198  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark.cc:568]  (0x00007ffd63e82b56)
+  #11  main+115  [C:\dev\Memory\ThirdParty\benchmark\src\benchmark_main.cc:19]  (0x00007ffdddda1073)
+  #12  0x00007ff726785a5c  (no symbol)
+  #13  BaseThreadInitThunk+23  (0x00007ffdf365cdf7)
+  #14  RtlUserThreadStart+44  (0x00007ffdf471ee4c)
+
+Minidump: churn_crash.dmp
+=== End of Crash Report ===

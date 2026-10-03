@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "cache_runtime_hip_labels",
+    "backend": "hip",
+    "evidence": "shim",
+    "git_sha": "fd1deb1",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryCudaCachingAllocatorRuntimeTests.exe",
+    "recorded": "2026-10-03 00:16:29"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 10
+  }
+}

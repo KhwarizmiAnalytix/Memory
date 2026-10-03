@@ -17,6 +17,10 @@
 #include <malloc.h>
 #endif
 
+#if MEMORY_HAS_MIMALLOC
+#include <mimalloc.h>
+#endif
+
 #include "common/data_ptr.h"
 #include "helper/memory_allocator.h"
 #include "phase0_harness.h"
@@ -75,6 +79,10 @@ std::vector<backend> make_backends()
 #endif
                  }});
 #if MEMORY_HAS_MIMALLOC
+    // The exact calls cpu::memory_allocator::allocate/free make, without the facade around them.
+    b.push_back({"mimalloc_aligned_alloc_raw",
+                 [](std::size_t n) { return mi_aligned_alloc(kAlign, n); },
+                 [](void* p, std::size_t) { mi_free(p); }});
     b.push_back({"mimalloc_raw",
                  [](std::size_t n) { return memory_allocator::allocate_mi(n, kAlign); },
                  [](void* p, std::size_t n) { memory_allocator::free_mi(p, n); }});

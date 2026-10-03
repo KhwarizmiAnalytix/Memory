@@ -1,0 +1,15 @@
+{
+  "manifest": {
+    "suite": "memory_library_cuda",
+    "backend": "cuda",
+    "evidence": "compile",
+    "git_sha": "fd1deb1",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\Memory.dll",
+    "recorded": "2026-10-03 00:16:32",
+    "binary_mtime": "2026-10-02 23:06:09"
+  },
+  "result": {
+    "built": true
+  }
+}

@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/cleanup_diagnostic.h"
 #include "common/pinned_buffer.h"
 #include "fake_runtime.h"
 #include "helper/pinned_memory_allocator.h"
@@ -332,4 +333,25 @@ TEST_F(PinnedRuntime, ConcurrentAllocationAndCrossThreadFree)
     EXPECT_EQ(0U, pool.stats().bytes_allocated);
     pool.empty_cache();
     EXPECT_EQ(0U, pool.stats().bytes_reserved);
+}
+
+// Task 1.3: a pinned_buffer destructor whose release is quarantined must not
+// throw, and must be counted (a swallowed failure is not a successful cleanup).
+// A failing driver free (with the cache limit at 0) quarantines without events.
+TEST_F(PinnedRuntime, BufferDestructorFailureIsCountedNotThrown)
+{
+    auto& pool = memory::cpu::pinned_allocator_for_device();
+    pool.set_max_cached_bytes(0);
+    auto const before = memory::cleanup_diagnostic::failure_count(
+        memory::cleanup_source::pinned_buffer);
+    EXPECT_NO_THROW({
+        memory::pinned_buffer<int> buffer(16);
+        rt::fail_host_free = true;
+    });
+    rt::fail_host_free = false;
+    EXPECT_EQ(
+        before + 1,
+        memory::cleanup_diagnostic::failure_count(memory::cleanup_source::pinned_buffer));
+    EXPECT_EQ(512U, pool.stats().bytes_pending);  // quarantined, never recycled
+    pool.set_max_cached_bytes(std::numeric_limits<std::size_t>::max());
 }

@@ -63,10 +63,10 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
 {
     if (nbytes == 0)
     {
-        // Zero-size: no allocation, but still assign a unique identity so callers
-        // that track allocation_id (e.g. data_ptr, TestPhase3Identity) get a valid ID.
+        // Zero-size allocation returns empty storage (plan §5.1): no memory and no
+        // allocation lifetime, hence the invalid ID. The device is kept.
         device const dev{ctx.device_type, static_cast<std::int16_t>(ctx.device_index)};
-        return storage_handle(nullptr, 0, nullptr, nullptr, dev, next_allocation_id());
+        return storage_handle(nullptr, 0, nullptr, nullptr, dev, allocation_id{});
     }
 
     device const dev{ctx.device_type, static_cast<std::int16_t>(ctx.device_index)};

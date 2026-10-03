@@ -22,6 +22,10 @@
 // real CUDA/HIP driver. See Docs/memory_runtime_implementation_plan.md Appendix A and
 // this suite's CMakeLists.txt for why this builds under the HIP labels.
 
+#include <atomic>
+#include <exception>
+#include <cstdio>
+#include <map>
 #include <gtest/gtest.h>
 
 #include <stdexcept>
@@ -224,6 +228,12 @@ namespace
 {
 std::atomic<bool>   g_count_new{false};
 std::atomic<size_t> g_new_calls{0};
+// Failure injection (task 1.7): while g_inject_new is set, the g_inject_new_at-th
+// allocation (1-based) throws std::bad_alloc.
+std::atomic<bool> g_inject_new{false};
+std::atomic<long> g_inject_new_at{0};
+std::atomic<long> g_inject_new_seen{0};
+std::atomic<bool> g_inject_new_fired{false};
 }  // namespace
 
 void* operator new(std::size_t n)
@@ -231,6 +241,13 @@ void* operator new(std::size_t n)
     if (g_count_new.load(std::memory_order_relaxed))
     {
         g_new_calls.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (g_inject_new.load(std::memory_order_relaxed) &&
+        g_inject_new_seen.fetch_add(1, std::memory_order_relaxed) + 1 ==
+            g_inject_new_at.load(std::memory_order_relaxed))
+    {
+        g_inject_new_fired.store(true, std::memory_order_relaxed);
+        throw std::bad_alloc();
     }
     if (void* p = std::malloc(n ? n : 1))
     {
@@ -324,8 +341,66 @@ TEST_F(CudaCachingAllocatorRuntime, ForeignPointerDeallocateAndRecordStreamThrow
     EXPECT_THROW(allocator.record_stream(&foreign, rt::stream(1)), logging::exception);
     // Destructor path is noexcept: a foreign pointer is counted, never thrown.
     auto const before = memory::cleanup_diagnostic::failure_count();
+    auto const before_cache =
+        memory::cleanup_diagnostic::failure_count(memory::cleanup_source::gpu_cache);
     EXPECT_NO_THROW(allocator.deallocate_with_stream_lookup(&foreign, 16));
     EXPECT_EQ(before + 1, memory::cleanup_diagnostic::failure_count());
+    EXPECT_EQ(
+        before_cache + 1,
+        memory::cleanup_diagnostic::failure_count(memory::cleanup_source::gpu_cache));
+}
+
+namespace
+{
+std::atomic<int>                 g_handler_calls{0};
+std::atomic<int>                 g_handler_last_source{-1};
+std::atomic<cuda_caching_allocator*> g_probe_allocator{nullptr};
+std::atomic<bool>                g_probe_reentered{false};
+
+void counting_handler(memory::cleanup_source source) noexcept
+{
+    g_handler_last_source.store(static_cast<int>(source));
+    g_handler_calls.fetch_add(1);
+}
+
+// Deliberately violates the handler contract (calls into the allocator) from a
+// second thread to prove the cache mutex is not held when the handler runs:
+// if it were held, the join below would deadlock.
+void reentrant_handler(memory::cleanup_source) noexcept
+{
+    auto* allocator = g_probe_allocator.load();
+    std::thread([allocator] {
+        (void)allocator->stats();
+        g_probe_reentered.store(true);
+    }).join();
+}
+}  // namespace
+
+// Task 1.3: the handler hook observes the failure, with its source, and is
+// never invoked under the cache lock.
+TEST_F(CudaCachingAllocatorRuntime, CleanupHandlerSeesFailureOutsideCacheLock)
+{
+    cuda_caching_allocator allocator(0);
+    int                    foreign = 0;
+
+    g_handler_calls.store(0);
+    auto const previous = memory::cleanup_diagnostic::set_handler(&counting_handler);
+    allocator.deallocate_with_stream_lookup(&foreign, 16);
+    EXPECT_EQ(1, g_handler_calls.load());
+    EXPECT_EQ(
+        static_cast<int>(memory::cleanup_source::gpu_cache), g_handler_last_source.load());
+
+    g_probe_allocator.store(&allocator);
+    g_probe_reentered.store(false);
+    memory::cleanup_diagnostic::set_handler(&reentrant_handler);
+    allocator.deallocate_with_stream_lookup(&foreign, 16);
+    EXPECT_TRUE(g_probe_reentered.load());
+
+    memory::cleanup_diagnostic::set_handler(previous);
+    g_probe_allocator.store(nullptr);
+    g_handler_calls.store(0);
+    allocator.deallocate_with_stream_lookup(&foreign, 16);
+    EXPECT_EQ(0, g_handler_calls.load());  // handler cleared
 }
 
 TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
@@ -355,4 +430,340 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
     }
     RecordProperty("cross_stream_free_heap_allocations_per_10", static_cast<int>(heap));
     if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.2/3.3): " << heap << " heap allocations / 10 cross-stream pairs";
+}
+
+// ---------------------------------------------------------------------------
+// Task 1.7: native-cache rollback is exact at every boundary. Each scenario is
+// re-run with a failure injected at the 1st, 2nd, ... call of one boundary
+// (operator new, cudaGetDevice, cudaMalloc, event create/record) until the call
+// no longer reaches that many. After every injected failure:
+//   * accounting matches the driver (bytes_reserved == live driver bytes),
+//   * the whole budget is available again (two full segments fit under a cap of
+//     exactly two: a leaked pending reservation or an orphaned segment would
+//     make the second fail),
+//   * releasing the cache returns every byte to the driver (no leaked segment).
+// ---------------------------------------------------------------------------
+// Arms a failure of the n-th operator new while in scope; fired() reports whether
+// the allocation count reached n.
+namespace
+{
+struct new_failure_injection
+{
+    explicit new_failure_injection(long n)
+    {
+        g_inject_new_seen  = 0;
+        g_inject_new_fired = false;
+        g_inject_new_at    = n;
+        g_inject_new       = true;
+    }
+    ~new_failure_injection() { g_inject_new = false; }
+    static bool fired() { return g_inject_new_fired.load(); }
+};
+
+constexpr double kTwoSegmentFraction(double total)
+{
+    return 2.0 * static_cast<double>(kSegmentSize) / total;
+}
+
+// Budget and driver accounting must be exact after the scenario, whatever happened.
+void expect_exact_after_failure(cuda_caching_allocator& allocator, long n)
+{
+    EXPECT_EQ(allocator.bytes_reserved_now(), rt::device_backing_bytes) << "injection #" << n;
+    void* first  = nullptr;
+    void* second = nullptr;
+    EXPECT_NO_THROW(first = allocator.allocate(kSegmentSize)) << "injection #" << n;
+    EXPECT_NO_THROW(second = allocator.allocate(kSegmentSize))
+        << "budget not fully restored after injection #" << n;
+    if (first != nullptr)
+    {
+        allocator.deallocate(first, kSegmentSize);
+    }
+    if (second != nullptr)
+    {
+        allocator.deallocate(second, kSegmentSize);
+    }
+    allocator.empty_cache();
+    EXPECT_EQ(0u, allocator.bytes_allocated_now()) << "injection #" << n;
+    EXPECT_EQ(0u, allocator.bytes_reserved_now()) << "injection #" << n;
+    EXPECT_EQ(0u, rt::device_backing_bytes) << "segment leaked after injection #" << n;
+}
+}  // namespace
+
+TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASegmentAlloc)
+{
+    long fired = 0;
+    for (long n = 1; n < 256; ++n)
+    {
+        rt::reset();
+        rt::device_total_bytes = 100 * kSegmentSize;
+        cuda_caching_allocator allocator(0);
+        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+
+        void* ptr   = nullptr;
+        bool  threw = false;
+        bool  hit   = false;
+        {
+            new_failure_injection inject(n);
+            try
+            {
+                ptr = allocator.allocate(kSegmentSize);
+            }
+            catch (...)
+            {
+                threw = true;
+            }
+            hit = inject.fired();
+        }
+        if (hit)
+        {
+            ++fired;
+            EXPECT_TRUE(threw) << "an injected allocation failure was swallowed (#" << n << ")";
+            EXPECT_EQ(nullptr, ptr);
+            EXPECT_EQ(0u, allocator.bytes_allocated_now()) << "injection #" << n;
+        }
+        else
+        {
+            EXPECT_NE(nullptr, ptr);
+            if (ptr != nullptr)
+            {
+                allocator.deallocate(ptr, kSegmentSize);
+            }
+        }
+        expect_exact_after_failure(allocator, n);
+        if (!hit)
+        {
+            break;
+        }
+    }
+    EXPECT_GE(fired, 2) << "the scenario must reach at least the metadata and registry inserts";
+}
+
+TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASplit)
+{
+    long fired = 0;
+    for (long n = 1; n < 256; ++n)
+    {
+        rt::reset();
+        rt::device_total_bytes = 100 * kSegmentSize;
+        cuda_caching_allocator allocator(0);
+        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.deallocate(allocator.allocate(kSegmentSize), kSegmentSize);  // one cached segment
+        int const mallocs = rt::malloc_calls;
+
+        void* ptr   = nullptr;
+        bool  threw = false;
+        bool  hit   = false;
+        {
+            new_failure_injection inject(n);
+            try
+            {
+                ptr = allocator.allocate(2 * 1024 * 1024);  // splits the cached 20 MiB block
+            }
+            catch (...)
+            {
+                threw = true;
+            }
+            hit = inject.fired();
+        }
+        EXPECT_EQ(mallocs, rt::malloc_calls) << "a cached block must serve the split";
+        if (hit)
+        {
+            ++fired;
+            EXPECT_TRUE(threw) << "#" << n;
+            EXPECT_EQ(0u, allocator.bytes_allocated_now()) << "injection #" << n;
+            // The block was put back whole: the full segment is still servable
+            // from the cache with no new driver allocation.
+            void* whole = allocator.allocate(kSegmentSize);
+            EXPECT_EQ(mallocs, rt::malloc_calls) << "block lost or fragmented by injection #" << n;
+            allocator.deallocate(whole, kSegmentSize);
+        }
+        else if (ptr != nullptr)
+        {
+            allocator.deallocate(ptr, 2 * 1024 * 1024);
+        }
+        expect_exact_after_failure(allocator, n);
+        if (!hit)
+        {
+            break;
+        }
+    }
+    EXPECT_GE(fired, 2);
+}
+
+TEST_F(CudaCachingAllocatorRuntime, FreeFailingBeforeCommitLeavesTheBlockLiveAndRetryable)
+{
+    long fired = 0;
+    for (long n = 1; n < 256; ++n)
+    {
+        rt::reset();
+        cuda_caching_allocator allocator(0);
+        void* ptr = allocator.allocate(4096);
+        for (size_t s = 1; s <= 4; ++s)  // fill the inline stream set
+        {
+            allocator.record_stream(ptr, rt::stream(s));
+        }
+
+        bool threw = false;
+        bool hit   = false;
+        {
+            new_failure_injection inject(n);
+            try
+            {
+                // A fifth distinct stream hint overflows the inline set (heap).
+                allocator.deallocate(ptr, 4096, rt::stream(5));
+            }
+            catch (...)
+            {
+                threw = true;
+            }
+            hit = inject.fired();
+        }
+        if (hit)
+        {
+            ++fired;
+            EXPECT_TRUE(threw) << "#" << n;
+            if (allocator.bytes_allocated_now() == 4096u)
+            {
+                // Failed before any state change: the block is still live and the
+                // free can simply be retried.
+                EXPECT_NO_THROW(allocator.deallocate(ptr, 4096, rt::stream(5))) << "#" << n;
+            }
+            else
+            {
+                // Failed after commit: the block was quarantined, never recycled.
+                EXPECT_EQ(0u, allocator.bytes_allocated_now()) << "#" << n;
+                void* other = allocator.allocate(4096);
+                EXPECT_NE(ptr, other) << "quarantined block was recycled (#" << n << ")";
+                allocator.deallocate(other, 4096);
+            }
+        }
+        if (!hit)
+        {
+            break;
+        }
+    }
+    EXPECT_GE(fired, 1);
+    EXPECT_EQ(0u, rt::device_backing_bytes) << "teardown must return every segment";
+}
+
+TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactWhenTheDriverRetriesAfterOom)
+{
+    rt::device_total_bytes = 100 * kSegmentSize;
+    {
+        // First cudaMalloc is out of memory, the flush-and-retry succeeds.
+        cuda_caching_allocator allocator(0);
+        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        rt::fail_malloc_calls = 1;
+        void* ptr             = allocator.allocate(kSegmentSize);
+        ASSERT_NE(nullptr, ptr);
+        EXPECT_EQ(2, rt::malloc_calls);
+        EXPECT_EQ(kSegmentSize, allocator.bytes_reserved_now());
+        allocator.deallocate(ptr, kSegmentSize);
+        expect_exact_after_failure(allocator, 0);
+    }
+    rt::reset();
+    rt::device_total_bytes = 100 * kSegmentSize;
+    {
+        // Both attempts fail: bad_alloc, and the budget reservation is returned
+        // once per attempt (not leaked, not double-released).
+        cuda_caching_allocator allocator(0);
+        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        rt::fail_malloc_calls = 2;
+        EXPECT_THROW(allocator.allocate(kSegmentSize), std::bad_alloc);
+        EXPECT_EQ(2, rt::malloc_calls);
+        expect_exact_after_failure(allocator, 0);
+    }
+}
+
+TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactForANonOomDriverError)
+{
+    rt::device_total_bytes = 100 * kSegmentSize;
+    cuda_caching_allocator allocator(0);
+    allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+    rt::malloc_error      = cudaErrorUnknown;
+    rt::fail_malloc_calls = 1;
+    EXPECT_THROW(allocator.allocate(kSegmentSize), std::runtime_error);
+    EXPECT_EQ(1, rt::malloc_calls) << "a non-OOM error is not retried";
+    rt::malloc_error = cudaErrorMemoryAllocation;
+    expect_exact_after_failure(allocator, 0);
+}
+
+TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryDeviceActivationOfARetryingAlloc)
+{
+    long fired = 0;
+    for (long n = 1; n < 64; ++n)
+    {
+        rt::reset();
+        rt::device_total_bytes = 100 * kSegmentSize;
+        cuda_caching_allocator allocator(0);
+        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+
+        rt::get_device_calls       = 0;
+        rt::fail_get_device_at_call = static_cast<int>(n);
+        rt::fail_malloc_calls      = 1;  // force the flush-and-retry chain
+        void* ptr                  = nullptr;
+        bool  threw                = false;
+        try
+        {
+            ptr = allocator.allocate(kSegmentSize);
+        }
+        catch (...)
+        {
+            threw = true;
+        }
+        bool const hit             = rt::get_device_calls >= n;
+        rt::fail_get_device_at_call = 0;
+        rt::fail_malloc_calls      = 0;
+        if (hit)
+        {
+            ++fired;
+            EXPECT_TRUE(threw || ptr != nullptr);
+            if (ptr != nullptr)
+            {
+                allocator.deallocate(ptr, kSegmentSize);
+            }
+        }
+        else if (ptr != nullptr)
+        {
+            allocator.deallocate(ptr, kSegmentSize);
+        }
+        expect_exact_after_failure(allocator, n);
+        if (!hit)
+        {
+            break;
+        }
+    }
+    EXPECT_GE(fired, 3) << "first attempt, flush and retry each activate the device";
+}
+
+TEST_F(CudaCachingAllocatorRuntime, EventAllocationFailureOnCrossStreamFreeQuarantinesWithoutLeak)
+{
+    for (int fail_create = 0; fail_create <= 1; ++fail_create)
+    {
+        for (int at = 1; at <= 2; ++at)
+        {
+            rt::reset();
+            {
+                cuda_caching_allocator allocator(0);
+                void*                  ptr = allocator.allocate(4096);
+                allocator.record_stream(ptr, rt::stream(1));
+                allocator.record_stream(ptr, rt::stream(2));
+                if (fail_create != 0)
+                {
+                    rt::fail_event_create_at_call = at;
+                }
+                else
+                {
+                    rt::fail_event_record_at_call = at;
+                }
+                EXPECT_THROW(allocator.deallocate(ptr, 4096), std::runtime_error);
+                EXPECT_EQ(0u, allocator.bytes_allocated_now());
+                void* other = allocator.allocate(4096);
+                EXPECT_NE(ptr, other) << "an unproven block must never be recycled";
+                allocator.deallocate(other, 4096);
+            }
+            EXPECT_EQ(0u, rt::device_backing_bytes) << "teardown must free the segment";
+            EXPECT_EQ(rt::event_creates, rt::event_destroys) << "event leaked";
+        }
+    }
 }

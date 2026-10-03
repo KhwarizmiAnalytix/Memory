@@ -18,6 +18,7 @@
  */
 
 #include "gpu/metal/metal_caching_allocator.h"
+#include "common/cleanup_diagnostic.h"
 
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
@@ -974,7 +975,16 @@ void metal_caching_allocator::deallocate(void* ptr, size_t size, stream_type str
 
 void metal_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept
 {
-    impl_->deallocate(ptr, nbytes, nullptr);
+    // Deleter path: a foreign pointer or double free throws from deallocate();
+    // count it instead of terminating (plan §5.2, task 1.3).
+    try
+    {
+        impl_->deallocate(ptr, nbytes, nullptr);
+    }
+    catch (...)
+    {
+        cleanup_diagnostic::record_failure(cleanup_source::gpu_cache);
+    }
 }
 
 void metal_caching_allocator::record_stream(void* ptr, stream_type stream)

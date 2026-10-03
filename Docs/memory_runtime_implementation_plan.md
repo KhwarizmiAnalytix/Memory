@@ -1,6 +1,6 @@
 # Memory — design and implementation plan
 
-Updated: 2026-10-02. Source baseline: `d1c21ff` (`main`). §3 inventory and
+Updated: 2026-10-03. Source baseline: `fd1deb1` (`main`) plus the uncommitted Phase 1 working tree (1.3–1.9). §3 inventory and
 problem evidence were taken at `becf3f2`; the status column in §3.3 and §6.1 and
 the review findings R1–R7 (§3.5) are at `27e5f38`; R1, R4 and R7 were resolved
 afterwards (§3.5, §9.2).
@@ -172,11 +172,11 @@ lineage (PyTorch is BSD-3, Eigen is MPL-2).
 | C1 | ~~In Release, `deallocate`/`record_stream` on a pointer the cache does not own dereferences `end()`.~~ **Corrected 2026-10-02:** the CUDA/HIP (`cuda_caching_allocator.cpp:552,618`) and Metal (`metal_caching_allocator.mm:240`) ownership checks are `LOGGING_CHECK`, which throws in every build type (present since `807f82c`). **Resolved 2026-10-02:** `logging::exception` is the documented type (R7); Release shim tests added (CUDA/HIP; Metal not run). | `ThirdParty/Logging/include/util/exception.h:323` | Done for CUDA/HIP (1.1); Metal test open |
 | C2 | ~~CPU alignment validation is Debug-only.~~ **Corrected 2026-10-02:** `memory_allocator.cpp:134` is a Release `LOGGING_CHECK`. **Resolved 2026-10-02:** documented type decided (R7); Release test `InvalidAlignmentThrowsInRelease`. | `memory_allocator.cpp:129-138` | Done (1.2) |
 | C3 | ~~`gpu_workspace::rebind()` precondition is Debug-only; `acquire<T>` multiplies unchecked.~~ **Corrected 2026-10-02:** `rebind()` uses `LOGGING_CHECK`; `acquire<T>` checked overflow but threw `bad_alloc`. **Resolved 2026-10-02:** throws `overflow_error`; Release tests added. | `gpu_workspace.h:117-123,145` | Done (1.2) |
-| C4 | `data_ptr` destructor swallows free failures silently, which leaks the buffer with no signal. | `data_ptr.h:124-133` | Diagnostic counter (P1) |
-| C5 | `allocate_adopted` defaults to `delete[]` for any foreign pointer. | `allocator.h:651-654` | Explicit deleter required (P1) |
+| C4 | `data_ptr` destructor swallows free failures silently, which leaks the buffer with no signal. | `data_ptr.h:124-133` | Done (1.3): counted per source, handler hook |
+| C5 | `allocate_adopted` defaults to `delete[]` for any foreign pointer. | `allocator.h:651-654` | Done (1.8) |
 | C6 | `clone()` and copying constructors return after *submission*, not completion. | `data_ptr.h:145-148` | Complete-before-return (P4) |
 | C7 | Retained-operation service: admission is unlimited by default; `clear_failed()` releases quarantined owners unconditionally; payload release and deleters may run under the service mutex. | `retained_operation_service.cpp` | P5 |
-| C8 | Churn-crash patch (`33568cf5`) lacks root-cause evidence (Appendix B). | — | P1 (tool/hardware held) |
+| C8 | Churn-crash patch (`33568cf5`) lacks root-cause evidence (Appendix B). | — | Held (1.10): crash still reproduces, cause unknown (Appendix B) |
 
 ### 3.4 Stale or wrong claims removed from documentation
 
@@ -206,8 +206,9 @@ against the order in §7. The work is sound in direction; these gaps keep it at
 | R3 | Zero-size `allocate_bytes` returns an empty handle with a fresh `allocation_id`; §5.1 says empty handles have an invalid id. A test (`TestPhase3Identity`) depends on the current behavior. | `src/storage.cpp:52-57` | 1.9 |
 | R4 | `data_ptr<T>` is 56 B (48 B handle + 8 B stream), not 48 B as §4.2 promised. Accepted if R1 moves the stream into the cache (then `data_ptr` returns to 48 B) or recorded as a deliberate size change. **Resolved 2026-10-02:** deliberate 56 B; the stream stays for `stream()`, `record_stream()`, `clone()`, and the free path no longer needs it. | `data_ptr.h:34` | 2.10 |
 | R5 | Gate tests check API behavior, not the §6.1 invariants: registry tests check same address / index bounds, not lock counts; no counting `operator new` exists, so "0 heap allocations" (3.2) is asserted, not measured; freelist and stats tests `GTEST_SKIP` without a GPU. No Phase 0 before/after numbers exist for 3.1/3.2/3.5 (§1.3 "measure before tuning"). | `TestPhase3Registry.cpp`; absence of 0.2/0.3 | 0.2, 0.3, then re-close 3.1/3.2/3.5 |
-| R6 | `block_freelist` recycles `cache_block` storage — the mechanism of churn hypothesis (B) in Appendix B — while the churn root cause (1.10) is open. The patch path changed without the predeclared stress rerun. | `cuda_caching_allocator.cpp:407-440, 1000, 1116` | 1.10 (now also depends on 3.2) |
+| R6 | `block_freelist` recycles `cache_block` storage — the mechanism of churn hypothesis (B) in Appendix B — while the churn root cause (1.10) is open. The patch path changed without the predeclared stress rerun. | `cuda_caching_allocator.cpp:407-440, 1000, 1116` | 1.10 (now also depends on 3.2). **2026-10-03:** the crash reproduces on the freelist build and on a freelist-free hardware build; a no-Memory control also crashes on this machine, so the freelist is neither shown to be the cause nor cleared (Appendix B, 1.10 findings) |
 | R7 | Error types: Release checks throw `logging::Error`; `gpu_workspace::acquire<T>` throws `bad_alloc` on overflow. §5.2 and CLAUDE.md document `invalid_argument` / `logic_error` / `overflow_error`. **Decided 2026-10-02:** `logging::exception` is the documented type for precondition/lifecycle violations (§5.2); no source change. | C1–C3 | 1.1, 1.2 |
+| R8 | CPU facade does not scale with threads: for 16 B–4 KiB alloc/free pairs `cpu::memory_allocator::allocate/free` has p50 about 36 ns at 1 thread, 590–790 ns at 8 and 9–11 µs at 32, while raw mimalloc stays at 10–25 ns. The cause is **not identified**: the profiler hook is a relaxed atomic load plus a function-local static, and `allocate()` passes only a Release alignment check. Candidates not yet tested: `mi_aligned_alloc` versus `mi_malloc_aligned`, the profiler singleton, per-thread-heap initialisation in the benchmark. | `Docs/baselines/cpu_baseline.json` (`fd1deb1`, Release, 32 hardware threads) | 3.6 (decompose first) |
 
 ---
 
@@ -478,16 +479,15 @@ driver-call counters and a counting `operator new` in the test binary.
 
 | Operation | Target | Was (`becf3f2`) | Now (`27e5f38`) — source, not probe-tested |
 |---|---|---|---|
-| CPU allocate/free | 1 backend call; 0 Memory locks; 0 syscalls; profiler off = 1 relaxed load | NUMA build adds an `mbind` syscall per allocation (H6) | Unchanged (3.6) |
-| GPU warm allocate | 1 per-device lock; 0 heap allocations; 0 driver calls; 0 registry locks | Global registry mutex (H1); `new cache_block` on split (H3) | Lock-free registry load; freelist on split. **Probed (0.3): 3 heap allocations per warm alloc/free pair, 7 per split — not met (3.8)** |
-| GPU free | 0 registry lookups; 1 per-device lock; 0 heap allocations; event record only for cross-stream uses | Registry mutex (H1) | `data_ptr`/`retained_ptr`: cache pointer from handle, 0 lookups; `allocator<T>::free`: lock-free lookup |
+| CPU allocate/free | 1 backend call; 0 Memory locks; 0 syscalls; profiler off = 1 relaxed load | NUMA build adds an `mbind` syscall per allocation (H6) | Unchanged (3.6). **Probed: 0 heap allocations. Latency: the facade costs about 22 ns more than raw mimalloc single-threaded and 80–500x more at 8–32 threads for small sizes (R8). Locks and syscalls not probed** |
+| GPU warm allocate | 1 per-device lock; 0 heap allocations; 0 driver calls; 0 registry locks | Global registry mutex (H1); `new cache_block` on split (H3) | Lock-free registry load; freelist on split. **Probed (0.3): 3 heap allocations per warm alloc/free pair, 6–7 per split, 0 driver calls — heap target not met (3.8)** |
+| GPU free | 0 registry lookups; 1 per-device lock; 0 heap allocations; event record only for cross-stream uses | Registry mutex (H1) | `data_ptr`/`retained_ptr`: cache pointer from handle, 0 lookups; `allocator<T>::free`: lock-free lookup. **Probed: a free with one cross-stream use makes about 9 heap allocations, 2 `cudaGetDevice` and 1 event record (1 stream); 24 / 44 heap allocations at 4 / 7 streams — not met (3.2, 3.3).** Registry lookups not probeable |
 | `record_stream` (≤ 4 streams) | 0 heap allocations | `std::set` node per stream (H2) | `inline_stream_set` (4 inline); **probed: 0, met** |
-| Async copy, steady state | 1 memcpy submission + 1 event record; 0 heap allocations; 0 event create/destroy | `make_shared` + `cudaEventCreate` + `cudaEventDestroy` per copy (H4) | Unchanged (3.4) |
-| `token.ready()` after terminal | 0 driver calls | Re-queries event every call | Unchanged (1.4, 3.4) |
+| Async copy, steady state | 1 memcpy submission + 1 event record; 0 heap allocations; 0 event create/destroy | `make_shared` + `cudaEventCreate` + `cudaEventDestroy` per copy (H4) | Unchanged (3.4). **Probed (retained copy, shim): 3 heap allocations, 1 event create and 1 destroy per copy — not met** |
+| `token.ready()` after terminal | 0 driver calls | Re-queries event every call | **Probed: 0 driver calls, 0 heap allocations — met.** The "re-queries every call" claim was wrong for a token that has reached a terminal state; 1.4 still covers `wait()`/`state()` agreement |
 | Basic stats query | 0 locks; O(1) | Device lock + pool scan (H5) | Relaxed atomic loads (CUDA/HIP) |
 
-No row is **tested** until the Phase 0.3 probes (counting `operator new`,
-fake-runtime driver and lock counters) exist and pass (R5).
+Probes exist (Phase 0.3) for the heap-allocation and driver-call parts of these rows. A row is **tested** only where the probe passes (record_stream up to 4 streams, `token.ready()` after terminal, CPU heap). Lock and registry-lookup parts have no probe yet (R5).
 
 ### 6.2 CPU path
 
@@ -594,12 +594,12 @@ and the invariants in §6.1 need a recorded starting point.
 
 | ID | Task | Files | Depends | Exit | Was |
 |---|---|---|---|---|---|
-| 0.1 | CPU microbenchmarks: facade vs raw backend call for mimalloc, TBB, platform; sizes 16 B–64 MiB; 1/2/8/32 threads; cross-thread free | `Testing/Cxx/Benchmark*` | — | JSON + manifest with p50/p95/p99 | — |
-| 0.2 | GPU host-overhead benchmarks under the fake runtimes: warm alloc/free, split/merge, `record_stream`, async copy + token, retained copy, `memory_allocated()` | `Testing/CudaCachingAllocator`, `Testing/CopyRuntime` | — | Runs on any machine; raw samples recorded | — |
-| 0.3 | Invariant probes: counting `operator new` + fake-runtime driver counters; record §6.1 "today" column as tests marked expected-fail | test support | — | Probe tests report current counts. *Implemented `144c172` for GPU cache heap/driver counts (2 expected-fail: warm alloc/free 3, split 7); registry-lookup/lock probes, copy-token and CPU probes open* | — |
-| 0.4 | Audit existing CUDA benchmarks (timing boundary, thread vs stream, unsupported ratios); one cold/warm series writing a full manifest | `BenchmarkCudaCachingAllocator.cpp` | — | Debug-to-Release estimates labelled as unmeasured | T50 |
-| 0.5 | Churn reproduction protocol: historical and uncapped commands, sizes, repetitions, seeds, stop rule, dump collection | Appendix B, manifest | — | Another developer can run it from text alone | T31 |
-| 0.6 | Support matrix generated from executed manifests only (compile / shim / hardware) | this file §9 | — | No cell without a manifest | T61 |
+| 0.1 | CPU microbenchmarks: facade vs raw backend call for mimalloc, TBB, platform; sizes 16 B–64 MiB; 1/2/8/32 threads; cross-thread free | `Testing/Cxx/Phase0CpuBaseline.cpp` | — | JSON + manifest with p50/p95/p99. *Implemented `db730c9`; baseline `Docs/baselines/cpu_baseline.json`. TBB not built in this configuration (held); NUMA off. Rerun pending to add the raw `mi_aligned_alloc` row (R8)* | — |
+| 0.2 | GPU host-overhead benchmarks under the fake runtimes: warm alloc/free, split/merge, `record_stream`, async copy + token, retained copy, `memory_allocated()` | `Testing/CudaCachingAllocator`, `Testing/CopyRuntime` | — | Runs on any machine; raw samples recorded. *Implemented `db730c9`: `Phase0GpuShimBench` (warm, split, record_stream, stats) and `Phase0CopyShimBench` (retained copy + token); baselines `shim_gpu_cache_hostoverhead.json`, `shim_copy_hostoverhead.json`. Plain GPU `copy_async` needs the real cache, so it is measured on hardware (0.4), not here* | — |
+| 0.3 | Invariant probes: counting `operator new` + fake-runtime driver counters; record §6.1 "today" column as tests marked expected-fail | test support | — | Probe tests report current counts. *Implemented `144c172` for GPU cache heap/driver counts (2 expected-fail: warm alloc/free 3, split 7); copy-token, cross-stream-free and CPU heap probes added `db730c9`. Registry-lookup and lock counts, and CPU syscalls, are not observable without production counters or OS tracing: recorded as not probed, not as passing* | — |
+| 0.4 | Audit existing CUDA benchmarks (timing boundary, thread vs stream, unsupported ratios); one cold/warm series writing a full manifest | `BenchmarkCudaCachingAllocator.cpp` | — | Debug-to-Release estimates labelled as unmeasured. *Done `db730c9`: audit in Appendix C; `Phase0CudaColdWarm` writes `cuda_cold_warm.json` (Release, RTX 4060 Ti)* | T50 |
+| 0.5 | Churn reproduction protocol: historical and uncapped commands, sizes, repetitions, seeds, stop rule, dump collection | Appendix B, manifest | — | Another developer can run it from text alone. *Protocol in Appendix B, runner `Testing/tools/churn_protocol.py`; one invocation of each configuration was executed to check the text. Full 30-run results: see §9.2* | T31 |
+| 0.6 | Support matrix generated from executed manifests only (compile / shim / hardware) | this file §9 | — | No cell without a manifest. *Generator `Testing/tools/support_matrix.py`; matrix in §9.3* | T61 |
 
 **Gate:** baseline artifacts and invariant counts recorded. No conclusions drawn.
 
@@ -612,17 +612,19 @@ failure in code consumers already use.
 |---|---|---|---|---|---|
 | 1.1 | Release-mode ownership checks in GPU `deallocate`/`record_stream` (and Metal equivalents); throw the documented exception. *Implemented 2026-10-02: exception type decided (R7), CUDA/HIP shim Release tests pass; Metal equivalent not run (no Apple hardware)* | `src/gpu/*` | — | Shim: foreign pointer throws the documented type in a Release build | new (C1) |
 | 1.2 | Release-mode CPU alignment check; `gpu_workspace::rebind` precondition in Release; checked multiply in `acquire<T>`. *Implemented 2026-10-02: `acquire<T>` throws `overflow_error`; Release tests for CPU alignment, `rebind` and overflow pass* | `memory_allocator.cpp`, `gpu_workspace.h` | — | Release tests for each | new (C2, C3) |
-| 1.3 | Cleanup diagnostic: non-allocating counter/hook, no allocator lock, defined handler lifetime; wire `data_ptr`/`retained_ptr`/pinned destructor failures to it | `common/*`, pinned | — | Injected destructor failure increments counter, does not escape | T30 (C4) |
-| 1.4 | Token terminal state: cached complete/failed on shared state; `wait()` agrees with `state()`; no unsynchronized public mutation (`mark_complete`/`mark_failed` become internal) | `copy_token.h` | — | Shim: forced failure, cancellation, two copies observe one result while later stream work is pending | T01 |
-| 1.5 | Pre-submission validation (extents, overflow, null, backend combination) with exact rollback | `allocator.h` copy path | 1.4 | Injected event-creation failure submits nothing, admission restored once | T03 |
-| 1.6 | Post-submission failure: wait on the submitting stream or quarantine; never recycle | `allocator.h`, service | 1.5 | Injected event-record failure retains the allocation | T04 |
-| 1.7 | Native-cache rollback exact across driver malloc, retry, metadata insert, device activation, event allocation; no stale map entries | `cuda_caching_allocator.cpp` | 1.3 | Each injected boundary restores budget once | T32 |
-| 1.8 | Adoption requires an explicit deleter; failure leaves caller owning the pointer; reject empty deleter and non-null zero capacity | `allocator.h`, `retained_ptr.h` | — | Adoption failure returns ownership once; deleter runs once | T20 (C5) |
-| 1.9 | Single `allocation_id`; moved-from and empty (incl. zero-size) handles invalid; remove production `reset()` | `storage_identity.h`, `src/storage.cpp`, owners | — | Moved-from and zero-size ids invalid; nested-slice and reuse tests | T22 part (A6, R3) |
-| 1.10 | Churn root cause with sanitizer/debugger; regression aimed at that cause; predeclared stress rerun, including with the 3.2 `block_freelist` (R6) | cache, Appendix B | 0.5, 1.7, 3.2 | Manifest records cause and regression, or **held** | T33 (C8) |
+| 1.3 | Cleanup diagnostic: non-allocating counter/hook, no allocator lock, defined handler lifetime; wire `data_ptr`/`retained_ptr`/pinned destructor failures to it. *Implemented 2026-10-03 (uncommitted): per-source counters (`cleanup_source`) and an optional `noexcept` function-pointer handler, relaxed atomics only; the handler must stay valid for the process or be cleared (documented in `cleanup_diagnostic.h`); the cache reports after releasing its mutex (`deferred_failure_flush`); the `data_ptr` destructor is defaulted (a deleter is `noexcept` by type; the GPU deleter counts failures); `retained_ptr`, `pinned_buffer` and the Metal deleter count; `data_ptr` move-assign is `noexcept`. Metal code not compiled or run here* | `common/*`, pinned | — | Injected destructor failure increments counter, does not escape. *Tests: `CleanupHandlerSeesFailureOutsideCacheLock`, `BufferDestructorFailureIsCountedNotThrown`, foreign-pointer and double-free counting (CUDA/HIP shim)* | T30 (C4) |
+| 1.4 | Token terminal state: cached complete/failed on shared state; `wait()` agrees with `state()`; no unsynchronized public mutation (`mark_complete`/`mark_failed` become internal). *Implemented 2026-10-03 (uncommitted): one atomic terminal word (state, failure kind, driver code), first writer wins; `mark_complete`, `mark_failed` and `set_retained` are private behind `detail::copy_token_access`; `same_operation()` added* | `copy_token.h` | — | Shim: forced failure, cancellation, two copies observe one result while later stream work is pending. *Nine `CopyTokenTest` cases pass on the CUDA and HIP shims* | T01 |
+| 1.5 | Pre-submission validation (extents, overflow, null, backend combination) with exact rollback. *Implemented 2026-10-03 (uncommitted): `validate_copy` runs before any reservation; a zero count is a no-op; token-event and service-admission failures submit nothing and restore admission once via `retained_operation_service::cancel`* | `allocator.h` copy path | 1.4 | Injected event-creation failure submits nothing, admission restored once. *`CopyFailureTest` cases pass (shim)* | T03 |
+| 1.6 | Post-submission failure: wait on the submitting stream or quarantine; never recycle. *Implemented 2026-10-03 (uncommitted): `copy_impl` reports whether the driver was asked to move data; if not, the reservation is cancelled without waiting; if so, the submitting stream is synchronized or the operation goes to `quarantine()` keeping its owners; safety is never inferred from the error code* | `allocator.h`, service | 1.5 | Injected event-record failure retains the allocation. *Idle-stream and unproven-stream cases pass (shim)* | T04 |
+| 1.7 | Native-cache rollback exact across driver malloc, retry, metadata insert, device activation, event allocation; no stale map entries. *Implemented 2026-10-03 (uncommitted, CUDA/HIP): `alloc_found_block_locked` is transactional (map and pool inserts precede list and counter changes; each later failure undoes the earlier steps); a driver-segment registration failure frees the segment; `deallocate` records the cross-stream use before changing state, so a throw leaves the block live and the free retryable; telemetry, trim and event-pool failures are counted, not thrown; `insert_events_locked` activates the device inside its `try`. Metal: not changed* | `cuda_caching_allocator.cpp` | 1.3 | Each injected boundary restores budget once. *Tests: rollback at every allocation boundary of a segment alloc and of a split, OOM retry, non-OOM driver error, each device activation of a retrying alloc, free failing before commit, event-allocation failure on a cross-stream free (CUDA/HIP shim)* | T32 |
+| 1.8 | Adoption requires an explicit deleter; failure leaves caller owning the pointer; reject empty deleter and non-null zero capacity. *Implemented 2026-10-03 (uncommitted): `retained_ptr::adopt` rejects an empty deleter, a null base with non-zero capacity, a non-null base with zero capacity (`invalid_argument`) and `capacity * sizeof(T)` overflow (`overflow_error`); a null base with zero capacity is the only empty adoption; `allocate_adopted` requires an explicit deleter* | `allocator.h`, `retained_ptr.h` | — | Adoption failure returns ownership once; deleter runs once. *`RetainedPtr` adoption tests and `AdoptionAllocationFailureLeavesTheCallerOwningThePointer` pass* | T20 (C5) |
+| 1.9 | Single `allocation_id`; moved-from and empty (incl. zero-size) handles invalid; remove production `reset()`. *Implemented 2026-10-03 (uncommitted): one exported `next_allocation_id()` in `src/common/allocation_id.cpp` (it was a header-inline counter per binary); the generator class and its `reset()` are gone; zero-size `allocate_bytes` returns an invalid id; `data_ptr::is_aligned()` is true for empty handles* | `storage_identity.h`, `src/storage.cpp`, owners | — | Moved-from and zero-size ids invalid; nested-slice and reuse tests. *`TestPhase3Identity`: zero-size, default and moved-from ids invalid; nested slices keep the owner's id; address reuse gets a new id; one generator across the library boundary* | T22 part (A6, R3) |
+| 1.10 | Churn root cause with sanitizer/debugger; regression aimed at that cause; predeclared stress rerun, including with the 3.2 `block_freelist` (R6) | cache, Appendix B | 0.5, 1.7, 3.2 | Manifest records cause and regression, or **held**. ***Held 2026-10-03, blocked on the test machine:** the crash reproduces here, but so does a crash in a control program that contains no Memory code, and the machine has processor machine-check events; the churn crash cannot be attributed to Memory until it is rerun on a healthy machine. See Appendix B, "1.10 findings"* | T33 (C8) |
 
 **Gate:** no undefined behavior on documented error paths in Release; failures
 during cleanup are observable; churn has a recorded disposition (accepted or held).
+
+**Status 2026-10-03:** 1.1–1.9 are implemented and shim-tested (1.7 on CUDA/HIP only; Metal parts not run, no Apple hardware). 1.10 is **held**: the churn part of the gate is met only as a recorded *held* disposition, and the affected cache configuration stays held. The blocker is the reproduction environment (Appendix B), not a known defect in Memory.
 
 ### Phase 2 — Storage core and abstraction cleanup
 
@@ -768,17 +770,23 @@ P2.2–2.4 and P3.1/3.2/3.5 landed (`27e5f38`) before P0 and P1. Stop adding P3
 work until the evidence catches up (§3.5).
 
 Done since the review: **2.10** (R1, R4), **1.1/1.2** (R7; Metal 1.1 test not run),
-and the GPU-cache part of **0.3**. Remaining, in order:
+**Phase 0** (0.1–0.6 implemented; baselines in `Docs/baselines/`) and **1.3–1.9**
+(2026-10-03, uncommitted at the time of writing; 1.7 CUDA/HIP only). **1.10 is held.**
+Phase 0 is not accepted until the full churn run (0.5) and the CPU rerun (0.1) are
+recorded. Remaining:
 
-1. **0.3 remainder, 0.2** — registry-lookup/lock probes, copy-token and CPU
-   probes; fake-runtime benchmarks with numbers at `becf3f2` and `27e5f38` so
-   3.1/3.2/3.5 get before/after evidence (R5).
-2. **3.8** — remove the 3 heap allocations per warm alloc/free pair and 7 per
-   split that the 0.3 probes found (`allocated_blocks_` node, free-pool `std::set`
-   node); the expected-fail probes become the exit tests.
-3. **1.10** — churn ASan/stress rerun including the freelist (R6); needs 0.5 and 1.7.
-4. **1.4**, then 1.5–1.9; finish **2.4** as `shared_storage` (R2).
-5. Metal ownership-check Release test (1.1 remainder) when Apple hardware is available.
+1. **3.6 (decompose R8 first)**: find why the CPU facade does not scale with threads;
+   the 0.1 baseline is the before-number.
+2. **3.8**: remove the 3 heap allocations per warm alloc/free pair and 6–7 per split;
+   then 3.2/3.3 for the 9+ per cross-stream free. The expected-fail probes are the exit tests.
+3. **1.10 (held)**: rerun the protocol on a different, healthy machine first. On the 2026-10-03 test machine a
+   control with no Memory code crashes in 41 of 150 runs and hangs in 15, clang-tidy crashes at random on
+   untouched files, and the Windows event log holds processor machine-check events (WHEA-Logger,
+   including one fatal on 2026-09-29). If the churn crash survives on healthy hardware, bisect `becf3f2`
+   against `27e5f38` on the fake-runtime shim, which needs no GPU.
+4. Finish **2.4** as `shared_storage` (R2); 3.4 for the retained-copy heap and event costs.
+5. Metal: ownership-check Release test (1.1), rollback (1.7) and the Metal diagnostic path (1.3)
+   when Apple hardware is available.
 
 Also open: `retained_operation_service.cpp` exception-safety edits landed in
 `e7a14b1` outside task 2.10; they belong to C7 / Phase 5 and still need their own
@@ -861,12 +869,12 @@ Reviewer / date / next required evidence:
 
 | Area | Implemented | Open (task) |
 |---|---|---|
-| Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`, 56 B), `clone()`, views preserving base | Completed clone (4.6), moved-from/zero-size id (1.9), size (2.10) |
+| Unique/borrowed owners | Move-only `data_ptr<T>` (P2: backed by `storage_handle`, 56 B), `clone()`, views preserving base | Completed clone (4.6), size (2.10). Moved-from and zero-size ids are invalid (1.9, tested) |
 | Storage core | `storage_handle` (48 B, P2.2), `deleter_fn`, `allocate_bytes`/`adopt_bytes`; GPU handle carries `gpu_free_fn` + cache pointer; dropping a bare GPU handle returns block to pool (task 2.10, shim-tested) | `data_ptr` is 56 B (deliberate: stream kept for user-facing API, §3.5 R4); 2.1 partial; 2.5–2.9 |
-| Shared owner/adoption | `retained_ptr<T>` (P2.4 partial: raw-field control block, promotion ctor, three free paths); `allocate_adopted()` | `shared_storage` + `make_retained` (2.4), explicit deleter (1.8), 2.5 |
-| Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events | Terminal state (1.4), validation/rollback (1.5–1.6), device/stream/ordering (4.1–4.5) |
+| Shared owner/adoption | `retained_ptr<T>` (P2.4 partial: raw-field control block, promotion ctor, three free paths); `allocate_adopted()` and `retained_ptr::adopt` require an explicit deleter and reject invalid arguments with the caller keeping the pointer (1.8, tested) | `shared_storage` + `make_retained` (2.4), 2.5 |
+| Sync/async copy | `copy_sync()` waits; per-operation CUDA/HIP events; one shared, stable terminal result per token (1.4); pre-submission validation and exact rollback (1.5); submit-then-prove-or-quarantine (1.6); all shim-tested | Device/stream/ordering (4.1–4.5) |
 | Retained copy + service | Owners prepared and registered before submission; failed tokens retained; blocking admission polls; `shutdown()`; `clear_failed()` (unchecked) | 5.1–5.6 |
-| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5); Release ownership checks (throw `logging::exception`, tested on the CUDA/HIP shim) | P3 probes and numbers (0.2, 0.3 remainder), Metal Release test (1.1), rollback (1.7), churn cause incl. freelist (1.10), hot path (3.3–3.4, 3.6–3.8) |
+| GPU caches | Segment cache, budgets, deferred free, quarantine, fault shims, churn patch; lock-free per-device registry + `memory::gpu::shutdown()` (P3.1); `inline_stream_set` + `block_freelist` (P3.2); O(1) lock-free basic stats (P3.5); Release ownership checks (throw `logging::exception`, tested on the CUDA/HIP shim); transactional allocate/free rollback with counted, non-throwing cleanup (1.3, 1.7; CUDA/HIP shim) | Metal Release test (1.1) and rollback (1.7); **churn cause (1.10, held)**; hot path (3.3–3.4, 3.6–3.8) |
 | CPU path | mimalloc/TBB/platform dispatch, profiler hook, Release alignment check (tested) | NUMA/sized free (3.6) |
 | Arenas/pinned/workspace | Implementations exist | 1.2, 6.1–6.4 |
 | Metal | Shared buffers, heap accounting, completion bookkeeping; lock-free registry + `shutdown()` (P3.1) | 3.7, 6.5 (hardware) |
@@ -885,6 +893,10 @@ Reviewer / date / next required evidence:
 | P2+P3.1 (2026-10-02) | Windows build (clang); `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests` | 285 + 18 + 15 = 318 tests passed; P3.1: lock-free registry (9 gate tests), P2: storage core + promotion (20 gate tests); no GPU hardware |
 | P3.2+P3.5 (2026-10-02) | Windows build (clang + CUDA device); `MemoryCxxTests` | 291 tests passed (285 base + 4 P3.2 freelist/stream-set tests + 2 P3.5 lock-free stat tests); `inline_stream_set` (4-slot inline + overflow), `block_freelist` (placement-new recycling), O(1) stat reads; GPU hardware present (freelist+stream-set hardware tests ran). Reported by the commit, not rerun; tests check API behavior, not §6.1 counts (R5); no churn rerun (R6) |
 | `27e5f38` (2026-10-02) | Source review of P2/P3 against §4–§6 | Findings R1–R7 (§3.5); C1–C3 found already Release-checked (corrected in §3.3). No build or test executed |
+| Phase 0 (2026-10-02, `fd1deb1` clean, Release, clang, Windows, 32 hardware threads, RTX 4060 Ti) | `Docs/baselines/`: `cpu_baseline.json` (0.1), `shim_gpu_cache_hostoverhead.json` and `shim_copy_hostoverhead.json` (0.2/0.3), `cuda_cold_warm.json` (0.4) | CPU: facade vs raw backends, 12 sizes, 1/2/8/32 threads, cross-thread free; mimalloc present, TBB and NUMA not built. Shim: warm alloc/free p50 about 130 ns and 3 heap allocations per pair; retained copy 150–230 ns with 3 heap allocations and 1 event create/destroy; `bytes_allocated_now` 1.3 ns. Hardware: Release series in Appendix C. Percentiles are over batch means (timer resolution 100 ns), not single-op tails. Reported by the tools, not independently rerun; no conclusions beyond R8 and the §6.1 probe notes |
+| 1.3–1.9 (2026-10-03, `fd1deb1` + uncommitted working tree, Release, clang, Windows, RTX 4060 Ti) | Full rebuild; `MemoryCxxTests`, `MemoryCopyCudaRuntimeTests`, `MemoryCopyHipRuntimeTests`, `MemoryCudaCachingAllocatorRuntimeTests`, `MemoryPinnedCudaRuntimeTests`, `MemoryPinnedHipRuntimeTests` | 303 + 36 + 25 + 17 + 18 + 18 passed, 0 failed. New cases cover tokens (1.4), copy validation and failure paths (1.5, 1.6), cache rollback boundaries (1.7), cleanup counting (1.3), adoption (1.8) and ids (1.9). Shim and CPU evidence, plus the real GPU only where the main suite runs on it; Metal not built |
+| Pipeline (2026-10-03, same tree) | `python Scripts/setup.py NATIVE.build.test.cuda.clangtidy.cppcheck.iwyu.spell.tbb.coverage.config`, Debug + coverage, clang 22, Windows, CUDA 13.2 | Build, spell, IWYU and cppcheck clean; 9/9 CTest suites passed in four of six runs. Fixed along the way: a shim test calling the stream-tracking `copy_async` (needs the real cache, linked only at -O3); `retained_operation_service::cancel` (clang-tidy `bugprone-exception-escape`); the `AdoptionAllocationFailure` test aborting deterministically in Debug under `EXPECT_THROW` (rewritten with `try`/`catch`; the abort's cause was not determined); the cppcheck helper scanning only headers (cppcheck found no files, so it had never run); the IWYU configure detector pointed at a missing `Library/`; `pending_op::priority` uninitialised; a reducible-scope variable; a `memleak` false positive. clang-tidy: `bugprone-stringview-nullptr` disabled because clang-tidy 22.1.2 crashes in it on `magic_enum.hpp`. Not fixed: clang-tidy and cppcheck also crash at random on this machine (see Appendix B), one `MemoryCxxTests` run in 15 segfaulted and one `benchmark_memory_cpumemoryallocators` run hung for 344 s; none reproduced deterministically. Coverage 73.0 % lines / 87.1 % functions (the script labels anything under 80 % "ERROR"; it does not fail the run); the new Phase 1 paths are covered by the shim suites, which the coverage run does not include |
+| 1.10 (2026-10-03, same tree) | `Testing/tools/churn_protocol.py` `warm_stress` (`Docs/baselines/churn_protocol_1_10_worktree.json`); repeated hardware loops; shim loops; ASan builds | **Held, environment-blocked.** See Appendix B, 1.10 findings. Hardware `warm_stress` crashed at invocation 19 of 30 on this tree (and at 6 on `fd1deb1`) and the shim crashes at about 2 %, but a no-Memory control crashed in 41 of 150 runs on the same machine; ASan is clean |
 | 1.2 (2026-10-02) | Release build (clang, RTX present): `MemoryPortTest.InvalidAlignmentThrowsInRelease`, `GpuWorkspace.rebind_while_acquired_throws` (Debug-only guard removed), `GpuWorkspace.acquire_count_overflow_throws_overflow_error` | 20/20 passed in the filtered run; `acquire<T>` overflow now `std::overflow_error` as §5.2 documents |
 | 1.1 (2026-10-02) | Release-build shim tests (NDEBUG): foreign pointer `deallocate`/`record_stream` and double free throw `logging::exception`; `deallocate_with_stream_lookup` on a foreign pointer does not throw and increments `cleanup_diagnostic` | Passed on CUDA/HIP shim; Metal equivalent not run (no Apple hardware this session) |
 | `bea5e2c` (2026-10-02) | Task 0.3 probes (`Probe*` in `Testing/CudaCachingAllocator`; counting `operator new` + fake-runtime driver counters), Windows/clang Release | Warm GPU alloc/free: 0 driver calls (pass) but **3 heap allocations per pair** (target 0; expected-fail, owner 3.8 + free-pool `std::set` node); block split: **7** heap allocations (target 0; expected-fail); `record_stream` ≤ 4 streams: 0 (pass). Lock/registry-lookup counts not yet probed. §6.1 "Now" claims for warm allocate/free were wrong (R5 confirmed) |
@@ -935,6 +947,26 @@ thousands of allocate/free round trips segfaulted in 30–40 % of full-suite run
 uncapped). The original benchmark bounds iterations (`->Iterations(200)` cold,
 `5000` warm) as a mitigation, not a fix.
 
+**Protocol (task 0.5).** Run from a clean tree and record the SHA. Do not run other GPU
+or heavy CPU work at the same time. Runner:
+`python Testing/tools/churn_protocol.py --bin <bin>/benchmark_memory_cudacachingallocatorchurn.exe --bench-bin <bin>/benchmark_memory_cudacachingallocator.exe --repo <source> --out Docs/baselines/churn_protocol.json --runs 30`.
+
+| Config | Binary and flags | Purpose |
+|---|---|---|
+| `bounded` | capped benchmark, `--benchmark_repetitions=10` | the mitigated state |
+| `uncapped` | churn binary, `--benchmark_min_time=0.05s --benchmark_repetitions=10` | the historical reproduction |
+| `warm_stress` | churn binary, `--benchmark_filter=BM_Churn_WarmAllocFree --benchmark_min_time=2000000x --benchmark_repetitions=5` | the path in the captured stack |
+| `control` | churn binary, `--benchmark_filter=BM_Churn_DirectMalloc` | driver only, no Memory code |
+
+- **Sizes:** 4096, 32768, 262144, 2097152, 4194304 bytes (the benchmark's `Range(4096, 1<<22)`; five sizes, not six).
+- **Seeds:** none. The benchmark has no random input; the unknown is thread and driver timing.
+- **Unit of observation:** one full process invocation. Historical rate 30–40 % per full-suite run.
+- **Stop rule (predeclared):** stop a config at its first nonzero exit code, or after 30 clean invocations. 30 clean invocations bound the per-invocation crash rate below about 10 % at 95 % confidence (3/30); this does not prove absence.
+- **Dump collection:** the binary writes `churn_crash.dmp` and `churn_crash_report.txt` in its working directory and overwrites them on the next crash. The runner moves any existing pair aside first and moves each new pair to `Docs/baselines/churn_dumps_<sha>/<config>_<n>_*`. A stale pair from 2026-09-30 (361 MB dump, same stack as below) existed in the author's build directory; it is moved aside, never deleted.
+- **Cost:** about 90 s for one invocation of all four configs, so 30 invocations take roughly 45 minutes. The first benchmark in a fresh process absorbs CUDA context start-up and, under `--benchmark_min_time=0.05s`, can finish in a single iteration; the fixed-iteration `warm_stress` config avoids that, so check iteration counts before reading them.
+- **Builds to compare (1.10):** `becf3f2` (new/delete `cache_block`) and `27e5f38` or later (freelist), same flags.
+- **Manifest fields:** SHA and tree state, host, OS, GPU and driver, binary path and mtime, flags per config, every invocation's exit code and duration, dump paths.
+
 **Captured crash.** Access violation reading `0xffffffffffffffff` in
 `std::_Tree_val<...CUstream_st*>::_Erase_tree`, called from
 `cuda_caching_allocator::Impl::get_free_block_locked` (destructor of a stack-local
@@ -959,7 +991,46 @@ or debugger run that identifies the cause, a targeted regression and the
 predeclared stress run. Until then the affected cache configuration is held.
 P3.2 (`27e5f38`) replaced `new`/`delete cache_block` with `block_freelist`
 recycling — the storage-reuse mechanism behind hypothesis (B) — so the stress
-run must cover the freelist build (R6).
+run must cover the freelist build (R6). **Update 2026-10-03:** that run was made; the crash persists; see "1.10 findings" below.
+
+### 1.10 findings (2026-10-03): crash reproduced, not attributable to Memory on this machine, disposition **held**
+
+Tree: `fd1deb1` plus the uncommitted 1.3–1.9 changes. Release, clang, Windows,
+RTX 4060 Ti, one host thread. The first `warm_stress` run on `fd1deb1` is in
+`Docs/baselines/churn_protocol.json` (crash at invocation 6; dump and report in
+`Docs/baselines/churn_dumps_fd1deb1/`); the run on the working tree is in
+`Docs/baselines/churn_protocol_1_10_worktree.json`.
+
+| Observation | Result |
+|---|---|
+| `warm_stress`, `fd1deb1` | 5 clean invocations, crash at 6 (access violation inside the allocator destructor, fault address `0xffffffffffffffff`) |
+| `warm_stress`, working tree (with 1.7 rollback changes) | 18 clean, crash at 19 (no dump written, 1.6 s in) |
+| Direct loops of the same command | crashes at run 5, 4, 6 and 8 on four builds; the stack on one run was `Impl::deallocate` → `free_block_locked`, reading `0x8018`; the crash site is not constant (destructor, free path, mid-loop) |
+| Profiler compiled out (`MEMORY_ENABLE_PROFILER=OFF`) | still crashes: the profiler hook is not the cause |
+| `block_freelist` replaced by `new`/`delete` (temporary local switch, reverted) | still crashed on hardware (runs 6 and 8); the freelist is **not** shown to be the cause, and not excluded |
+| Fake-runtime shim (`MemoryGpuShimChurn`, no GPU, no driver), `warm` scenario, 2M iterations | crashed at runs 16, 17, 31 and 7 of four loops (about 2 % per run); 80 further runs clean. The crash needs no GPU, but see the control below |
+| Shim `cycle` scenario (1M allocator lifecycles per run) | 100 runs, no crash |
+| ASan (clang, RelWithDebInfo): hardware benchmark at 200k–500k iterations per size (not the full 2M), and the shim, all four scenarios at 300k iterations, with released freelist blocks poisoned to expose stale use and double release | clean |
+| `control` (driver only, 30 runs) | clean |
+| **No-Memory control** (`ctrl.cpp`, scratch only: a `std::set` of block structs plus `std::unordered_map` plus `new`/`delete`, the same split/merge pattern, single thread, 2M iterations x 5 rounds, about 0.9 s per run) | **41 segmentation faults and 15 hangs in 150 runs** (27 % and 10 %), higher than the allocator shim; ran clean when first built at 100k iterations |
+| clang-tidy 22.1.2 on `storage.cpp`, `retained_operation_service.cpp`, `allocator.cpp`, one check, 10 runs each | 2, 7 and 2 access violations (`allocator.cpp` is unmodified in the working tree) |
+| Windows event log, WHEA-Logger | corrected machine-check errors on the processor core (2026-09-26, 09-30, 10-01) and a fatal hardware error (2026-09-29); the churn crash was first reported on 2026-09-30 |
+
+**Conclusion.** A program with no Memory code crashes and hangs on this machine more often
+than the allocator does, other programs (clang-tidy) crash at random, and the event log
+shows processor machine checks. The churn crash therefore cannot be attributed to
+Memory, and neither can it be cleared: ASan found nothing, but the ASan runs were
+shorter and about 30 times slower than the failing configuration. Earlier statements that
+the shim crash proves a host-side bug in the cache were premature and are withdrawn.
+
+No regression test was added: none can fail deterministically, and a test that does not
+fail before a fix is evidence of nothing. Task 1.10 stays **held**. Next step: rerun the
+`Testing/tools/churn_protocol.py` configurations and the shim loop
+(`MemoryGpuShimChurn --iterations 2000000 --scenarios warm`) on a different machine with
+healthy hardware, after running the no-Memory control there to establish that it is
+clean (it must show 0 crashes in at least 100 runs before a Memory crash means anything).
+Only if the allocator still crashes there: bisect `becf3f2` against `27e5f38` on the shim,
+add the regression and rerun the predeclared `warm_stress` stop rule.
 
 ## Appendix C — Historical CUDA benchmark results (2026-09-29)
 
@@ -974,10 +1045,35 @@ iteration-bounded workloads. Raw data: `Docs/cuda_baseline_2026-09-28.json`.
 | Mixed sizes (4 KB → 8 MB cycle) | ~2.2 µs |
 | Round-robin over 1 / 4 / 16 streams | 2.22 / 2.40 / 2.61 µs (API-level round robin, not concurrent consumers) |
 
-Limits: Debug only; no Release measurement; multi-stream cases do not model delayed
+Limits: Debug only; no Release measurement (superseded for the cache call itself by the Release series below); multi-stream cases do not model delayed
 consumers; the "fragmentation" case is a short alternating pattern; claims of
 production readiness and Release speedups were not measured. These numbers are
 context for Phase 0, not acceptance evidence.
+
+### Phase 0.4 audit of `BenchmarkCudaCachingAllocator.cpp`, and the Release series
+
+Findings from reading the benchmark (the benchmark itself is unchanged):
+
+1. **Cold timing boundary.** `empty_cache()` sits inside the timed region, so the "cold" figure is `cudaFree` (inside `empty_cache`) plus `cudaMalloc` (inside `allocate`). The new series times them separately.
+2. **Aggregates are not percentiles.** The recorded JSON has mean, median, stddev and cv over 5 repetitions. §6.7 requires percentiles with the sampling method stated.
+3. **Allocation-byte rate presented as bandwidth.** `SetBytesProcessed` on alloc/free loops reports values such as 13.7 TiB/s for a 2 MiB warm hit. It is a call rate times a size, not a transfer rate.
+4. **Fragmentation case frees with random sizes.** `deallocate(ptr, rand() % 4 == 0 ? large : small)` passes a size unrelated to the allocation, and `rand()` is unseeded global state.
+5. **Few iterations around `PauseTiming`.** `SequentialAllocReserved`, `Fragmentation`, `ConcurrentAllocActive` and `AllocationThroughput` run 5–10 iterations with `PauseTiming`, whose cost is comparable to the measurement.
+6. **Multi-stream is API-level only.** One host thread and idle streams: events complete immediately, so deferred cross-stream reuse and lock contention are not exercised.
+7. **`library_build_type: release` in the JSON describes the benchmark library, not the code under test**; the code under test was Debug.
+
+Release series (`Docs/baselines/cuda_cold_warm.json`, `fd1deb1` clean, clang, RTX 4060 Ti, CUDA runtime 13.1, one host thread, null stream, 100 cold and 500 warm samples per size; p50):
+
+| Measurement | Release | Debug (table above) |
+|---|---|---|
+| Direct `cudaMalloc`+`cudaFree`, 4 KB–1 MB | 179–184 µs (p99 205–230) | 189–234 µs median |
+| Direct pair, 4 MB / 32 MB | 236 µs / 1356 µs | — |
+| Cold `empty_cache` (the `cudaFree`), 4 KB–1 MB | 151–159 µs | inside "cold" |
+| Cold `allocate` (the `cudaMalloc`), 4 KB–1 MB | about 29 µs | inside "cold" |
+| Cold `deallocate` | 0.2 µs | — |
+| Warm hit, 4 KB–4 MB (32 MB) | 0.15 µs (0.24 µs) | 2.2–2.5 µs |
+
+The Debug warm figure is about 15 times the Release figure, so the "76–94× faster than cold" ratio above, which compared Debug with Debug, does not carry over. In Release a warm hit is about 1200 times faster than a raw driver pair. These are host-side timings on one machine; GPU and CPU clocks were not controlled.
 
 ## Appendix D — Document map
 

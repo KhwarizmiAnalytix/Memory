@@ -143,27 +143,25 @@ TEST_F(TestPhase1FailureSafety, CloneAllocatesNewMemory)
     EXPECT_NE(ptr2.id(), ptr1.id());
 }
 
-// Test: nullptr handling in copy
+// Test: a null endpoint with a positive count is rejected before any work
+// (plan 5.1, task 1.5); the other endpoint is left untouched.
 TEST_F(TestPhase1FailureSafety, NullptrCopyHandling)
 {
     std::vector<float> src(100, 1.0f);
     std::vector<float> dst(100, 0.0f);
 
-    // nullptr source: should be no-op
-    allocator<float>::copy(nullptr, 100, dst.data(),
-                          device_enum::CPU, device_enum::CPU);
+    EXPECT_THROW(
+        allocator<float>::copy(nullptr, 100, dst.data(), device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
 
     for (const auto& val : dst)
     {
         EXPECT_EQ(val, 0.0f);  // Unchanged
     }
 
-    // nullptr destination: should be no-op
-    allocator<float>::copy(src.data(), 100, nullptr,
-                          device_enum::CPU, device_enum::CPU);
-
-    // No crash
-    EXPECT_TRUE(true);
+    EXPECT_THROW(
+        allocator<float>::copy(src.data(), 100, nullptr, device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
 }
 
 // Test: Zero-size copy
@@ -185,7 +183,6 @@ TEST_F(TestPhase1FailureSafety, ZeroSizeCopyHandling)
 // Test: Allocation ID uniqueness under stress
 TEST_F(TestPhase1FailureSafety, AllocationIdUniquenessStress)
 {
-    allocation_id_generator::instance().reset();
 
     std::unordered_set<uint64_t> ids;
     const int alloc_count = 1000;

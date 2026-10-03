@@ -46,7 +46,7 @@ struct data_ptr
     MEMORY_FORCE_INLINE data_ptr() = default;
 
     // Allocate from execution context (preferred API).
-    // Zero size: no memory allocated, but a unique allocation_id is still assigned.
+    // Zero size: empty storage (no memory, invalid allocation_id).
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
         : stream_(ctx.stream)
     {
@@ -107,39 +107,23 @@ struct data_ptr
         rhs.stream_ = nullptr;
     }
 
-    MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr&& rhs)
+    MEMORY_FORCE_INLINE data_ptr& operator=(data_ptr&& rhs) noexcept
     {
         if (this == &rhs)
         {
             return *this;
         }
-        release_owned();
         handle_ = std::move(rhs.handle_);
         stream_ = rhs.stream_;
         rhs.stream_ = nullptr;
         return *this;
     }
 
-    // Destructors are implicitly noexcept: the GPU deleter (gpu_free_fn) is
-    // called from handle_'s destructor, which can reach the GPU caching
-    // allocator's deallocate_with_stream_lookup()/insert_events_locked()
-    // and may throw (ownership-check failure, or CUDA/HIP driver error
-    // recording a cross-stream event). An exception leaving an implicitly
-    // noexcept function calls std::terminate — no safe recovery from driver
-    // errors at this point. Failures are counted in cleanup_diagnostic instead.
-    MEMORY_FORCE_INLINE ~data_ptr()
-    {
-        try
-        {
-            release_owned();
-        }
-        catch (...)
-        {
-            cleanup_diagnostic::record_failure();
-        }
-        // handle_ destructs here: its deleter (cpu_free_fn or gpu_free_fn)
-        // is called, freeing the memory. No explicit free call needed.
-    }
+    // handle_'s destructor runs its deleter (cpu_free_fn or gpu_free_fn). A
+    // deleter_fn is noexcept by type; gpu_free_fn catches ownership-check and
+    // driver failures inside the cache and counts them in cleanup_diagnostic
+    // (source gpu_cache), so no failure can leave this destructor (task 1.3).
+    MEMORY_FORCE_INLINE ~data_ptr() = default;
 
     MEMORY_FORCE_INLINE data_view<value_t> view() const noexcept
     {
@@ -174,10 +158,13 @@ struct data_ptr
     {
         return handle_.empty() ? 0 : handle_.nbytes() / sizeof(value_t);
     }
-    // Aligned when constructed (includes zero-size); false for default-constructed.
+    // True when the data pointer meets the allocator's alignment; an empty
+    // handle (default-constructed, moved-from or zero-size) has nothing to misalign.
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool is_aligned() const
     {
-        return handle_.id().valid();
+        return handle_.empty() ||
+               (reinterpret_cast<std::uintptr_t>(handle_.get()) &
+                (allocator_t::alignment_bytes - 1)) == 0;
     }
 
     MEMORY_FORCE_INLINE int          device_index() const
@@ -208,16 +195,6 @@ struct data_ptr
     friend struct data_view<value_t>;
 
 private:
-    // Release is now a no-op: the storage_handle destructor invokes the deleter
-    // (either cpu_free_fn or gpu_free_fn) which handles deallocation.
-    // This function exists for API compatibility and future per-handle cleanup.
-    MEMORY_FORCE_INLINE void release_owned()
-    {
-        // The handle's destructor will call its deleter (which is never null
-        // for allocations from allocate_bytes). No explicit free call needed.
-        // See storage_handle comments for GPU deleter (plan §2.10, R1).
-    }
-
     storage_handle  handle_{};
     stream_handle_t stream_{nullptr};
 };

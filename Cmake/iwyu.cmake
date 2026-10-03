@@ -127,7 +127,7 @@ else()
     execute_process(
       COMMAND
         ${CMAKE_COMMAND} -E env python "${CONFIGURE_DETECTOR_SCRIPT}"
-        "${PROJECT_SOURCE_DIR}/Library" --log-file "${PROJECT_BINARY_DIR}/configure_detection.log"
+        "${PROJECT_SOURCE_DIR}/include" --log-file "${PROJECT_BINARY_DIR}/configure_detection.log"
         --report-file "${PROJECT_BINARY_DIR}/configure_analysis_report.txt" --recursive
       WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
       RESULT_VARIABLE CONFIGURE_DETECTION_RESULT

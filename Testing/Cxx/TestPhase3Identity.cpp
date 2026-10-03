@@ -62,7 +62,6 @@ TEST_F(TestPhase3Identity, AllocationIdOrdering)
 // Test: next_allocation_id() generates unique IDs
 TEST_F(TestPhase3Identity, NextAllocationIdUnique)
 {
-    allocation_id_generator::instance().reset();
 
     allocation_id id1 = next_allocation_id();
     allocation_id id2 = next_allocation_id();
@@ -81,7 +80,6 @@ TEST_F(TestPhase3Identity, NextAllocationIdUnique)
 // Test: next_allocation_id() is monotonic
 TEST_F(TestPhase3Identity, NextAllocationIdMonotonic)
 {
-    allocation_id_generator::instance().reset();
 
     allocation_id id1 = next_allocation_id();
     allocation_id id2 = next_allocation_id();
@@ -103,7 +101,6 @@ TEST_F(TestPhase3Identity, DataPtrHasAllocationId)
 // Test: each allocation gets unique ID
 TEST_F(TestPhase3Identity, EachAllocationUnique)
 {
-    allocation_id_generator::instance().reset();
 
     data_ptr<float> ptr1(100, execution_context::cpu());
     data_ptr<float> ptr2(200, execution_context::cpu());
@@ -125,22 +122,86 @@ TEST_F(TestPhase3Identity, IdSurvivesMove)
     EXPECT_EQ(ptr2.id(), original_id);
 }
 
-// Test: zero-size allocation still gets ID
-TEST_F(TestPhase3Identity, ZeroSizeAllocationHasId)
+// Task 1.9: empty storage has no allocation lifetime, hence no valid ID.
+TEST_F(TestPhase3Identity, ZeroSizeAllocationHasInvalidId)
 {
-    allocation_id_generator::instance().reset();
-
     data_ptr<float> ptr(0, execution_context::cpu());
 
-    // Zero-size still gets an ID (just doesn't allocate memory)
-    allocation_id id = ptr.id();
-    EXPECT_TRUE(id.valid());
+    EXPECT_FALSE(ptr.id().valid());
+    EXPECT_EQ(ptr.size(), 0U);
+    EXPECT_EQ(ptr.data(), nullptr);
+    EXPECT_EQ(ptr.device(), device_enum::CPU);  // zero-size still knows its device
+}
+
+TEST_F(TestPhase3Identity, DefaultAndMovedFromHandlesHaveInvalidIds)
+{
+    data_ptr<float> empty;
+    EXPECT_FALSE(empty.id().valid());
+
+    data_ptr<float> source(16, execution_context::cpu());
+    allocation_id   id = source.id();
+    ASSERT_TRUE(id.valid());
+    data_ptr<float> target = std::move(source);
+    EXPECT_FALSE(source.id().valid());  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(target.id(), id);
+
+    data_ptr<float> assigned;
+    assigned = std::move(target);
+    EXPECT_FALSE(target.id().valid());  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(assigned.id(), id);
+
+    retained_ptr<float> shared(std::move(assigned));
+    EXPECT_FALSE(assigned.id().valid());  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(shared.identity().alloc_id, id.value);
+    retained_ptr<float> moved = std::move(shared);
+    EXPECT_FALSE(shared.identity().valid());  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(moved.identity().alloc_id, id.value);
+
+    retained_ptr<float> promoted_empty{data_ptr<float>{}};
+    EXPECT_FALSE(promoted_empty.identity().valid());
+}
+
+// One allocation lifetime has one ID: slices of slices keep the owner's ID and base.
+TEST_F(TestPhase3Identity, NestedSlicesCarryTheOwnersId)
+{
+    data_ptr<float>     owner(64, execution_context::cpu());
+    uint64_t const      id = owner.id().value;
+    retained_ptr<float> whole(std::move(owner));
+    auto                outer = whole.slice(8, 40);
+    auto                inner = outer.slice(4, 10);
+    auto                leaf  = inner.slice(2, 3);
+    EXPECT_EQ(outer.identity().alloc_id, id);
+    EXPECT_EQ(inner.identity().alloc_id, id);
+    EXPECT_EQ(leaf.identity().alloc_id, id);
+    EXPECT_EQ(leaf.base(), whole.base());
+    EXPECT_EQ(leaf.data(), whole.data() + 8 + 4 + 2);
+    EXPECT_EQ(leaf.size(), 3U);
+    EXPECT_EQ(whole.use_count(), 4);
+}
+
+// A new allocation at a recycled address is a new allocation lifetime.
+TEST_F(TestPhase3Identity, AddressReuseGetsANewId)
+{
+    allocation_id previous;
+    bool          saw_reuse = false;
+    void*         previous_address = nullptr;
+    for (int i = 0; i < 64; ++i)
+    {
+        data_ptr<float> block(32, execution_context::cpu());
+        EXPECT_NE(block.id(), previous);
+        if (block.data() == previous_address)
+        {
+            saw_reuse = true;
+        }
+        previous         = block.id();
+        previous_address = block.data();
+    }
+    RecordProperty("address_reuse_observed", saw_reuse ? 1 : 0);
 }
 
 // Test: clone gets different ID
 TEST_F(TestPhase3Identity, CloneGetsDifferentId)
 {
-    allocation_id_generator::instance().reset();
 
     data_ptr<float> ptr1(size_floats, execution_context::cpu());
     allocation_id id1 = ptr1.id();
@@ -155,7 +216,6 @@ TEST_F(TestPhase3Identity, CloneGetsDifferentId)
 // Test: storage_identity with allocation_id
 TEST_F(TestPhase3Identity, StorageIdentityIntegration)
 {
-    allocation_id_generator::instance().reset();
 
     allocation_id id = next_allocation_id();
     void* ptr = reinterpret_cast<void*>(0x12345678);
@@ -169,7 +229,6 @@ TEST_F(TestPhase3Identity, StorageIdentityIntegration)
 // Test: allocation_id can be used in hash table
 TEST_F(TestPhase3Identity, AllocationIdHashable)
 {
-    allocation_id_generator::instance().reset();
 
     std::unordered_set<allocation_id> ids;
 
@@ -202,7 +261,6 @@ TEST_F(TestPhase3Identity, InvalidIdHandling)
 // Test: multiple allocations and tracking
 TEST_F(TestPhase3Identity, MultipleAllocationsTracking)
 {
-    allocation_id_generator::instance().reset();
 
     std::vector<data_ptr<float>> ptrs;
     std::unordered_set<allocation_id> ids;
@@ -224,4 +282,35 @@ TEST_F(TestPhase3Identity, MultipleAllocationsTracking)
     }
 }
 
+}  // namespace memory
+
+namespace memory
+{
+// Task 1.9 / A6: one generator per process. IDs minted inside the Memory library
+// (data_ptr allocation) and IDs minted by header-inline code compiled into the
+// client (retained_ptr adoption, next_allocation_id) share one sequence.
+TEST_F(TestPhase3Identity, OneGeneratorAcrossTheLibraryBoundary)
+{
+    std::unordered_set<uint64_t> ids;
+    std::vector<data_ptr<float>> owners;
+    uint64_t                     last = 0;
+    for (int i = 0; i < 500; ++i)
+    {
+        owners.emplace_back(8, execution_context::cpu());  // minted in the library
+        uint64_t const from_library = owners.back().id().value;
+        auto           adopted      = retained_ptr<int>::adopt(
+            new int[2]{}, 2, execution_context::cpu(),
+            [](int* p, size_t, execution_context const&) { delete[] p; });
+        uint64_t const from_client = adopted.identity().alloc_id;  // minted in this binary
+        uint64_t const direct      = next_allocation_id().value;
+
+        EXPECT_TRUE(ids.insert(from_library).second) << "duplicate id " << from_library;
+        EXPECT_TRUE(ids.insert(from_client).second) << "duplicate id " << from_client;
+        EXPECT_TRUE(ids.insert(direct).second) << "duplicate id " << direct;
+        EXPECT_GT(from_library, last);
+        EXPECT_GT(from_client, from_library);  // one monotonic sequence
+        EXPECT_GT(direct, from_client);
+        last = direct;
+    }
+}
 }  // namespace memory

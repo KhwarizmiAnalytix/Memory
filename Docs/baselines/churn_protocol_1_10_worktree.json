@@ -1,0 +1,144 @@
+{
+  "suite": "churn_protocol",
+  "backend": "cuda",
+  "evidence": "hardware",
+  "git_sha": "fd1deb1",
+  "git_tree": "dirty",
+  "host": "tomahook",
+  "os": "Windows-11-10.0.26200-SP0",
+  "binary": "C:\\dev\\build_ninja\\bin\\benchmark_memory_cudacachingallocatorchurn.exe",
+  "binary_mtime": "2026-10-03 13:23:41",
+  "gpu": "NVIDIA GeForce RTX 4060 Ti, 591.86",
+  "runs_per_config": 30,
+  "stop_rule": "stop a config at its first crash or after runs clean invocations",
+  "evidence_level": "real hardware, real driver",
+  "preexisting_artifacts_moved": [],
+  "configs": {
+    "warm_stress": {
+      "binary": "C:\\dev\\build_ninja\\bin\\benchmark_memory_cudacachingallocatorchurn.exe",
+      "flags": [
+        "--benchmark_filter=BM_Churn_WarmAllocFree",
+        "--benchmark_min_time=2000000x",
+        "--benchmark_repetitions=5"
+      ],
+      "invocations": [
+        {
+          "n": 1,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 2,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 3,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 4,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 5,
+          "exit_code": 0,
+          "seconds": 7.8,
+          "dump_files": []
+        },
+        {
+          "n": 6,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 7,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 8,
+          "exit_code": 0,
+          "seconds": 7.5,
+          "dump_files": []
+        },
+        {
+          "n": 9,
+          "exit_code": 0,
+          "seconds": 7.7,
+          "dump_files": []
+        },
+        {
+          "n": 10,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 11,
+          "exit_code": 0,
+          "seconds": 7.5,
+          "dump_files": []
+        },
+        {
+          "n": 12,
+          "exit_code": 0,
+          "seconds": 7.5,
+          "dump_files": []
+        },
+        {
+          "n": 13,
+          "exit_code": 0,
+          "seconds": 7.4,
+          "dump_files": []
+        },
+        {
+          "n": 14,
+          "exit_code": 0,
+          "seconds": 7.4,
+          "dump_files": []
+        },
+        {
+          "n": 15,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 16,
+          "exit_code": 0,
+          "seconds": 7.6,
+          "dump_files": []
+        },
+        {
+          "n": 17,
+          "exit_code": 0,
+          "seconds": 7.5,
+          "dump_files": []
+        },
+        {
+          "n": 18,
+          "exit_code": 0,
+          "seconds": 7.5,
+          "dump_files": []
+        },
+        {
+          "n": 19,
+          "exit_code": 3221225477,
+          "seconds": 1.6,
+          "dump_files": []
+        }
+      ],
+      "crashed": true,
+      "summary": "19 invocations, crashed at #19"
+    }
+  }
+}

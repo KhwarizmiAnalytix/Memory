@@ -132,9 +132,9 @@ inline int64_t trace_timestamp_ns() noexcept
 class gpu_memory_history
 {
 public:
-    void set_enabled(bool enabled, size_t max_entries)
+    void set_enabled(bool value, size_t max_entries)
     {
-        enabled_ = enabled;
+        enabled_ = value;
         if (max_entries != 0 && max_entries != ring_.capacity())
         {
             ring_.resize(max_entries);

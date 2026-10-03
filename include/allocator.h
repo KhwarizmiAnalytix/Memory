@@ -385,6 +385,49 @@ public:
         copy_impl<true>(from, n, to, from_type, to_type, from_index, to_index, stream);
     }
 
+    // Endpoint kinds a copy can touch in this build: host memory and the one
+    // compiled GPU backend (CUDA and HIP are interchangeable spellings).
+    static constexpr bool is_copy_endpoint(device_enum type)
+    {
+        if (type == device_enum::CPU)
+        {
+            return true;
+        }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        return type == device_enum::CUDA || type == device_enum::HIP;
+#elif MEMORY_HAS_METAL
+        return type == device_enum::METAL;
+#else
+        return false;
+#endif
+    }
+
+    // Pre-submission validation (plan §5.1/§5.2, task 1.5). Throws before any
+    // resource is acquired or any work is submitted: a zero count is a no-op
+    // (the caller returns early), positive counts reject null endpoints, byte
+    // overflow and unsupported backend combinations.
+    MEMORY_FORCE_INLINE static void validate_copy(
+        const_pointer from, size_type n, const_pointer to, device_enum from_type, device_enum to_type)
+    {
+        if (n == 0)
+        {
+            return;
+        }
+        if (from == nullptr || to == nullptr)
+        {
+            throw std::invalid_argument("memory copy: null endpoint with a non-zero element count");
+        }
+        (void)checked_byte_count(n, scalar_size);
+        if (!is_copy_endpoint(from_type) || !is_copy_endpoint(to_type))
+        {
+            throw std::invalid_argument("Unsupported device combination for memory copy");
+        }
+    }
+
+    // @p submitted (optional) is set to true immediately before the driver is
+    // asked to move data. A throw with *submitted == false means nothing was
+    // started (setup failure); with true, work may be in flight and the caller
+    // must prove completion before treating the endpoints as safe.
     template <bool track_gpu_streams>
     MEMORY_FORCE_INLINE static void copy_impl(
         const_pointer from,
@@ -394,17 +437,23 @@ public:
         device_enum   to_type,
         int           from_index,
         int           to_index,
-        stream_t      stream)
+        stream_t      stream,
+        bool*         submitted = nullptr)
     {
-        if (from == nullptr || to == nullptr || n == 0)
+        if (n == 0)
         {
             return;
         }
+        validate_copy(from, n, to, from_type, to_type);
 
         const auto nbytes = checked_byte_count(n, scalar_size);
 
         if (from_type == device_enum::CPU && to_type == device_enum::CPU)
         {
+            if (submitted != nullptr)
+            {
+                *submitted = true;
+            }
             std::memcpy(to, from, nbytes);
             return;
         }
@@ -442,6 +491,10 @@ public:
                 from_index != to_index)
             {
                 gpu::device_guard const peer_guard(to_index);
+                if (submitted != nullptr)
+                {
+                    *submitted = true;
+                }
                 result = cudaMemcpyPeerAsync(
                     to, to_index, from, from_index, nbytes,
                     stream != nullptr ? static_cast<cudaStream_t>(stream)
@@ -477,6 +530,10 @@ public:
                                           ? to_index
                                           : from_index;
                 gpu::device_guard const guard(gpu_index);
+                if (submitted != nullptr)
+                {
+                    *submitted = true;
+                }
                 // Always use the async form so enqueuing is non-blocking.
                 // stream == nullptr means the legacy default CUDA stream (0).
                 result = cudaMemcpyAsync(
@@ -498,6 +555,10 @@ public:
         // Shared-storage MTLBuffers are host-addressable — all METAL sides are memcpy.
         if (from_type == device_enum::METAL || to_type == device_enum::METAL)
         {
+            if (submitted != nullptr)
+            {
+                *submitted = true;
+            }
             std::memcpy(to, from, nbytes);
             return;
         }
@@ -560,6 +621,15 @@ public:
             from, n, to, stream, from_type, to_type, from_index, to_index, {}, false);
     }
 
+    // Three phases (plan §5.3):
+    //   1. Validate: throws before anything is acquired (nothing to roll back).
+    //   2. Reserve: token state, event and (for retained copies) service
+    //      admission. A failure here leaves nothing submitted; what was reserved
+    //      is released by RAII or cancel(), exactly once.
+    //   3. Submit: if the driver was never asked to move data the reservation is
+    //      cancelled without waiting on any stream. Once it was, completion is
+    //      proven on the submitting stream or the operation is quarantined;
+    //      safety is never inferred from the error code.
     template <bool track_gpu_streams>
     MEMORY_FORCE_INLINE static copy_token copy_async_impl(
         const_pointer from,
@@ -573,7 +643,14 @@ public:
         std::shared_ptr<void> retained,
         bool          register_with_service)
     {
-        // Build a context that identifies which device/stream to wait on.
+        // Phase 1.
+        if (n == 0)
+        {
+            return copy_token{};  // zero-count copy is a no-op; payload released on return
+        }
+        validate_copy(from, n, to, from_type, to_type);
+
+        // Phase 2. Build a context that identifies which device/stream to wait on.
         // Use is_gpu_device (enum-based) rather than is_active_gpu_device
         // (compile-time backend check) so the selection is based on whether the
         // endpoint IS a GPU device, not on which backend happens to be compiled in.
@@ -586,45 +663,61 @@ public:
         copy_token token(ctx);
         if (retained)
         {
-            token.set_retained(std::move(retained));
+            detail::copy_token_access::set_retained(token, std::move(retained));
         }
-        token.prepare_event();
+        token.prepare_event();  // throws: nothing admitted or submitted
+        bool admitted = false;
         if (register_with_service)
         {
-            retained_operation_service::instance().enqueue(token);
+            admitted = retained_operation_service::instance().enqueue(token);  // throws: not admitted
         }
 
+        // Phase 3.
+        bool submitted = false;
         try
         {
             copy_impl<track_gpu_streams>(
-                from, n, to, from_type, to_type, from_index, to_index, stream);
+                from, n, to, from_type, to_type, from_index, to_index, stream, &submitted);
             token.record_event();
         }
         catch (...)
         {
-            bool safe_to_release = true;
+            bool proven_idle = true;
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-            if (ctx.is_gpu())
+            if (submitted && ctx.is_gpu())
             {
                 try
                 {
                     gpu::device_guard const guard(ctx.device_index);
-                    safe_to_release =
+                    proven_idle =
                         cudaStreamSynchronize(static_cast<cudaStream_t>(ctx.stream)) == cudaSuccess;
                 }
                 catch (...)
                 {
-                    safe_to_release = false;
+                    proven_idle = false;
                 }
             }
+#else
+            (void)submitted;
 #endif
-            if (safe_to_release)
+            // cppcheck-suppress knownConditionTrueFalse ; constant only in builds without a GPU backend
+            if (proven_idle)
             {
-                token.mark_complete();
+                // Nothing is in flight: restore admission once and release the payload.
+                if (admitted)
+                {
+                    (void)retained_operation_service::instance().cancel(token);
+                }
+                detail::copy_token_access::complete(token);
             }
             else
             {
-                token.mark_failed();
+                // Possibly in flight and unproven: keep owners, quarantine.
+                detail::copy_token_access::fail(token);
+                if (admitted)
+                {
+                    (void)retained_operation_service::instance().quarantine(token);
+                }
             }
             throw;
         }

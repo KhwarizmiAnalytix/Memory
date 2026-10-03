@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 
 #include "common/cleanup_diagnostic.h"
@@ -84,17 +86,46 @@ public:
 
     // Adopt foreign memory: the supplied deleter takes ownership of storage.
     // The returned retained_ptr owns a single reference; callers may then
-    // copy/move it to distribute access.  data == nullptr or capacity == 0
-    // yields an empty (null) retained_ptr.
+    // copy/move it to distribute access.
+    //
+    // Ownership transfers only when this call returns a handle. On every failure
+    // (it throws) the deleter has NOT run and the caller still owns @p data:
+    //   - an empty deleter is rejected (adoption needs an explicit way to free);
+    //   - a null base with a non-zero capacity, or a non-null base with zero
+    //     capacity, is rejected (invalid_argument) rather than silently dropped;
+    //   - capacity * sizeof(T) overflowing size_t is rejected (overflow_error);
+    //   - bad_alloc from the control block leaves @p data with the caller.
+    // A null base with zero capacity yields an empty (null) retained_ptr; the
+    // deleter is discarded unused. The capacity is asserted by the caller, not
+    // verified.
     static retained_ptr adopt(
         T*              data,
         size_t          capacity,
         execution_context ctx,
         std::function<void(T*, size_t, execution_context const&)> deleter)
     {
-        if (data == nullptr || capacity == 0)
+        if (!deleter)
         {
+            throw std::invalid_argument("retained_ptr::adopt: an explicit deleter is required");
+        }
+        if (data == nullptr)
+        {
+            if (capacity != 0)
+            {
+                throw std::invalid_argument(
+                    "retained_ptr::adopt: null base pointer with a non-zero capacity");
+            }
             return {};
+        }
+        if (capacity == 0)
+        {
+            throw std::invalid_argument(
+                "retained_ptr::adopt: non-null base pointer with zero capacity; "
+                "the caller keeps ownership");
+        }
+        if (capacity > std::numeric_limits<size_t>::max() / sizeof(T))
+        {
+            throw std::overflow_error("retained_ptr::adopt: capacity * sizeof(T) overflows size_t");
         }
         control_block* cb  = new control_block();
         cb->base           = data;
@@ -246,7 +277,7 @@ private:
                 }
                 catch (...)
                 {
-                    cleanup_diagnostic::record_failure();
+                    cleanup_diagnostic::record_failure(cleanup_source::retained_ptr);
                 }
             }
             delete cb_;

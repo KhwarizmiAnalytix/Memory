@@ -11,6 +11,7 @@ foreach(_backend IN ITEMS Cuda Hip)
     ${_target}
     TestCopyRuntime.cpp
     "${_copy_src}/retained_operation_service.cpp"
+    "${_copy_src}/common/allocation_id.cpp"
   )
   target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_include_directories(${_target} PRIVATE "${_copy_include}")
@@ -35,6 +36,7 @@ add_executable(
   MemoryCopyShimBenchPhase0
   Phase0CopyShimBench.cpp
   "${_copy_src}/retained_operation_service.cpp"
+  "${_copy_src}/common/allocation_id.cpp"
 )
 target_include_directories(MemoryCopyShimBenchPhase0 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_copy_include}")
 target_include_directories(MemoryCopyShimBenchPhase0 SYSTEM PRIVATE "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include")

@@ -34,13 +34,13 @@ retained_operation_service& retained_operation_service::instance() noexcept
     }
 }
 
-void retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
+bool retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
 {
     std::unique_lock<std::mutex> lock(mu_);
 
     if (token.ready())
     {
-        return;
+        return false;
     }
     if (stopping_)
     {
@@ -69,8 +69,55 @@ void retained_operation_service::enqueue(copy_token const& token, size_t priorit
     }
 
     pending_.push_back({token, priority});
+    return true;
 }
 
+bool retained_operation_service::cancel(copy_token const& token) noexcept
+{
+    // Declared before the lock scope so the entry's token copy, which may hold
+    // the last reference to the retained payload, is destroyed after the mutex
+    // is released.
+    copy_token released;
+    bool       found = false;
+    {
+        std::lock_guard<std::mutex> const lock(mu_);
+        for (auto it = pending_.begin(); it != pending_.end(); ++it)
+        {
+            if (it->token.same_operation(token))
+            {
+                released = std::move(it->token);
+                pending_.erase(it);
+                cv_.notify_one();
+                found = true;
+                break;
+            }
+        }
+    }
+    return found;
+}
+
+bool retained_operation_service::quarantine(copy_token const& token) noexcept
+{
+    std::unique_lock<std::mutex> lock(mu_);
+    for (auto it = pending_.begin(); it != pending_.end(); ++it)
+    {
+        if (it->token.same_operation(token))
+        {
+            try
+            {
+                failed_.push_back(it->token);
+            }
+            catch (...)
+            {
+                return false;  // stays pending and retained; poll() will quarantine it
+            }
+            pending_.erase(it);
+            cv_.notify_one();
+            return true;
+        }
+    }
+    return false;
+}
 size_t retained_operation_service::poll()
 {
     std::unique_lock<std::mutex> lock(mu_);

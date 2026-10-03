@@ -75,6 +75,14 @@ inline int                                   copies            = 0;
 inline int                                   peer_copies       = 0;
 inline bool                                  fail_allocations  = false;
 inline bool                                  fail_stream_query = false;
+// Fault injection for the copy path (task 1.5/1.6): each makes the matching
+// runtime call return an error without performing it.
+inline bool                                  fail_event_create = false;
+inline bool                                  fail_event_record = false;
+inline bool                                  fail_memcpy       = false;
+// 1-based index of the cudaSetDevice call that fails (0 = never); counts all calls.
+inline int                                   fail_set_device_on_call = 0;
+inline int                                   set_device_calls        = 0;
 inline std::set<void*>                       backing;
 
 inline void reset()
@@ -98,6 +106,11 @@ inline void reset()
     peer_copies = 0;
     fail_allocations = false;
     fail_stream_query = false;
+    fail_event_create = false;
+    fail_event_record = false;
+    fail_memcpy = false;
+    fail_set_device_on_call = 0;
+    set_device_calls = 0;
 }
 
 inline void set_stream_ready(cudaStream_t stream, bool is_ready = true)
@@ -154,6 +167,9 @@ inline cudaError_t cudaGetDevice(int* device)
 
 inline cudaError_t cudaSetDevice(int device)
 {
+    ++fake_runtime::set_device_calls;
+    if (fake_runtime::fail_set_device_on_call == fake_runtime::set_device_calls)
+        return cudaErrorInvalidValue;
     if (device < 0 || device >= fake_runtime::device_count)
         return cudaErrorInvalidValue;
     fake_runtime::current_device = device;
@@ -218,6 +234,8 @@ inline cudaError_t cudaFreeHost(void* ptr)
 
 inline cudaError_t cudaEventCreate(cudaEvent_t* event)
 {
+    if (fake_runtime::fail_event_create)
+        return 3;
     *event = new fake_event;
     ++fake_runtime::event_creates;
     return 0;
@@ -230,6 +248,8 @@ inline cudaError_t cudaEventCreateWithFlags(cudaEvent_t* event, unsigned)
 
 inline cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream)
 {
+    if (fake_runtime::fail_event_record)
+        return 3;
     event->stream = stream;
     event->complete =
         fake_runtime::get_stream_state(stream) == fake_runtime::STREAM_READY;
@@ -278,6 +298,8 @@ inline cudaError_t cudaEventDestroy(cudaEvent_t event)
 inline cudaError_t cudaMemcpyAsync(
     void* to, const void* from, std::size_t bytes, cudaMemcpyKind, cudaStream_t stream)
 {
+    if (fake_runtime::fail_memcpy)
+        return 3;
     ++fake_runtime::copies;
     std::memcpy(to, from, bytes);
     return 0;

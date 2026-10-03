@@ -53,7 +53,20 @@ public:
     // If max_pending is reached and blocking=true, waits for space.
     // If max_pending is reached and blocking=false, throws std::runtime_error.
     // No-op if token is already complete (ready() returns true).
-    void enqueue(copy_token const& token, size_t priority = 0, bool blocking = true);
+    // Returns true when the token was admitted (and must be released exactly
+    // once, by completing, cancel() or quarantine()), false for the no-op case.
+    bool enqueue(copy_token const& token, size_t priority = 0, bool blocking = true);
+
+    // Roll back an admission whose operation never started or was proven idle:
+    // removes the token's pending entry without waiting. Returns false if it is
+    // not pending (already reaped), so a rollback happens at most once.
+    bool cancel(copy_token const& token) noexcept;
+
+    // Move an admitted token whose completion could not be proven straight to
+    // quarantine, keeping its owners. Returns true if it is now quarantined. If
+    // the quarantine list cannot grow, the entry stays pending (still retained)
+    // and poll() quarantines it later.
+    bool quarantine(copy_token const& token) noexcept;
 
     // Poll pending operations; return count of newly completed.
     // Does NOT wait; returns immediately with completion count.
@@ -104,7 +117,7 @@ private:
     struct pending_op
     {
         copy_token token;
-        size_t     priority;
+        size_t     priority{0};
     };
 
     mutable std::mutex           mu_;

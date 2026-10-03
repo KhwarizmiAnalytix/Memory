@@ -233,9 +233,26 @@ try {
 
 **Common errors:**
 - `std::bad_alloc` – OOM (after cache flush + retry)
-- `std::invalid_argument` – Zero size, size mismatch
-- `std::overflow_error` – Integer overflow on alignment
-- `std::logic_error` – Double-free, nested capture
+- `std::invalid_argument` – Invalid copy arguments (null endpoint with a non-zero count, unsupported backend combination), invalid adoption (empty deleter, null base with non-zero capacity, non-null base with zero capacity)
+- `std::overflow_error` – Byte-count overflow (copy extents, adoption capacity, workspace `acquire<T>`)
+- `logging::exception` – Violated preconditions, in every build type: a pointer the cache does not own, a double free, a bad alignment, `gpu_workspace::rebind` while slices are live
+- `std::runtime_error` – `copy_token::wait()` on a failed operation
+
+Validation happens before anything is submitted: a copy that throws one of the argument errors has not started, and nothing it reserved is left behind.
+
+### Cleanup failures never throw
+
+Destructors and deleters cannot throw. A failure during cleanup (for example a driver error while freeing, or a pinned buffer that had to be quarantined) is counted instead and reported through `cleanup_diagnostic`:
+
+```cpp
+auto const before = cleanup_diagnostic::failure_count(cleanup_source::gpu_cache);
+// ... workload ...
+if (cleanup_diagnostic::failure_count(cleanup_source::gpu_cache) != before) { /* investigate */ }
+```
+
+Sources are `data_ptr`, `retained_ptr`, `pinned_buffer` and `gpu_cache`. `cleanup_diagnostic::set_handler` installs an optional `noexcept` function pointer that runs on the failing thread; it must not allocate or call back into the allocator, and it must stay valid for the life of the process (or be cleared with `nullptr`). The allocator never calls it while holding its own lock.
+
+**Adopting foreign memory:** `allocate_adopted` and `retained_ptr::adopt` require an explicit deleter. If adoption throws, the deleter has not run and you still own the pointer.
 
 ---
 
@@ -265,6 +282,17 @@ try {
 ```
 
 **Stream recording:** GPU buffers automatically have `record_stream()` called before submission, so the caching allocator defers their reuse until the stream completes. Pageable (non-pinned) CPU buffers require manual synchronization.
+
+### Token results are stable
+
+All copies of a token share one operation. The first terminal result (complete or failed) is recorded once and every copy, on every thread, then sees the same result, whatever work is queued on the stream afterwards:
+
+- `state()` returns `pending`, `complete` or `failed` without blocking or throwing.
+- `ready()` is true only for `complete`.
+- `wait()` returns on `complete`, blocks while `pending`, and throws `std::runtime_error` on `failed`, every time it is called.
+- You cannot force a state from user code; only the library decides that an operation completed.
+
+If submission fails after the driver was asked to move data, the library waits on the submitting stream; if it cannot prove the stream is idle, the operation is quarantined and a retained copy keeps its owners alive. It never assumes the copy did not start from the error code alone.
 
 ---
 
@@ -432,8 +460,17 @@ A: Destructors handle cleanup. Just avoid double-free:
 - Don't copy data_ptr unnecessarily
 - Don't keep data_view longer than owner
 
+**Q: Does a zero-size allocation have an identity?**
+A: No. A zero-size, default-constructed or moved-from `data_ptr` is empty and has an invalid `allocation_id`; there is no memory and no allocation lifetime. Real ids come from one process-wide generator and are never reset or reused.
+
 **Q: What if I run out of GPU memory?**
 A: Allocators throw `std::bad_alloc`. Call `gpu::empty_cache(device_index)` to free unused cached blocks.
+
+---
+
+## Known Issues
+
+**GPU cache churn crash (held, unconfirmed).** A benchmark that creates many `cuda_caching_allocator` instances and runs millions of allocate/free pairs crashed intermittently with an access violation on the maintainers' test machine. That machine also crashes a control program with no Memory code and has processor machine-check events, so the crash is not attributed to Memory and has not been cleared either. It needs a rerun on healthy hardware. Until then, treat the GPU caching allocator as unaccepted for long-running churn workloads. Details, reproduction and next steps: [plan Appendix B](Docs/memory_runtime_implementation_plan.md).
 
 ---
 

@@ -33,6 +33,11 @@ enum class completion_state : std::uint8_t
     failed   = 2   // Operation or completion tracking failed
 };
 
+namespace detail
+{
+struct copy_token_access;
+}
+
 // Completion token returned by allocator<T>::copy_async.
 //
 // The token records the execution context (backend, device, stream) the copy
@@ -49,6 +54,13 @@ enum class completion_state : std::uint8_t
 // synchronize the stream manually) before touching the host memory again.
 //
 // A default-constructed copy_token is immediately complete (CPU no-op).
+//
+// Terminal state (plan §5.2, task 1.4): copies of a token share one operation
+// state. The first terminal result (complete or failed) is published once, with
+// its diagnostic context, and is stable: every copy, every thread and both
+// state() and wait() observe the same result afterwards, whatever work is later
+// queued on the stream. Pending is re-queried. Only the submitting code in this
+// library can force a terminal state (detail::copy_token_access).
 class MEMORY_VISIBILITY copy_token
 {
 public:
@@ -61,39 +73,31 @@ public:
     copy_token(copy_token const&) noexcept            = default;
     copy_token& operator=(copy_token const&) noexcept = default;
 
-    // Query completion state without blocking.
+    // Query completion state without blocking or throwing.
     // For CPU operations, always returns 'complete'.
     // For allocator-submitted GPU operations, queries the operation's event.
-    // Terminal states (complete, failed) are cached: once observed they are
-    // returned immediately without a driver call on subsequent queries.
+    // Terminal states (complete, failed) are cached on the shared state: once
+    // observed they are returned without a driver call on every copy.
     completion_state state() const noexcept
     {
-        if (!state_ || !state_->ctx.is_gpu())
+        if (!state_)
         {
             return completion_state::complete;
         }
 
-        // Fast path: return cached terminal state.
-        auto const cached = state_->cached_terminal.load(std::memory_order_acquire);
+        // Fast path: a published terminal result.
+        auto const cached = decode_state(state_->terminal.load(std::memory_order_acquire));
         if (cached != completion_state::pending)
         {
             return cached;
         }
-
-        if (state_->canceled.load(std::memory_order_acquire))
+        if (!state_->ctx.is_gpu())
         {
-            state_->cached_terminal.store(completion_state::complete, std::memory_order_release);
             return completion_state::complete;
-        }
-        if (state_->forced_failed.load(std::memory_order_acquire))
-        {
-            state_->cached_terminal.store(completion_state::failed, std::memory_order_release);
-            return completion_state::failed;
         }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         gpu::device_guard guard(state_->ctx.device_index, std::nothrow);
-        completion_state result = completion_state::pending;
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
@@ -103,11 +107,11 @@ public:
             cudaError_t const r = cudaEventQuery(state_->event);
             if (r == cudaSuccess)
             {
-                result = completion_state::complete;
+                settle(completion_state::complete, failure_kind::none, 0);
             }
             else if (r != cudaErrorNotReady)
             {
-                result = completion_state::failed;
+                settle(completion_state::failed, failure_kind::driver_query, r);
             }
         }
         else
@@ -116,7 +120,7 @@ public:
             cudaError_t const r = cudaStreamQuery(static_cast<cudaStream_t>(state_->ctx.stream));
             if (r == cudaSuccess)
             {
-                result = completion_state::complete;
+                settle(completion_state::complete, failure_kind::none, 0);
             }
             else if (r == cudaErrorNotReady)
             {
@@ -125,59 +129,79 @@ public:
             }
             else
             {
-                result = completion_state::failed;
+                settle(completion_state::failed, failure_kind::driver_query, r);
             }
         }
-        // Cache terminal results so future calls skip the driver.
-        if (result != completion_state::pending)
-        {
-            state_->cached_terminal.store(result, std::memory_order_release);
-        }
-        return result;
+        // Another thread may have settled first; report the published result.
+        return decode_state(state_->terminal.load(std::memory_order_acquire));
 #else
         return completion_state::complete;
 #endif
     }
 
-    // Returns true if the copy has already completed (or was a CPU copy).
+    // Returns true only for a complete operation (never for pending or failed).
     // Queries the operation's state without blocking.
     bool ready() const noexcept { return state() == completion_state::complete; }
 
-    // Blocks until the copy completes. No-op for CPU copies.
-    // Throws std::runtime_error if the operation failed.
+    // Returns on complete, blocks while pending, throws std::runtime_error on
+    // failed. Agrees with state(): a failed token throws on every call, and a
+    // complete token never throws. No-op for CPU copies.
     void wait() const
     {
-        if (!state_ || !state_->ctx.is_gpu())
+        if (!state_)
+        {
+            return;
+        }
+        auto const published = state_->terminal.load(std::memory_order_acquire);
+        if (decode_state(published) == completion_state::complete)
+        {
+            return;
+        }
+        if (decode_state(published) == completion_state::failed)
+        {
+            throw std::runtime_error(describe_failure(published));
+        }
+        if (!state_->ctx.is_gpu())
         {
             return;
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         gpu::device_guard guard(state_->ctx.device_index, std::nothrow);
+        cudaError_t       result = cudaSuccess;
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
             {
                 throw std::runtime_error("copy_token::wait() called before operation submission");
             }
-            cudaError_t result = cudaEventSynchronize(state_->event);
-            if (result != cudaSuccess)
-            {
-                throw std::runtime_error(
-                    std::string("copy_token::wait() failed: ") + cudaGetErrorString(result));
-            }
+            result = cudaEventSynchronize(state_->event);
         }
         else
         {
-            cudaError_t result = (state_->ctx.stream != nullptr)
-                ? cudaStreamSynchronize(static_cast<cudaStream_t>(state_->ctx.stream))
-                : cudaDeviceSynchronize();
-            if (result != cudaSuccess)
-            {
-                throw std::runtime_error(
-                    std::string("copy_token::wait() failed: ") + cudaGetErrorString(result));
-            }
+            result = (state_->ctx.stream != nullptr)
+                         ? cudaStreamSynchronize(static_cast<cudaStream_t>(state_->ctx.stream))
+                         : cudaDeviceSynchronize();
+        }
+        if (result == cudaSuccess)
+        {
+            settle(completion_state::complete, failure_kind::none, 0);
+        }
+        else
+        {
+            settle(completion_state::failed, failure_kind::driver_wait, result);
+        }
+        auto const final_state = state_->terminal.load(std::memory_order_acquire);
+        if (decode_state(final_state) == completion_state::failed)
+        {
+            throw std::runtime_error(describe_failure(final_state));
         }
 #endif
+    }
+
+    // True when both tokens are copies of one operation (share its state).
+    bool same_operation(copy_token const& other) const noexcept
+    {
+        return state_ != nullptr && state_ == other.state_;
     }
 
     execution_context const& ctx() const noexcept
@@ -186,14 +210,7 @@ public:
         return state_ ? state_->ctx : cpu_context;
     }
 
-    // Store retained pointers so they stay alive until token completion.
-    // The payload is opaque (a holder for retained_ptr copies).
-    void set_retained(std::shared_ptr<void> retained)
-    {
-        ensure_state();
-        state_->retained = std::move(retained);
-    }
-
+    // Submission-side API: call before the token is shared with other threads.
     void prepare_event()
     {
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -230,26 +247,103 @@ public:
 #endif
     }
 
+private:
+    friend struct detail::copy_token_access;
+
+    // Why a token failed; stored with the driver code as diagnostic context.
+    enum class failure_kind : std::uint8_t
+    {
+        none = 0,
+        driver_query,      // event/stream query reported an error
+        driver_wait,       // event/stream synchronize reported an error
+        submission_unsafe  // submission failed and completion could not be proven
+    };
+
+    // terminal word: 0 = pending; otherwise state | kind << 8 | code << 32.
+    static constexpr std::uint64_t encode(completion_state s, failure_kind k, int code) noexcept
+    {
+        return static_cast<std::uint64_t>(s) | (static_cast<std::uint64_t>(k) << 8) |
+               (static_cast<std::uint64_t>(static_cast<std::uint32_t>(code)) << 32);
+    }
+    static constexpr completion_state decode_state(std::uint64_t word) noexcept
+    {
+        return word == 0 ? completion_state::pending : static_cast<completion_state>(word & 0xFFU);
+    }
+    static constexpr failure_kind decode_kind(std::uint64_t word) noexcept
+    {
+        return static_cast<failure_kind>((word >> 8) & 0xFFU);
+    }
+    static constexpr int decode_code(std::uint64_t word) noexcept
+    {
+        return static_cast<int>(static_cast<std::uint32_t>(word >> 32));
+    }
+
+    // Publish the first terminal result; later results are ignored. Returns
+    // true when this call published. Complete encodes as 1, so a terminal word
+    // is never confused with pending (0).
+    bool settle(completion_state s, failure_kind k, int code) const noexcept
+    {
+        std::uint64_t expected = 0;
+        return state_->terminal.compare_exchange_strong(
+            expected, encode(s, k, code), std::memory_order_acq_rel, std::memory_order_acquire);
+    }
+
+    static std::string describe_failure(std::uint64_t word)
+    {
+        int const   code = decode_code(word);
+        std::string text;
+        switch (decode_kind(word))
+        {
+        case failure_kind::driver_query:
+            text = "copy_token: operation query failed";
+            break;
+        case failure_kind::driver_wait:
+            text = "copy_token::wait() failed";
+            break;
+        case failure_kind::submission_unsafe:
+            return "copy_token: submission failed and completion could not be proven; "
+                   "endpoints are quarantined";
+        case failure_kind::none:
+        default:
+            return "copy_token: operation failed";
+        }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        text += std::string(": ") + cudaGetErrorString(static_cast<cudaError_t>(code));
+#else
+        text += ": error " + std::to_string(code);
+#endif
+        return text;
+    }
+
+    // Store retained pointers so they stay alive until token completion.
+    // The payload is opaque (a holder for retained_ptr copies). Submission side
+    // only: call before the token is shared.
+    void set_retained(std::shared_ptr<void> retained)
+    {
+        ensure_state();
+        state_->retained = std::move(retained);
+    }
+
+    // Setup failed or the stream was proven idle after a failed submission:
+    // nothing is in flight, so the operation is complete and the payload can go.
     void mark_complete() noexcept
     {
-        if (state_)
+        if (state_ && settle(completion_state::complete, failure_kind::none, 0))
         {
-            state_->cached_terminal.store(completion_state::complete, std::memory_order_release);
-            state_->canceled.store(true, std::memory_order_release);
             state_->retained.reset();
         }
     }
 
+    // Completion could not be proven: the operation is failed and its payload
+    // stays retained.
     void mark_failed() noexcept
     {
         if (state_)
         {
-            state_->cached_terminal.store(completion_state::failed, std::memory_order_release);
-            state_->forced_failed.store(true, std::memory_order_release);
+            settle(completion_state::failed, failure_kind::submission_unsafe, 0);
         }
     }
 
-private:
     struct shared_state
     {
         explicit shared_state(execution_context value) noexcept : ctx(value) {}
@@ -264,17 +358,15 @@ private:
 #endif
         }
 
-        execution_context             ctx{};
-        std::shared_ptr<void>         retained;
-    #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        cudaEvent_t                   event{};
-    #endif
-        bool                          event_created{false};
-        std::atomic<bool>             event_recorded{false};
-        std::atomic<bool>             canceled{false};
-        std::atomic<bool>             forced_failed{false};
-        // Terminal state cache: once complete or failed, no more driver calls.
-        std::atomic<completion_state> cached_terminal{completion_state::pending};
+        execution_context     ctx{};
+        std::shared_ptr<void> retained;
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        cudaEvent_t event{};
+#endif
+        bool              event_created{false};
+        std::atomic<bool> event_recorded{false};
+        // Published terminal result (see encode()); 0 while pending. Set once.
+        std::atomic<std::uint64_t> terminal{0};
     };
 
     void ensure_state()
@@ -287,5 +379,20 @@ private:
 
     std::shared_ptr<shared_state> state_;
 };
+
+namespace detail
+{
+// Library-internal access to the token's forced terminal transitions. Not part
+// of the public API: user code must not decide that an operation completed.
+struct copy_token_access
+{
+    static void set_retained(copy_token& t, std::shared_ptr<void> retained)
+    {
+        t.set_retained(std::move(retained));
+    }
+    static void complete(copy_token& t) noexcept { t.mark_complete(); }
+    static void fail(copy_token& t) noexcept { t.mark_failed(); }
+};
+}  // namespace detail
 
 }  // namespace memory

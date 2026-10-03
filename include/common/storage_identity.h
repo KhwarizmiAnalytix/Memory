@@ -10,13 +10,16 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "common/memory_export.h"
+
 namespace memory
 {
 
 // Unique identifier for each allocation lifetime.
-// Assigned once at allocate time; survives address reuse and slicing.
-// Zero is reserved as invalid/sentinel; real IDs start at 1.
-// Thread-safe; monotonically increasing; never wraps or resets.
+// Assigned once at allocate time; survives slicing, never reused for a new
+// allocation at a recycled address. Zero is reserved as invalid/sentinel; real
+// IDs start at 1. Empty handles (default-constructed, moved-from, zero-size) have
+// the invalid ID.
 struct allocation_id
 {
     uint64_t value = 0;
@@ -53,41 +56,11 @@ struct allocation_id
     constexpr bool valid() const noexcept { return value != 0; }
 };
 
-// Global allocation ID generator: thread-safe, starts at 1, never wraps.
-class allocation_id_generator
-{
-public:
-    static allocation_id_generator& instance() noexcept
-    {
-        static allocation_id_generator gen;
-        return gen;
-    }
-
-    allocation_id next() noexcept
-    {
-        uint64_t val = counter_.fetch_add(1, std::memory_order_relaxed);
-        return allocation_id(val);
-    }
-
-#if !defined(NDEBUG) || defined(MEMORY_GOOGLE_TEST)
-    // Reset for test teardown only. Must not be called in production code:
-    // ID reuse breaks the "one ID per allocation lifetime" invariant (§5.1).
-    void reset() noexcept
-    {
-        counter_.store(1, std::memory_order_relaxed);
-    }
-#endif
-
-private:
-    allocation_id_generator() noexcept : counter_(1) {}
-    std::atomic<uint64_t> counter_;
-};
-
-// Global function wrapper
-inline allocation_id next_allocation_id() noexcept
-{
-    return allocation_id_generator::instance().next();
-}
+// Process-wide allocation ID generator: thread-safe, starts at 1, never wraps and
+// is never reset. Defined once in the Memory library (src/common/allocation_id.cpp)
+// and exported, so header-inline callers in client binaries share the library's
+// sequence instead of owning a private counter per binary (plan §5.1, A6).
+MEMORY_API allocation_id next_allocation_id() noexcept;
 
 // A stable allocation identity (legacy name, maps to allocation_id + metadata).
 // Assigned once at allocate time; survives all derived views and address reuse

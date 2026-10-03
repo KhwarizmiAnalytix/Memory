@@ -104,15 +104,15 @@ TEST_F(TestPhase2CopySync, TokenWaitWithCpuContext)
     EXPECT_NO_THROW(token.wait());
 }
 
-// Test: copy_sync with nullptr sources (should be no-op)
+// Test: copy_sync rejects a null endpoint with a positive count (task 1.5)
 TEST_F(TestPhase2CopySync, NullptrHandling)
 {
     std::vector<float> dst(size_floats, 1.0f);
 
-    // nullptr source should be no-op
-    allocator<float>::copy_sync(
-        nullptr, size_floats, dst.data(),
-        device_enum::CPU, device_enum::CPU);
+    EXPECT_THROW(
+        allocator<float>::copy_sync(
+            nullptr, size_floats, dst.data(), device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
 
     // Destination should be unchanged
     for (const auto& val : dst)
@@ -120,12 +120,11 @@ TEST_F(TestPhase2CopySync, NullptrHandling)
         EXPECT_EQ(val, 1.0f);
     }
 
-    // nullptr destination should be no-op
     std::vector<float> src(size_floats, 2.0f);
-    allocator<float>::copy_sync(
-        src.data(), size_floats, nullptr,
-        device_enum::CPU, device_enum::CPU);
-    // Should not crash
+    EXPECT_THROW(
+        allocator<float>::copy_sync(
+            src.data(), size_floats, nullptr, device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
 }
 
 // Test: multiple ready() calls return consistent results

@@ -36,3 +36,6 @@ __pycache__/
 .mypy_cache/
 
 .lintbin/
+
+# crash dumps (hundreds of MB; keep local)
+*.dmp

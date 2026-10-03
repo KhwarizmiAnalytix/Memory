@@ -8,9 +8,11 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
-# Source directory that makes up the Memory library (mirrors CMakeLists.txt's
-# GLOB_RECURSE root: include/, which nests common/, gpu/, helper/, profiler/).
-_SOURCE_DIRS = ["include"]
+# cppcheck only discovers source files by extension, so a directory holding just
+# headers (include/) yields "could not find or open any of the paths". Scan src/
+# and let the headers under include/ (common/, gpu/, helper/, profiler/) be
+# analyzed through the translation units that include them (-I include below).
+_SOURCE_DIRS = ["src"]
 
 
 @dataclass
@@ -120,6 +122,8 @@ def build_cppcheck_command(
         # --output-file when -j > 1 (output goes to stdout only in parallel mode).
         "-I",
         ".",
+        "-I",
+        "include",
         f"--output-file={output_file}",
     ]
 

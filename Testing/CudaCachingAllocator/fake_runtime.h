@@ -31,6 +31,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstddef>
+#include <map>
 #include <mutex>
 #include <set>
 
@@ -62,11 +63,21 @@ inline std::size_t device_total_bytes = 64ULL * 1024 * 1024 * 1024;
 // below. Arm with N to fail exactly the next N calls, then succeed again.
 inline int fail_get_device_calls = 0;
 inline int get_device_calls      = 0;
+// Fails exactly the cudaGetDevice call whose 1-based index (get_device_calls)
+// equals this value (0 = never).
+inline int fail_get_device_at_call = 0;
 
 // cudaMalloc failure injection: decrement-countdown.
 inline int          fail_malloc_calls = 0;
 inline int          malloc_calls      = 0;
+// Error returned by an injected cudaMalloc failure (OOM unless a test changes it).
+inline int          malloc_error      = 1;  // cudaErrorMemoryAllocation
+// Fails exactly the cudaMalloc call whose 1-based index equals this (0 = never).
+inline int          fail_malloc_at_call = 0;
 inline std::set<void*> device_backing;
+// Live bytes behind device_backing (cudaMalloc minus cudaFree), for budget checks.
+inline std::size_t  device_backing_bytes = 0;
+inline std::map<void*, std::size_t> device_backing_sizes;
 
 // Pauses the cudaMalloc call whose 1-based call index matches
 // malloc_pause_on_call (0 = disabled) until release_malloc_pause() is called
@@ -125,6 +136,11 @@ inline void reset()
         std::free(ptr);
     }
     device_backing.clear();
+    device_backing_sizes.clear();
+    device_backing_bytes   = 0;
+    fail_get_device_at_call = 0;
+    fail_malloc_at_call    = 0;
+    malloc_error           = 1;
     current_device         = 0;
     device_count           = 1;
     device_total_bytes     = 64ULL * 1024 * 1024 * 1024;
@@ -155,6 +171,11 @@ inline cudaError_t cudaGetLastError()
 inline cudaError_t cudaGetDevice(int* device)
 {
     ++fake_runtime::get_device_calls;
+    if (fake_runtime::fail_get_device_at_call != 0 &&
+        fake_runtime::get_device_calls == fake_runtime::fail_get_device_at_call)
+    {
+        return cudaErrorUnknown;
+    }
     if (fake_runtime::fail_get_device_calls > 0)
     {
         --fake_runtime::fail_get_device_calls;
@@ -194,10 +215,15 @@ inline cudaError_t cudaMalloc(void** ptr, std::size_t size)
         fake_runtime::malloc_pause_cv.wait(
             lock, [] { return fake_runtime::malloc_release_requested; });
     }
+    if (fake_runtime::fail_malloc_at_call != 0 &&
+        fake_runtime::malloc_calls == fake_runtime::fail_malloc_at_call)
+    {
+        return fake_runtime::malloc_error;
+    }
     if (fake_runtime::fail_malloc_calls > 0)
     {
         --fake_runtime::fail_malloc_calls;
-        return cudaErrorMemoryAllocation;
+        return fake_runtime::malloc_error;
     }
     *ptr = std::malloc(size);
     if (*ptr == nullptr)
@@ -205,11 +231,19 @@ inline cudaError_t cudaMalloc(void** ptr, std::size_t size)
         return cudaErrorMemoryAllocation;
     }
     fake_runtime::device_backing.insert(*ptr);
+    fake_runtime::device_backing_sizes[*ptr] = size;
+    fake_runtime::device_backing_bytes += size;
     return cudaSuccess;
 }
 
 inline cudaError_t cudaFree(void* ptr)
 {
+    auto const sized = fake_runtime::device_backing_sizes.find(ptr);
+    if (sized != fake_runtime::device_backing_sizes.end())
+    {
+        fake_runtime::device_backing_bytes -= sized->second;
+        fake_runtime::device_backing_sizes.erase(sized);
+    }
     fake_runtime::device_backing.erase(ptr);
     std::free(ptr);
     return cudaSuccess;

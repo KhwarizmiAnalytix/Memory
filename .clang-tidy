@@ -16,6 +16,9 @@ Checks: >
   readability-redundant-*,
   readability-container-size-empty,
   -bugprone-easily-swappable-parameters,
+  # clang-tidy 22 access-violates in this check while matching ThirdParty/Logging's
+  # magic_enum.hpp:1354 for TUs that include it (e.g. gpu/cuda_caching_allocator.cpp).
+  -bugprone-stringview-nullptr,
   -bugprone-implicit-widening-of-multiplication-result,
 HeaderFilterRegex: '^(include|src)/'
 FormatStyle: file

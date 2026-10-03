@@ -24,6 +24,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cleanup_diagnostic.h"
 #include "helper/pinned_memory_allocator.h"
 
 namespace memory
@@ -58,7 +59,7 @@ public:
             size_      = count;
         }
     }
-    ~pinned_buffer() { reset(); }
+    ~pinned_buffer() { release_counted(); }
     pinned_buffer(const pinned_buffer&)            = delete;
     pinned_buffer& operator=(const pinned_buffer&) = delete;
     pinned_buffer(pinned_buffer&& other) noexcept { swap(other); }
@@ -66,7 +67,7 @@ public:
     {
         if (this != &other)
         {
-            reset();
+            release_counted();
             swap(other);
         }
         return *this;
@@ -109,6 +110,17 @@ public:
     }
 
 private:
+    // Destructor/move-assign release: reset() cannot throw, but a false result
+    // means the storage was quarantined; a swallowed failure is not a successful
+    // cleanup (plan §5.2), so it is counted.
+    void release_counted() noexcept
+    {
+        if (!reset())
+        {
+            cleanup_diagnostic::record_failure(cleanup_source::pinned_buffer);
+        }
+    }
+
     cpu::pinned_memory_allocator* allocator_{nullptr};
     T*                            data_{nullptr};
     std::size_t                   size_{0};

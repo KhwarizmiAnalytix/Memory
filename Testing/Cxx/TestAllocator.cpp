@@ -175,22 +175,24 @@ MEMORYTEST(Allocator, CopyCpuToCpu)
     END_TEST();
 }
 
-MEMORYTEST(Allocator, CopyWithNullptrOrZeroCountIsNoOp)
+// Plan 5.1 / task 1.5: a zero count is a no-op; a positive count with a null
+// endpoint is rejected before any work starts.
+MEMORYTEST(Allocator, CopyZeroCountIsNoOpAndNullEndpointsAreRejected)
 {
     using alloc_t = allocator<int>;
     std::vector<int> dst(4, -1);
 
-    EXPECT_NO_THROW({ alloc_t::copy(nullptr, 4, dst.data(), device_enum::CPU, device_enum::CPU); });
-    EXPECT_NO_THROW({
-        int src = 0;
-        alloc_t::copy(&src, 4, nullptr, device_enum::CPU, device_enum::CPU);
-    });
-    EXPECT_NO_THROW({
-        int src = 0;
-        alloc_t::copy(&src, 0, dst.data(), device_enum::CPU, device_enum::CPU);
-    });
+    EXPECT_THROW(
+        alloc_t::copy(nullptr, 4, dst.data(), device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
+    int src = 0;
+    EXPECT_THROW(
+        alloc_t::copy(&src, 4, nullptr, device_enum::CPU, device_enum::CPU),
+        std::invalid_argument);
+    EXPECT_NO_THROW(alloc_t::copy(&src, 0, dst.data(), device_enum::CPU, device_enum::CPU));
+    EXPECT_NO_THROW(alloc_t::copy(nullptr, 0, nullptr, device_enum::CPU, device_enum::CPU));
 
-    // Untouched by the no-op copies above.
+    // Untouched by the rejected and no-op copies above.
     for (int value : dst)
     {
         EXPECT_EQ(value, -1);

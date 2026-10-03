@@ -477,7 +477,8 @@ struct cuda_caching_allocator::Impl
     {
         LOGGING_CHECK_DEBUG(size > 0, "cuda_caching_allocator cannot allocate zero bytes");
 
-        std::unique_lock lock(mutex_);
+        deferred_failure_flush const flush{*this};  // runs after `lock` is released
+        std::unique_lock             lock(mutex_);
         process_events_locked();
 
         size_t const rounded    = round_request_size(size);
@@ -533,9 +534,22 @@ struct cuda_caching_allocator::Impl
             }
         }
 
-        void* ptr = alloc_found_block_locked(block, rounded, size);
-        // process_events_locked above may have grown the cache past the cap
-        trim_cache_locked();
+        void* ptr = nullptr;
+        try
+        {
+            ptr = alloc_found_block_locked(block, rounded, size);
+        }
+        catch (...)
+        {
+            // Nothing was committed: return the block (a cached hit, or the
+            // fresh segment) to its pool so neither budget nor segment leaks.
+            restore_unallocated_block_noexcept(block);
+            throw;
+        }
+        // process_events_locked above may have grown the cache past the cap.
+        // The allocation is already committed: a trim failure must not turn it
+        // into an error the caller would answer by losing the pointer.
+        trim_cache_best_effort_locked();
         return ptr;
     }
 
@@ -546,7 +560,8 @@ struct cuda_caching_allocator::Impl
             return;
         }
 
-        std::scoped_lock const lock(mutex_);
+        deferred_failure_flush const flush{*this};  // runs after the lock is released
+        std::scoped_lock const       lock(mutex_);
         process_events_locked();
 
         auto it = allocated_blocks_.find(ptr);
@@ -556,6 +571,20 @@ struct cuda_caching_allocator::Impl
 
         cache_block* block = it->second;
         LOGGING_CHECK(block->allocated, "cuda_caching_allocator detected a double free");
+
+        // The stream hint maps to recordStream semantics: freeing after use on a
+        // stream other than the allocation stream counts as a cross-stream use.
+        // nullptr is CUDA/HIP's own spelling of the default stream, a real
+        // stream identity distinct from any non-default allocation stream, so
+        // it must not be treated as "no hint" here — a block allocated on a
+        // non-default stream and freed after use on the default stream is a
+        // genuine cross-stream use that needs event-deferred reclamation.
+        // Recording it can allocate, so it comes before any state change: a
+        // throw leaves the block live and the free retryable (task 1.7).
+        if (stream != block->stream)
+        {
+            block->stream_uses.insert(stream);
+        }
 
         allocated_blocks_.erase(it);
         block->allocated = false;
@@ -567,18 +596,6 @@ struct cuda_caching_allocator::Impl
         report_event_locked(ptr, -static_cast<int64_t>(block->size));
 #endif
 
-        // The stream hint maps to recordStream semantics: freeing after use on a
-        // stream other than the allocation stream counts as a cross-stream use.
-        // nullptr is CUDA/HIP's own spelling of the default stream, a real
-        // stream identity distinct from any non-default allocation stream, so
-        // it must not be treated as "no hint" here — a block allocated on a
-        // non-default stream and freed after use on the default stream is a
-        // genuine cross-stream use that needs event-deferred reclamation.
-        if (stream != block->stream)
-        {
-            block->stream_uses.insert(stream);
-        }
-
         if (!block->stream_uses.empty())
         {
             insert_events_locked(block);
@@ -588,7 +605,9 @@ struct cuda_caching_allocator::Impl
             free_block_locked(block);
         }
 
-        trim_cache_locked();
+        // The block is already free: a trim failure must not surface as a failed
+        // free the caller might retry (a double free).
+        trim_cache_best_effort_locked();
     }
 
     void deallocate_with_stream_lookup(void* ptr, size_t /*nbytes*/) noexcept
@@ -598,59 +617,61 @@ struct cuda_caching_allocator::Impl
             return;
         }
 
+        // Failures are reported through cleanup_diagnostic only after mutex_ is
+        // released: the diagnostic may run a user handler (plan §5.2, task 1.3).
+        bool                         failed = false;
+        deferred_failure_flush const flush{*this};  // declared before the lock: runs after it
         try
         {
             std::scoped_lock const lock(mutex_);
             process_events_locked();
 
             auto it = allocated_blocks_.find(ptr);
-            if (it == allocated_blocks_.end())
+            // Not owned by this allocator, or a double free: a deleter path
+            // cannot throw, so it counts instead.
+            if (it == allocated_blocks_.end() || !it->second->allocated)
             {
-                // Not owned by this allocator; silently ignore rather than throw
-                // (this is a deleter path in a destructor, so throwing is unsafe).
-                cleanup_diagnostic::record_failure();
-                return;
-            }
-
-            cache_block* block = it->second;
-            if (!block->allocated)
-            {
-                // Double free detected; silently ignore.
-                cleanup_diagnostic::record_failure();
-                return;
-            }
-
-            // Look up the allocation stream from the block and deallocate.
-            // Since we're deallocating on the same stream it was allocated on,
-            // there are no new cross-stream uses to record beyond what was already
-            // recorded via record_stream().
-
-            allocated_blocks_.erase(it);
-            block->allocated = false;
-            stats_.successful_frees++;
-            stats_.bytes_allocated -= block->size;
-            record_trace_locked(
-                gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
-#if MEMORY_HAS_PROFILER
-            report_event_locked(ptr, -static_cast<int64_t>(block->size));
-#endif
-
-            // No additional stream hints provided by this deleter path, so just
-            // check if prior record_stream() calls created any cross-stream uses.
-            if (!block->stream_uses.empty())
-            {
-                insert_events_locked(block);
+                failed = true;
             }
             else
             {
-                free_block_locked(block);
-            }
+                cache_block* block = it->second;
 
-            trim_cache_locked();
+                // Look up the allocation stream from the block and deallocate.
+                // Since we're deallocating on the same stream it was allocated on,
+                // there are no new cross-stream uses to record beyond what was
+                // already recorded via record_stream().
+                allocated_blocks_.erase(it);
+                block->allocated = false;
+                stats_.successful_frees++;
+                stats_.bytes_allocated -= block->size;
+                record_trace_locked(
+                    gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
+#if MEMORY_HAS_PROFILER
+                report_event_locked(ptr, -static_cast<int64_t>(block->size));
+#endif
+
+                // No additional stream hints provided by this deleter path, so just
+                // check if prior record_stream() calls created any cross-stream uses.
+                if (!block->stream_uses.empty())
+                {
+                    insert_events_locked(block);
+                }
+                else
+                {
+                    free_block_locked(block);
+                }
+
+                trim_cache_locked();
+            }
         }
         catch (...)
         {
-            cleanup_diagnostic::record_failure();
+            failed = true;
+        }
+        if (failed)
+        {
+            cleanup_diagnostic::record_failure(cleanup_source::gpu_cache);
         }
     }
 
@@ -785,28 +806,45 @@ struct cuda_caching_allocator::Impl
         return total > allowed_memory_maximum_;
     }
 
+    // Telemetry runs after the operation's state is committed (or while the
+    // original error is already propagating), so it must never fail the
+    // operation: a failed trace record is counted, not thrown (task 1.7).
     void record_trace_locked(
-        gpu_memory_trace_action action, void* address, size_t size, cudaStream_t stream)
+        gpu_memory_trace_action action, void* address, size_t size, cudaStream_t stream) noexcept
     {
-        history_.record(
-            action,
-            address,
-            size,
-            stats_.bytes_allocated.load(std::memory_order_relaxed),
-            stats_.bytes_reserved.load(std::memory_order_relaxed),
-            stream_as_int(stream));
+        try
+        {
+            history_.record(
+                action,
+                address,
+                size,
+                stats_.bytes_allocated.load(std::memory_order_relaxed),
+                stats_.bytes_reserved.load(std::memory_order_relaxed),
+                stream_as_int(stream));
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
     }
 
 #if MEMORY_HAS_PROFILER
-    void report_event_locked(void* ptr, int64_t nbytes)
+    void report_event_locked(void* ptr, int64_t nbytes) noexcept
     {
-        report_caching_allocator_event(
-            ptr,
-            nbytes,
-            stats_.bytes_allocated.load(std::memory_order_relaxed),
-            stats_.bytes_reserved.load(std::memory_order_relaxed),
-            device_,
-            kGpuDeviceType);
+        try
+        {
+            report_caching_allocator_event(
+                ptr,
+                nbytes,
+                stats_.bytes_allocated.load(std::memory_order_relaxed),
+                stats_.bytes_reserved.load(std::memory_order_relaxed),
+                device_,
+                kGpuDeviceType);
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
     }
 #endif
 
@@ -1035,7 +1073,19 @@ private:
         block->vm_backed    = raw.vm;
         block->registration_counter =
             registration_counter_global_.fetch_add(1, std::memory_order_relaxed) + 1;
-        driver_segments_.emplace(raw.ptr, raw);
+        // The driver segment exists from here. Registering it can allocate; if
+        // that throws the segment must be returned to the driver, not leaked
+        // (the budget reservation is rolled back by pending_guard above, and
+        // nothing was added to stats_ yet).
+        try
+        {
+            driver_segments_.emplace(raw.ptr, raw);
+        }
+        catch (...)
+        {
+            free_segment(device_, raw);
+            throw;
+        }
         stats_.driver_allocations++;
         stats_.bytes_reserved += raw.size;
         bump_peak_locked(
@@ -1056,41 +1106,151 @@ private:
         return remaining > kSmallSize;
     }
 
+    // Transactional (task 1.7): every fallible step (metadata, map insert, pool
+    // insert) happens before the block list or counters change, and each later
+    // fallible step undoes the earlier mutations on failure. On a throw nothing
+    // is committed and the caller still owns @p block (see
+    // restore_unallocated_block_noexcept).
     void* alloc_found_block_locked(cache_block* block, size_t rounded, size_t orig_size)
     {
-        if (should_split(block, rounded))
+        cache_block* const remaining = block;
+        cache_block*       head      = block;  // the block handed to the caller
+        bool const         split     = should_split(block, rounded);
+        if (split)
         {
-            cache_block* remaining = block;
-            block = block_freelist_.acquire(
+            // `head` takes the first `rounded` bytes; `remaining` keeps the tail.
+            head = block_freelist_.acquire(
                 remaining->ptr, rounded, remaining->stream, remaining->pool);
-            block->registration_counter = remaining->registration_counter;
-            block->segment_base         = remaining->segment_base;
-            block->vm_backed            = remaining->vm_backed;
-            block->prev                 = remaining->prev;
-            if (block->prev != nullptr)
+        }
+
+        // A live pointer must map to exactly one block: a pre-existing entry is
+        // a stale map entry and is rejected rather than silently kept.
+        try
+        {
+            if (!allocated_blocks_.emplace(head->ptr, head).second)
             {
-                block->prev->next = block;
+                throw std::logic_error(
+                    "cuda_caching_allocator: stale allocated-block entry for a reused address");
             }
-            block->next     = remaining;
-            remaining->prev = block;
+        }
+        catch (...)
+        {
+            if (split)
+            {
+                block_freelist_.release(head);
+            }
+            throw;
+        }
+
+        if (split)
+        {
+            void* const  old_ptr  = remaining->ptr;
+            cache_block* old_prev = remaining->prev;
+            head->registration_counter = remaining->registration_counter;
+            head->segment_base         = remaining->segment_base;
+            head->vm_backed            = remaining->vm_backed;
+            head->prev                 = old_prev;
+            if (old_prev != nullptr)
+            {
+                old_prev->next = head;
+            }
+            head->next      = remaining;
+            remaining->prev = head;
             remaining->ptr  = static_cast<char*>(remaining->ptr) + rounded;
             remaining->size -= rounded;
-            remaining->pool->blocks.insert(remaining);
+            try
+            {
+                remaining->pool->blocks.insert(remaining);
+            }
+            catch (...)
+            {
+                remaining->size += rounded;
+                remaining->ptr  = old_ptr;
+                remaining->prev = old_prev;
+                if (old_prev != nullptr)
+                {
+                    old_prev->next = remaining;
+                }
+                allocated_blocks_.erase(head->ptr);
+                block_freelist_.release(head);
+                throw;
+            }
             bytes_cached_ += remaining->size;
         }
 
-        block->allocated      = true;
-        block->requested_size = orig_size;
-        allocated_blocks_.emplace(block->ptr, block);
+        // Committed: nothing below can fail.
+        head->allocated      = true;
+        head->requested_size = orig_size;
         stats_.successful_allocations++;
-        stats_.bytes_allocated += block->size;
+        stats_.bytes_allocated += head->size;
         bump_peak_locked(
             stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
-        record_trace_locked(gpu_memory_trace_action::alloc, block->ptr, block->size, block->stream);
+        record_trace_locked(gpu_memory_trace_action::alloc, head->ptr, head->size, head->stream);
 #if MEMORY_HAS_PROFILER
-        report_event_locked(block->ptr, static_cast<int64_t>(block->size));
+        report_event_locked(head->ptr, static_cast<int64_t>(head->size));
 #endif
-        return block->ptr;
+        return head->ptr;
+    }
+
+    // Put a block that was taken for an allocation that then failed back into
+    // its free pool. If even that cannot allocate (a double fault) the segment
+    // stays registered in driver_segments_ and is freed at teardown; only the
+    // block metadata is lost, and the failure is counted.
+    void restore_unallocated_block_noexcept(cache_block* block) noexcept
+    {
+        try
+        {
+            block->pool->blocks.insert(block);
+            bytes_cached_ += block->size;
+            peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
+    }
+
+    void trim_cache_best_effort_locked() noexcept
+    {
+        try
+        {
+            trim_cache_locked();
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
+    }
+
+    // Failures noticed while mutex_ is held are only counted here and reported to
+    // cleanup_diagnostic by deferred_failure_flush once the lock is released.
+    void note_failure_locked() noexcept { deferred_failures_.fetch_add(1, std::memory_order_relaxed); }
+
+    struct deferred_failure_flush
+    {
+        Impl& self;
+        ~deferred_failure_flush()
+        {
+            size_t n = self.deferred_failures_.exchange(0, std::memory_order_relaxed);
+            while (n-- > 0)
+            {
+                cleanup_diagnostic::record_failure(cleanup_source::gpu_cache);
+            }
+        }
+    };
+
+    // Quarantined metadata is tracked for teardown; failing to track it loses only
+    // the metadata (the memory stays withheld), and is counted.
+    void track_quarantined_metadata_locked(cache_block* block) noexcept
+    {
+        try
+        {
+            quarantine_metadata_.push_back(block);
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
     }
 
     void free_block_locked(cache_block* block)
@@ -1108,7 +1268,20 @@ private:
 
         // Merging only relabels sizes already counted in the pool; the net new
         // cached bytes are the freed block's own (pre-merge) size.
-        block->pool->blocks.insert(block);
+        try
+        {
+            block->pool->blocks.insert(block);
+        }
+        catch (...)
+        {
+            // Out of memory for the pool node: the (possibly merged) block cannot
+            // be cached. The block lists are consistent, so withhold it as a
+            // quarantined block and count the failure; the free itself stands.
+            block->quarantined = true;
+            track_quarantined_metadata_locked(block);
+            note_failure_locked();
+            return;
+        }
         bytes_cached_ += freed_size;
         peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
         record_trace_locked(
@@ -1138,7 +1311,8 @@ private:
 
     void try_merge_locked(cache_block* dst, cache_block* src)
     {
-        if (src == nullptr || src->allocated || src->event_count > 0 || !src->stream_uses.empty())
+        if (src == nullptr || src->allocated || src->quarantined || src->event_count > 0 ||
+            !src->stream_uses.empty())
         {
             return;
         }
@@ -1182,9 +1356,6 @@ private:
 
     void insert_events_locked(cache_block* block)
     {
-        device_guard const     guard(device_);
-        std::set<cudaStream_t> streams;
-        block->stream_uses.drain(streams);
         // Tracks an event acquired from the pool but not yet confirmed queued
         // into cuda_events_ (i.e. its cudaEventRecord has not yet succeeded).
         // A failure between acquiring it and queuing it must recycle it here,
@@ -1193,9 +1364,14 @@ private:
         // allocator teardown via the pool).
         cudaEvent_t pending_event = nullptr;
         // Boundary/interop path: a CUDA error here must not orphan the block
-        // between the pools and the event queues.
+        // between the pools and the event queues. Device activation and the
+        // copy of the use set can fail too, so they are inside the try.
         try
         {
+            device_guard const guard(device_);
+            // drain() leaves block->stream_uses intact if copying it throws.
+            std::set<cudaStream_t> streams;
+            block->stream_uses.drain(streams);
             for (cudaStream_t stream : streams)
             {
                 pending_event = acquire_event_locked();
@@ -1214,35 +1390,21 @@ private:
                 // reuse rather than leaking the driver resource.
                 recycle_event_locked(pending_event);
             }
-            if (block->event_count == 0 && streams.empty())
+            // This path is only entered for a block that has recorded stream
+            // uses, so their completion is unproven unless every event was
+            // queued (and then nothing could have thrown). Reusing the block
+            // would race a new allocation into memory still in use. Quarantine:
+            // already-queued events still recycle normally, but
+            // block->quarantined prevents free_block_locked from handing this
+            // memory out again (and try_merge_locked from absorbing it).
+            block->quarantined = true;
+            if (block->event_count == 0)
             {
-                // streams was already empty before the loop (no uses on any
-                // stream), so no work was in flight and no completion needed
-                // proving. Return the block to its pool, matching the no-uses
-                // free path.
-                free_block_locked(block);
-            }
-            else
-            {
-                // Either some events were recorded before the failure (partial
-                // coverage: remaining streams in `streams` have unproven
-                // in-flight work) or no events were recorded at all but
-                // `streams` was non-empty (the swap moved real uses out of
-                // block->stream_uses before any event succeeded, so those
-                // streams' completion is unproven). In both cases, reusing the
-                // block would race a new allocation into memory still in use.
-                // Quarantine: already-queued events still recycle normally, but
-                // block->quarantined prevents free_block_locked from handing
-                // this memory out again.
-                block->quarantined = true;
-                if (block->event_count == 0)
-                {
-                    // All event recordings failed: the block will never appear in
-                    // cuda_events_ and cannot be found by release_all_blocks_noexcept
-                    // via any pool or map. Track it here so teardown can free the
-                    // cache_block metadata (the GPU memory stays withheld).
-                    quarantine_metadata_.push_back(block);
-                }
+                // No event was queued: the block will never appear in
+                // cuda_events_ and cannot be found by release_all_blocks_noexcept
+                // via any pool or map. Track it here so teardown can free the
+                // cache_block metadata (the GPU memory stays withheld).
+                track_quarantined_metadata_locked(block);
             }
             throw;
         }
@@ -1262,7 +1424,19 @@ private:
         return event;
     }
 
-    void recycle_event_locked(cudaEvent_t event) { event_pool_.push_back(event); }
+    // Called from catch blocks and cleanup paths, so it must not throw: if the
+    // pool cannot grow, the (idle) event is destroyed instead of leaked.
+    void recycle_event_locked(cudaEvent_t event) noexcept
+    {
+        try
+        {
+            event_pool_.push_back(event);
+        }
+        catch (...)
+        {
+            (void)cudaEventDestroy(event);
+        }
+    }
 
     void process_events_locked()
     {
@@ -1298,7 +1472,7 @@ private:
                     {
                         if (block->quarantined)
                         {
-                            quarantine_metadata_.push_back(block);
+                            track_quarantined_metadata_locked(block);
                         }
                         else
                         {
@@ -1333,17 +1507,23 @@ private:
         device_guard const guard(device_);
         for (auto map_it = cuda_events_.begin(); map_it != cuda_events_.end();)
         {
-            for (auto& entry : map_it->second)
+            auto& queue = map_it->second;
+            while (!queue.empty())
             {
-                throw_on_cuda_error(cudaEventSynchronize(entry.first), "cudaEventSynchronize");
-                recycle_event_locked(entry.first);
-                entry.second->event_count--;
-                if (entry.second->event_count == 0)
+                cudaEvent_t        event = queue.front().first;
+                cache_block* const block = queue.front().second;
+                // On failure the entry stays queued and untouched (no event is
+                // both pooled and queued).
+                throw_on_cuda_error(cudaEventSynchronize(event), "cudaEventSynchronize");
+                queue.pop_front();
+                recycle_event_locked(event);
+                block->event_count--;
+                if (block->event_count == 0)
                 {
-                    if (entry.second->quarantined)
-                        quarantine_metadata_.push_back(entry.second);
+                    if (block->quarantined)
+                        track_quarantined_metadata_locked(block);
                     else
-                        free_block_locked(entry.second);
+                        free_block_locked(block);
                 }
             }
             map_it = cuda_events_.erase(map_it);
@@ -1527,6 +1707,9 @@ private:
     // Budget reserved for in-flight alloc_segment_unlocked() driver calls, not
     // yet reflected in stats_.bytes_reserved. See reserved_would_exceed_locked().
     size_t pending_reserved_bytes_{0};
+    // Failures counted while mutex_ is held; flushed to cleanup_diagnostic after
+    // the lock is released (see deferred_failure_flush).
+    std::atomic<size_t> deferred_failures_{0};
 
     // Recursive, matching upstream: free-memory callbacks run under the lock and
     // may re-enter this allocator to free memory.
