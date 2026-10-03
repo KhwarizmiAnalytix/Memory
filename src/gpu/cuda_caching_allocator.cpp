@@ -1033,6 +1033,15 @@ private:
                 Impl&                                   self;
                 std::unique_lock<std::recursive_mutex>& lock;
                 size_t                                   amount;
+
+                pending_reservation_guard(
+                    Impl& s,
+                    std::unique_lock<std::recursive_mutex>& l,
+                    size_t a) noexcept
+                    : self(s), lock(l), amount(a)
+                {
+                }
+
                 ~pending_reservation_guard() noexcept
                 {
                     if (!lock.owns_lock())

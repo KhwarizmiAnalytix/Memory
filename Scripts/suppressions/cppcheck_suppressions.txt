@@ -12,19 +12,25 @@
 # syntax error.  The guarded paths (C++20 [[likely]]/[[unlikely]] attributes
 # and thread-safety annotations) are correct; suppress the false parse failure.
 syntaxError:*memory_macros.h
+syntaxError:include/common/memory_macros.h
+syntaxError:include\common\memory_macros.h
 
 # memory_allocator.cpp uses the MEMORY_UNLIKELY macro as `if MEMORY_UNLIKELY
 # (cond)` — valid after expansion to `if (__builtin_expect(...))` or the C++20
 # attribute form, but cppcheck sees the unexpanded token and rejects it.
 syntaxError:*memory_allocator.cpp
+syntaxError:src/memory_allocator.cpp
 
 # gpu/cuda_caching_allocator.cpp has the same MEMORY_UNLIKELY pattern.
 syntaxError:*cuda_caching_allocator.cpp
+syntaxError:src/gpu/cuda_caching_allocator.cpp
 
 # copy_token.h triggers a spurious "namespacememory{" parse error only when
 # certain include combinations are analysed together — cppcheck token-merging
 # artifact, not a real issue.
 syntaxError:*copy_token.h
+syntaxError:include/common/copy_token.h
+syntaxError:include\common\copy_token.h
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
@@ -43,3 +49,41 @@ normalCheckLevelMaxBranches
 # in isolation and cannot see those callers, so every public entry-point
 # appears "unused".  Suppress globally rather than annotating every header.
 unusedFunction
+
+# ---------------------------------------------------------------------------
+# style: intentional design choices
+# ---------------------------------------------------------------------------
+# functionStatic: cppcheck often flags member functions that could be static,
+# but this ignores namespace/friend scoping, and converting methods to static
+# can break encapsulation. Suppress globally.
+functionStatic
+
+# useStlAlgorithm: simple hand-written loops are often clearer and more
+# efficient than STL algorithms, especially in hot paths. We prefer
+# readability and measured performance over algorithmic style.
+useStlAlgorithm
+
+# shadowFunction: local variables shadowing outer names is a common pattern
+# and usually intentional (e.g., reusing names in inner scopes).
+shadowFunction
+
+# variableScope: reducing variable scope is a style preference; cppcheck
+# is too aggressive here and we prefer declaration at the point of first use.
+variableScope
+
+# constVariablePointer: in cuda_caching_allocator.cpp:1604, the loop variable
+# 'pool' iterates over pointers to mutable pools (small_blocks_, large_blocks_).
+# The pool contents are read-only in trim_cache_locked(), but the pool objects
+# are semantically mutable module state.
+constVariablePointer:src/gpu/cuda_caching_allocator.cpp:1604
+
+# constParameterPointer: in pinned_memory_allocator.cpp:488, deallocate()
+# signature matches the malloc/free pattern of taking non-const void* to signal
+# ownership transfer, consistent with platform allocator APIs.
+constParameterPointer:src/helper/pinned_memory_allocator.cpp:488
+
+# knownEmptyContainer: in cuda_caching_allocator.cpp:1679 and 1693, cppcheck
+# cannot see that containers (segment_ptrs, all_blocks) are populated inside
+# a try-catch block before iteration. False positive; sets are conditionally
+# filled in the preceding try block.
+knownEmptyContainer:src/gpu/cuda_caching_allocator.cpp

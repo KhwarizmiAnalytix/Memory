@@ -118,8 +118,9 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
         return malloc(nbytes);
     }
     void* ptr = nullptr;
-    // cppcheck-suppress [syntaxError, memleak] ; ptr is returned to the caller
-    return MEMORY_UNLIKELY(posix_memalign(&ptr, alignment, nbytes) != 0) ? nullptr : ptr;
+    // cppcheck-suppress memleak ; ptr is returned to the caller
+    int status = posix_memalign(&ptr, alignment, nbytes);
+    return MEMORY_UNLIKELY(status != 0) ? nullptr : ptr;
 #endif
 }
 }  // namespace

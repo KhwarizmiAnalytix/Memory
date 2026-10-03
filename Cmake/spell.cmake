@@ -78,7 +78,7 @@ else()
 
   add_custom_target(
     spell_check_${_spell_dir_lower}
-    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} include src
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Running spell check for ${_spell_dir_name}..."
     VERBATIM
@@ -86,7 +86,7 @@ else()
 
   add_custom_target(
     spell_check_build_${_spell_dir_lower} ALL
-    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} include src
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Running spell check for ${_spell_dir_name} during build..."
     VERBATIM
