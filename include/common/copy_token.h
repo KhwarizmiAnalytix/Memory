@@ -16,11 +16,7 @@
 #include "common/execution_context.h"
 #include "common/memory_export.h"
 #include "common/memory_macros.h"
-
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-#include "gpu/gpu_runtime.h"
-#include "gpu/device_guard.h"
-#endif
+#include "common/transfer.h"
 
 namespace memory
 {
@@ -97,39 +93,35 @@ public:
         }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        gpu::device_guard guard(state_->ctx.device_index, std::nothrow);
+        int const device = state_->ctx.device_index();
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
             {
                 return completion_state::pending;
             }
-            cudaError_t const r = cudaEventQuery(state_->event);
-            if (r == cudaSuccess)
+            detail::driver_result const r = detail::token_event_query(device, state_->event);
+            if (r.status == detail::driver_status::ok)
             {
                 settle(completion_state::complete, failure_kind::none, 0);
             }
-            else if (r != cudaErrorNotReady)
+            else if (r.status == detail::driver_status::error)
             {
-                settle(completion_state::failed, failure_kind::driver_query, r);
+                settle(completion_state::failed, failure_kind::driver_query, r.code);
             }
         }
         else
         {
             // Compatibility for externally constructed tokens without an event.
-            cudaError_t const r = cudaStreamQuery(static_cast<cudaStream_t>(state_->ctx.stream));
-            if (r == cudaSuccess)
+            detail::driver_result const r =
+                detail::token_stream_query(device, state_->ctx.stream);
+            if (r.status == detail::driver_status::ok)
             {
                 settle(completion_state::complete, failure_kind::none, 0);
             }
-            else if (r == cudaErrorNotReady)
+            else if (r.status == detail::driver_status::error)
             {
-                // Clear sticky error state so repeated queries work
-                (void)cudaGetLastError();
-            }
-            else
-            {
-                settle(completion_state::failed, failure_kind::driver_query, r);
+                settle(completion_state::failed, failure_kind::driver_query, r.code);
             }
         }
         // Another thread may have settled first; report the published result.
@@ -166,29 +158,27 @@ public:
             return;
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        gpu::device_guard guard(state_->ctx.device_index, std::nothrow);
-        cudaError_t       result = cudaSuccess;
+        int const                  device = state_->ctx.device_index();
+        detail::driver_result      result;
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
             {
                 throw std::runtime_error("copy_token::wait() called before operation submission");
             }
-            result = cudaEventSynchronize(state_->event);
+            result = detail::token_event_synchronize(device, state_->event);
         }
         else
         {
-            result = (state_->ctx.stream != nullptr)
-                         ? cudaStreamSynchronize(static_cast<cudaStream_t>(state_->ctx.stream))
-                         : cudaDeviceSynchronize();
+            result = detail::token_stream_synchronize(device, state_->ctx.stream);
         }
-        if (result == cudaSuccess)
+        if (result.status == detail::driver_status::ok)
         {
             settle(completion_state::complete, failure_kind::none, 0);
         }
         else
         {
-            settle(completion_state::failed, failure_kind::driver_wait, result);
+            settle(completion_state::failed, failure_kind::driver_wait, result.code);
         }
         auto const final_state = state_->terminal.load(std::memory_order_acquire);
         if (decode_state(final_state) == completion_state::failed)
@@ -218,13 +208,16 @@ public:
         {
             return;
         }
-        gpu::device_guard guard(state_->ctx.device_index);
-        cudaError_t const result = cudaEventCreateWithFlags(&state_->event, cudaEventDisableTiming);
-        if (result != cudaSuccess)
+        void*                       created = nullptr;
+        detail::driver_result const result  = detail::token_event_create(
+            state_->ctx.device_index(), &created);
+        if (result.status != detail::driver_status::ok)
         {
             throw std::runtime_error(
-                std::string("copy_token: event creation failed: ") + cudaGetErrorString(result));
+                std::string("copy_token: event creation failed: ") +
+                detail::driver_error_string(result.code));
         }
+        state_->event         = created;
         state_->event_created = true;
 #endif
     }
@@ -234,13 +227,13 @@ public:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         if (state_ && state_->event_created)
         {
-            gpu::device_guard guard(state_->ctx.device_index);
-            cudaError_t const result = cudaEventRecord(
-                state_->event, static_cast<cudaStream_t>(state_->ctx.stream));
-            if (result != cudaSuccess)
+            detail::driver_result const result = detail::token_event_record(
+                state_->ctx.device_index(), state_->event, state_->ctx.stream);
+            if (result.status != detail::driver_status::ok)
             {
                 throw std::runtime_error(
-                    std::string("copy_token: event recording failed: ") + cudaGetErrorString(result));
+                    std::string("copy_token: event recording failed: ") +
+                    detail::driver_error_string(result.code));
             }
             state_->event_recorded.store(true, std::memory_order_release);
         }
@@ -308,7 +301,7 @@ private:
             return "copy_token: operation failed";
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        text += std::string(": ") + cudaGetErrorString(static_cast<cudaError_t>(code));
+        text += std::string(": ") + detail::driver_error_string(code);
 #else
         text += ": error " + std::to_string(code);
 #endif
@@ -352,8 +345,7 @@ private:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
             if (event_created && event != nullptr)
             {
-                gpu::device_guard guard(ctx.device_index, std::nothrow);
-                (void)cudaEventDestroy(event);
+                detail::token_event_destroy(ctx.device_index(), event);
             }
 #endif
         }
@@ -361,7 +353,7 @@ private:
         execution_context     ctx{};
         std::shared_ptr<void> retained;
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        cudaEvent_t event{};
+        void* event{nullptr};  // cudaEvent_t / hipEvent_t, opaque in this header
 #endif
         bool              event_created{false};
         std::atomic<bool> event_recorded{false};

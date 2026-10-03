@@ -10,6 +10,9 @@
 #include "MemoryTest.h"
 #include "common/execution_context.h"
 #include "gpu/gpu_workspace.h"
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/gpu_runtime.h"  // the test calls the vendor runtime directly
+#endif
 
 using namespace memory;
 using namespace memory::gpu;
@@ -40,7 +43,7 @@ MEMORYTEST(GpuWorkspace, rebind_changes_context)
     gpu_workspace ws;
     auto ctx = execution_context::cuda(1);
     ws.rebind(ctx);
-    EXPECT_EQ(ws.ctx().device_index, 1);
+    EXPECT_EQ(ws.ctx().device_index(), 1);
     END_TEST();
 }
 

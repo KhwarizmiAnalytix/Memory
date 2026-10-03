@@ -24,64 +24,46 @@
 
 using namespace memory;
 
-MEMORYTEST(DeviceOption, ConstructWithInt16Index)
+MEMORYTEST(Device, FactoriesSetTypeAndIndex)
 {
-    const device_option opt(device_enum::CUDA, device_option::int_t{2});
-    EXPECT_EQ(opt.type(), device_enum::CUDA);
-    EXPECT_EQ(opt.index(), 2);
+    EXPECT_EQ(device::cuda(2).type, device_enum::CUDA);
+    EXPECT_EQ(device::cuda(2).index, 2);
+    EXPECT_EQ(device::cpu().type, device_enum::CPU);
+    EXPECT_EQ(device::hip(1).type, device_enum::HIP);
+    EXPECT_EQ(device::metal(3).type, device_enum::METAL);
     END_TEST();
 }
 
-MEMORYTEST(DeviceOption, ConstructWithIntIndex)
+MEMORYTEST(Device, EqualityOperator)
 {
-    const device_option opt(device_enum::CPU, 3);
-    EXPECT_EQ(opt.type(), device_enum::CPU);
-    EXPECT_EQ(opt.index(), 3);
+    EXPECT_TRUE(device::cpu() == device::cpu());
+    EXPECT_FALSE(device::cpu() == (device{device_enum::CPU, 1}));
+    EXPECT_TRUE(device::cpu() != device::cuda(0));
     END_TEST();
 }
 
-MEMORYTEST(DeviceOption, EqualityOperator)
+MEMORYTEST(Device, IsGpuCoversAllGpuBackends)
 {
-    const device_option a(device_enum::CPU, 0);
-    const device_option b(device_enum::CPU, 0);
-    const device_option c(device_enum::CPU, 1);
-    const device_option d(device_enum::CUDA, 0);
-
-    EXPECT_TRUE(a == b);
-    EXPECT_FALSE(a == c);
-    EXPECT_FALSE(a == d);
+    EXPECT_FALSE(device::cpu().is_gpu());
+    EXPECT_TRUE(device::cuda().is_gpu());
+    EXPECT_TRUE(device::hip().is_gpu());
+    EXPECT_TRUE(device::metal().is_gpu());
+    EXPECT_FALSE((device{device_enum::PrivateUse1, 0}).is_gpu());
     END_TEST();
 }
 
-MEMORYTEST(DeviceOption, AllDeviceEnumValues)
-{
-    const device_option cpu(device_enum::CPU, 0);
-    const device_option cuda(device_enum::CUDA, 0);
-    const device_option hip(device_enum::HIP, 0);
-    const device_option private_use(device_enum::PrivateUse1, 0);
-    const device_option metal(device_enum::METAL, 0);
-
-    EXPECT_EQ(cpu.type(), device_enum::CPU);
-    EXPECT_EQ(cuda.type(), device_enum::CUDA);
-    EXPECT_EQ(hip.type(), device_enum::HIP);
-    EXPECT_EQ(private_use.type(), device_enum::PrivateUse1);
-    EXPECT_EQ(metal.type(), device_enum::METAL);
-    END_TEST();
-}
-
-MEMORYTEST(DeviceOption, StreamInsertionDeviceEnum)
+MEMORYTEST(Device, StreamInsertionDeviceEnum)
 {
     std::ostringstream oss;
     oss << device_enum::CUDA;
-    EXPECT_NE(oss.str().find("device_option type"), std::string::npos);
+    EXPECT_NE(oss.str().find("device type"), std::string::npos);
     END_TEST();
 }
 
-MEMORYTEST(DeviceOption, StreamInsertionDeviceOption)
+MEMORYTEST(Device, StreamInsertionDevice)
 {
-    const device_option opt(device_enum::METAL, 5);
-    std::ostringstream  oss;
-    oss << opt;
+    std::ostringstream oss;
+    oss << device::metal(5);
     EXPECT_NE(oss.str().find("index 5"), std::string::npos);
     END_TEST();
 }

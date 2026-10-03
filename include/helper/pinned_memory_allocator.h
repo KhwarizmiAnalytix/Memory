@@ -24,10 +24,6 @@
 
 #include "common/memory_export.h"
 
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-#include "gpu/gpu_runtime.h"
-#endif
-
 namespace memory::cpu
 {
 struct MEMORY_VISIBILITY pinned_memory_stats
@@ -59,11 +55,8 @@ struct MEMORY_VISIBILITY pinned_memory_stats
 class MEMORY_VISIBILITY pinned_memory_allocator
 {
 public:
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-    using stream_type = cudaStream_t;
-#else
+    // Opaque: a cudaStream_t / hipStream_t converts to it implicitly.
     using stream_type = void*;
-#endif
     static constexpr std::size_t alignment                = 64;
     static constexpr std::size_t default_max_cached_bytes = 64 * 1024 * 1024;
 

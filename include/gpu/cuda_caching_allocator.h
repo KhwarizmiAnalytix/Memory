@@ -31,10 +31,7 @@
 #include "profiler/gpu_memory_snapshot.h"
 #include "profiler/unified_memory_stats.h"
 
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "common/memory_export.h"
-#include "gpu/gpu_runtime.h"
-#endif
 
 namespace memory
 {
@@ -71,11 +68,9 @@ namespace gpu
 class MEMORY_VISIBILITY cuda_caching_allocator
 {
 public:
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-    using stream_type = cudaStream_t;
-#else
+    // Opaque: a cudaStream_t / hipStream_t converts to it implicitly; the
+    // implementation converts back, so this header needs no vendor runtime header.
     using stream_type = void*;
-#endif
 
     /**
      * @brief Construct a CUDA caching allocator
@@ -306,109 +301,6 @@ MEMORY_API cuda_caching_allocator& caching_allocator_for_device(int device_index
  */
 MEMORY_API void shutdown();
 #endif
-
-/**
- * @brief Template wrapper for type-safe CUDA caching allocator
- *
- * Provides a template interface compatible with Memory's GPU allocator patterns
- * while leveraging the high-performance caching allocator underneath.
- *
- * @tparam T Element type
- * @tparam alignment Memory alignment requirement (default: 256ULL bytes)
- */
-template <typename T, std::size_t alignment = 256ULL>
-class cuda_caching_allocator_template
-{
-public:
-    using value_type      = T;
-    using pointer         = T*;
-    using const_pointer   = const T*;
-    using size_type       = std::size_t;
-    using difference_type = std::ptrdiff_t;
-    using stream_type     = cuda_caching_allocator::stream_type;
-
-    static constexpr size_type scalar_size     = sizeof(value_type);
-    static constexpr size_type alignment_bytes = alignment;
-
-    /**
-     * @brief Construct template allocator
-     * @param device CUDA device index
-     * @param max_cached_bytes Maximum cache size
-     */
-    explicit cuda_caching_allocator_template(
-        int device = 0, size_t max_cached_bytes = std::numeric_limits<size_t>::max())
-        : allocator_(device, max_cached_bytes)
-    {
-    }
-
-    /**
-     * @brief Allocate aligned memory for elements
-     * @param count Number of elements to allocate
-     * @param stream CUDA stream (optional)
-     * @return Pointer to allocated memory
-     */
-    pointer allocate(size_type count, stream_type stream = nullptr)
-    {
-        size_t aligned_bytes = aligned_byte_count(count);
-        void*  ptr           = allocator_.allocate(aligned_bytes, stream);
-        return static_cast<pointer>(ptr);
-    }
-
-    /**
-     * @brief Deallocate memory
-     * @param ptr Pointer to deallocate
-     * @param count Number of elements (for size calculation)
-     * @param stream CUDA stream (optional)
-     */
-    void deallocate(pointer ptr, size_type count, stream_type stream = nullptr)
-    {
-        allocator_.deallocate(ptr, aligned_byte_count(count), stream);
-    }
-
-    /**
-     * @brief Record a cross-stream use of a live allocation (PyTorch recordStream)
-     */
-    void record_stream(pointer ptr, stream_type stream) { allocator_.record_stream(ptr, stream); }
-
-    /**
-     * @brief Get underlying allocator statistics
-     */
-    unified_cache_stats stats() const { return allocator_.stats(); }
-
-    /**
-     * @brief Clear cache
-     */
-    void empty_cache() { allocator_.empty_cache(); }
-
-    /**
-     * @brief Get device index
-     */
-    int device() const { return allocator_.device(); }
-
-private:
-    // count * sizeof(T), then rounded up to `alignment`, both checked against
-    // overflow: an oversized `count` must fail loudly (std::overflow_error)
-    // rather than wrap to a small byte count that then underallocates.
-    static size_t aligned_byte_count(size_type count)
-    {
-        if (scalar_size != 0 && count > std::numeric_limits<size_type>::max() / scalar_size)
-        {
-            throw std::overflow_error(
-                "cuda_caching_allocator_template: element count * element size overflows "
-                "size_t");
-        }
-        size_t const bytes = count * scalar_size;
-        if (bytes > std::numeric_limits<size_type>::max() - (alignment_bytes - 1))
-        {
-            throw std::overflow_error(
-                "cuda_caching_allocator_template: byte count overflows size_t when rounded "
-                "up to alignment");
-        }
-        return ((bytes + alignment_bytes - 1) / alignment_bytes) * alignment_bytes;
-    }
-
-    cuda_caching_allocator allocator_;
-};
 
 }  // namespace gpu
 }  // namespace memory

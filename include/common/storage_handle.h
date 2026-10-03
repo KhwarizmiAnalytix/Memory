@@ -34,8 +34,8 @@ namespace memory
 //   ctx_     = nullptr.
 //
 // Adopted memory:
-//   deleter_ = caller-supplied function pointer (or a thunk wrapping a std::function).
-//   ctx_     = caller-supplied context (or a heap-allocated thunk context).
+//   deleter_ = caller-supplied function pointer.
+//   ctx_     = caller-supplied context (state a callable needs lives there).
 class MEMORY_VISIBILITY storage_handle
 {
 public:
@@ -96,12 +96,6 @@ public:
     device        dev()     const noexcept { return dev_;     }
     allocation_id id()      const noexcept { return id_;      }
     bool          empty()   const noexcept { return ptr_ == nullptr; }
-    // Raw cache pointer stored at allocate time; used by the promotion
-    // constructor (retained_ptr) to populate control_block::fn_del_ctx.
-    void*         ctx_raw()    const noexcept { return ctx_;     }
-    // Raw deleter function pointer; used by the promotion constructor to
-    // populate control_block::fn_del.  Non-null for all allocate_bytes results.
-    deleter_fn    fn_deleter() const noexcept { return deleter_; }
 
     // Disarm: returns the raw pointer and zeros the handle so the destructor
     // becomes a no-op.  The caller is responsible for freeing the memory.

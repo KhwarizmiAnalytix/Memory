@@ -12,8 +12,8 @@ using namespace memory;
 MEMORYTEST(ExecutionContext, default_is_cpu)
 {
     execution_context ctx{};
-    EXPECT_EQ(ctx.device_type, device_enum::CPU);
-    EXPECT_EQ(ctx.device_index, 0);
+    EXPECT_EQ(ctx.device_type(), device_enum::CPU);
+    EXPECT_EQ(ctx.device_index(), 0);
     EXPECT_EQ(ctx.stream, nullptr);
     EXPECT_FALSE(ctx.is_gpu());
     END_TEST();
@@ -22,8 +22,8 @@ MEMORYTEST(ExecutionContext, default_is_cpu)
 MEMORYTEST(ExecutionContext, cpu_factory)
 {
     auto ctx = execution_context::cpu();
-    EXPECT_EQ(ctx.device_type, device_enum::CPU);
-    EXPECT_EQ(ctx.device_index, 0);
+    EXPECT_EQ(ctx.device_type(), device_enum::CPU);
+    EXPECT_EQ(ctx.device_index(), 0);
     EXPECT_FALSE(ctx.is_gpu());
     END_TEST();
 }
@@ -31,8 +31,8 @@ MEMORYTEST(ExecutionContext, cpu_factory)
 MEMORYTEST(ExecutionContext, cuda_factory)
 {
     auto ctx = execution_context::cuda(2, nullptr);
-    EXPECT_EQ(ctx.device_type, device_enum::CUDA);
-    EXPECT_EQ(ctx.device_index, 2);
+    EXPECT_EQ(ctx.device_type(), device_enum::CUDA);
+    EXPECT_EQ(ctx.device_index(), 2);
     EXPECT_EQ(ctx.stream, nullptr);
     EXPECT_TRUE(ctx.is_gpu());
     END_TEST();
@@ -41,8 +41,8 @@ MEMORYTEST(ExecutionContext, cuda_factory)
 MEMORYTEST(ExecutionContext, hip_factory)
 {
     auto ctx = execution_context::hip(1);
-    EXPECT_EQ(ctx.device_type, device_enum::HIP);
-    EXPECT_EQ(ctx.device_index, 1);
+    EXPECT_EQ(ctx.device_type(), device_enum::HIP);
+    EXPECT_EQ(ctx.device_index(), 1);
     EXPECT_TRUE(ctx.is_gpu());
     END_TEST();
 }
@@ -50,8 +50,8 @@ MEMORYTEST(ExecutionContext, hip_factory)
 MEMORYTEST(ExecutionContext, metal_factory)
 {
     auto ctx = execution_context::metal();
-    EXPECT_EQ(ctx.device_type, device_enum::METAL);
-    EXPECT_EQ(ctx.device_index, 0);
+    EXPECT_EQ(ctx.device_type(), device_enum::METAL);
+    EXPECT_EQ(ctx.device_index(), 0);
     EXPECT_TRUE(ctx.is_gpu());
     END_TEST();
 }

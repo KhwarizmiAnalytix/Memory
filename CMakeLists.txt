@@ -583,6 +583,7 @@ install(
   DESTINATION include/Memory
   FILES_MATCHING
   PATTERN "*.h"
+  PATTERN "experimental" EXCLUDE
 )
 
 # --- Testing ---

@@ -91,7 +91,7 @@ int main(int argc, char** argv)
     auto stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream      = stream;
 
     double const res = phase0::timer_resolution_ns();

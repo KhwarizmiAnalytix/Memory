@@ -419,7 +419,7 @@ struct pinned_memory_allocator::Impl
             return;
         std::scoped_lock  lock(mutex_);
         gpu::device_guard guard(device_);
-        use_stream(live_block(ptr), stream);
+        use_stream(live_block(ptr), static_cast<cudaStream_t>(stream));
     }
 
     void copy(
@@ -437,14 +437,14 @@ struct pinned_memory_allocator::Impl
         gpu::device_guard guard(device_);
         auto&             b = live_block(to_device ? source : destination, bytes);
         use_stream(b,
-                   stream);  // No untracked transfer if metadata allocation fails.
+                   static_cast<cudaStream_t>(stream));  // No untracked transfer if metadata allocation fails.
         gpu::throw_on_cuda_error(
             cudaMemcpyAsync(
                 destination,
                 source,
                 bytes,
                 to_device ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
-                stream),
+                static_cast<cudaStream_t>(stream)),
             "Pinned cudaMemcpyAsync");
     }
 

@@ -22,6 +22,8 @@
 #include <atomic>
 #include <cstddef>
 
+#include "gpu/gpu_dispatch.h"
+
 // Unified entry for the process-wide GPU caching allocator.
 //
 // CUDA, HIP, and Metal backends are compile-time exclusive (MEMORY_GPU_BACKEND).
@@ -63,30 +65,12 @@ namespace memory::gpu
 // Process-wide cache API (PyTorch torch.cuda.memory). Operates on the shared
 // per-device allocator that allocator<T> / data_ptr / tensor already use.
 
-MEMORY_FORCE_INLINE void empty_cache(int device_index = 0)
-{ caching_allocator_for_device(device_index).empty_cache(); }
-
-// O(1) lock-free basic stats (plan §6.1, P3.5): direct atomic reads, no mutex.
-MEMORY_FORCE_INLINE size_t memory_allocated(int device_index = 0)
-{ return caching_allocator_for_device(device_index).bytes_allocated_now(); }
-
-MEMORY_FORCE_INLINE size_t max_memory_allocated(int device_index = 0)
-{ return caching_allocator_for_device(device_index).peak_bytes_allocated_now(); }
-
-MEMORY_FORCE_INLINE size_t memory_reserved(int device_index = 0)
-{ return caching_allocator_for_device(device_index).bytes_reserved_now(); }
-
-MEMORY_FORCE_INLINE size_t max_memory_reserved(int device_index = 0)
-{ return caching_allocator_for_device(device_index).peak_bytes_reserved_now(); }
+// empty_cache, memory_allocated, max_memory_allocated, memory_reserved,
+// max_memory_reserved, reset_peak_memory_stats and set_memory_fraction are
+// declared in gpu/gpu_dispatch.h (out of line, no vendor headers needed).
 
 MEMORY_FORCE_INLINE unified_cache_stats memory_stats(int device_index = 0)
 { return caching_allocator_for_device(device_index).stats(); }
-
-MEMORY_FORCE_INLINE void reset_peak_memory_stats(int device_index = 0)
-{ caching_allocator_for_device(device_index).reset_peak_stats(); }
-
-MEMORY_FORCE_INLINE void set_memory_fraction(double fraction, int device_index = 0)
-{ caching_allocator_for_device(device_index).set_memory_fraction(fraction); }
 
 MEMORY_FORCE_INLINE double memory_fraction(int device_index = 0)
 { return caching_allocator_for_device(device_index).memory_fraction(); }

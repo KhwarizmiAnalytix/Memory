@@ -6,37 +6,49 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/device.h"
 #include "common/memory_macros.h"
-
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-#include "gpu/gpu_runtime.h"
-#endif
 
 namespace memory
 {
 
-// Canonical stream handle: cudaStream_t under CUDA/HIP, void* otherwise.
-// nullptr is the real CUDA/HIP per-thread default stream, not "no stream".
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-using stream_handle_t = cudaStream_t;
-#else
+// Opaque stream handle (plan 4.2). CUDA/HIP streams are pointer types, so a
+// cudaStream_t / hipStream_t converts to it implicitly; the backend converts back
+// with static_cast inside the library, which keeps vendor runtime headers out of
+// every public header. Metal and CPU ignore it.
+// nullptr is the real CUDA/HIP default stream of the build's compile mode (legacy
+// or per-thread), not "no stream".
 using stream_handle_t = void*;
-#endif
 
-// Identifies where and on which stream work executes.  Replaces scattered
-// (device_enum, int, stream) triples so copy, workspace, and arena APIs
-// carry a single context argument instead of three.
+// Identifies where and on which stream work executes (plan §4.2).
+//
+// Stream semantics: on CUDA/HIP a null `stream` is the real default stream of
+// the build's compile mode (legacy or per-thread), not "no stream"; it is a
+// valid submission target and a valid recorded use. CPU and Metal ignore it.
+//
+// `dev` is the identity; device_type()/device_index() are compatibility
+// accessors for code written against the former separate fields.
 struct execution_context
 {
-    memory::device_enum    device_type{memory::device_enum::CPU};
-    int            device_index{0};
-    stream_handle_t stream{nullptr};  // nullptr = CUDA/HIP per-thread default
+    memory::device  dev{};
+    stream_handle_t stream{nullptr};
 
-    static execution_context cpu() noexcept
+    constexpr execution_context() noexcept = default;
+    constexpr execution_context(memory::device d, stream_handle_t s = nullptr) noexcept
+        : dev(d), stream(s)
     {
-        return {memory::device_enum::CPU, 0, nullptr};
     }
+    constexpr execution_context(memory::device_enum type, int index, stream_handle_t s) noexcept
+        : dev{type, static_cast<std::int16_t>(index)}, stream(s)
+    {
+    }
+
+    constexpr memory::device_enum device_type() const noexcept { return dev.type; }
+    constexpr int                 device_index() const noexcept { return dev.index; }
+
+    static execution_context cpu() noexcept { return {memory::device::cpu(), nullptr}; }
 
     static execution_context cuda(int index = 0, stream_handle_t s = nullptr) noexcept
     {
@@ -53,18 +65,13 @@ struct execution_context
         return {memory::device_enum::METAL, index, nullptr};
     }
 
-    bool is_gpu() const noexcept
-    {
-        return device_type == memory::device_enum::CUDA || device_type == memory::device_enum::HIP ||
-               device_type == memory::device_enum::METAL;
-    }
+    constexpr bool is_gpu() const noexcept { return dev.is_gpu(); }
 
-    bool operator==(execution_context const& o) const noexcept
+    constexpr bool operator==(execution_context const& o) const noexcept
     {
-        return device_type == o.device_type && device_index == o.device_index &&
-               stream == o.stream;
+        return dev == o.dev && stream == o.stream;
     }
-    bool operator!=(execution_context const& o) const noexcept { return !(*this == o); }
+    constexpr bool operator!=(execution_context const& o) const noexcept { return !(*this == o); }
 };
 
 }  // namespace memory

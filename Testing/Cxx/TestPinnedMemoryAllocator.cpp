@@ -19,6 +19,9 @@
 
 #include "MemoryTest.h"
 #include "common/pinned_buffer.h"
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+#include "gpu/gpu_runtime.h"  // the test calls the vendor runtime directly
+#endif
 
 #include <cstdint>
 #include <limits>

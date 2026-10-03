@@ -428,7 +428,7 @@ Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (
 
 **For users:** See the [**Dependency Graph**](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE) for visual architecture
 **For integration:** Focus on `allocator<T>`, `data_ptr<T>`, `retained_ptr<T>`, `copy_token`
-**For optimization:** See `device_handle_cache` (thread-local LRU) and segment caching strategy
+**For optimization:** See the segment caching strategy in `gpu/cuda_caching_allocator.h`
 
 **Key files:**
 - `allocator.h` – Unified allocation facade

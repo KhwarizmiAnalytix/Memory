@@ -18,7 +18,7 @@
 #include "common/execution_context.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
-#include "gpu/caching_allocator.h"
+#include "gpu/gpu_dispatch.h"
 #endif
 
 namespace memory::gpu
@@ -146,7 +146,7 @@ public:
             cursor_ == 0,
             "gpu_workspace::rebind called while slices are still acquired (cursor > 0); "
             "call release() before rebind()");
-        if (backing_ != nullptr && ctx.device_index != ctx_.device_index)
+        if (backing_ != nullptr && ctx.device_index() != ctx_.device_index())
         {
             release_backing();  // free on original device before switching
         }
@@ -165,8 +165,7 @@ private:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         if (ctx_.is_gpu())
         {
-            backing_ =
-                caching_allocator_for_device(ctx_.device_index).allocate(needed, ctx_.stream);
+            backing_ = allocate_device_bytes(needed, ctx_.device_index(), ctx_.stream);
             capacity_ = needed;
             return;
         }
@@ -184,8 +183,7 @@ private:
         {
             try
             {
-                caching_allocator_for_device(ctx_.device_index)
-                    .deallocate(backing_, capacity_, ctx_.stream);
+                free_device_bytes(backing_, ctx_.device_index(), ctx_.stream);
             }
             catch (...) {}
         }

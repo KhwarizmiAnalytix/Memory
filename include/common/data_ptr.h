@@ -9,6 +9,7 @@
 #include "common/data_view.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
+#include "common/storage_element.h"
 #include "common/storage_handle.h"
 
 // Trivial accessors (data/begin/end/size) are called from CUDA kernel argument
@@ -41,6 +42,7 @@ template <typename value_t>
 struct data_ptr
 {
     using allocator_t = allocator<value_t>;
+    MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(value_t, allocator_t::alignment_bytes);
     using stream_t    = typename allocator_t::stream_t;
 
     MEMORY_FORCE_INLINE data_ptr() = default;
@@ -237,8 +239,9 @@ MEMORY_FORCE_INLINE copy_token copy_async(
 
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
-    : data_view(owner.data(), owner.size(), owner.device(), owner.device_index(),
-                owner.stream(), owner.data())
+    : data_view(owner.data(), owner.size(),
+                storage_ref<value_t>{owner.data(), owner.id(), owner.handle_.dev()},
+                owner.stream())
 {
 }
 
@@ -262,28 +265,11 @@ retained_ptr<T>::retained_ptr(data_ptr<T>&& dp)
     {
         return;
     }
-    auto* cb       = new control_block();
-    cb->base       = static_cast<T*>(dp.handle_.get());
-    cb->capacity   = dp.handle_.nbytes() / sizeof(T);
-    cb->nbytes     = dp.handle_.nbytes();
-    cb->stream     = dp.stream_;
-    cb->ctx        = execution_context{dp.handle_.dev().type,
-                                       static_cast<int>(dp.handle_.dev().index),
-                                       dp.stream_};
-    cb->identity.alloc_id = dp.handle_.id().value;
-    cb->identity.base     = dp.handle_.get();
-    cb->identity.capacity = dp.handle_.nbytes();
-    // Extract the raw deleter and cache context from the storage_handle before
-    // disarming it (plan §2.10, R1).
-    // GPU: fn_del_ctx = cache ptr, fn_del = gpu_free_fn (looks up the stream).
-    // CPU: fn_del_ctx = nullptr,   fn_del = cpu_free_fn.
-    cb->fn_del_ctx = dp.handle_.ctx_raw();
-    cb->fn_del     = dp.handle_.fn_deleter();
-    (void)dp.handle_.release();   // disarm: ownership transferred to control_block
-    dp.stream_     = nullptr;
-    cb_            = cb;
-    data_          = cb->base;
-    size_          = cb->capacity;
+    // The block is reserved first: on bad_alloc dp keeps ownership. The handle,
+    // with its deleter and cache context (GPU or CPU), moves into shared storage.
+    execution_context const ctx{dp.handle_.dev(), dp.stream_};
+    *this      = retained_ptr::from_storage(std::move(dp.handle_), ctx);
+    dp.stream_ = nullptr;
 }
 
 }  // namespace memory

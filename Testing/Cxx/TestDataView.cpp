@@ -131,3 +131,32 @@ MEMORYTEST(DataView, default_constructed_has_null_base)
     EXPECT_EQ(nullptr, view.base());
     END_TEST();
 }
+
+// Task 2.5: a view carries storage_ref {base, id, device}; slices keep all three.
+MEMORYTEST(DataView, slice_of_slice_keeps_base_id_and_device)
+{
+    data_ptr<int> owned(8, device_enum::CPU);
+    EXPECT_TRUE(owned.id().valid());
+
+    data_view<int> nested = owned.view(2, 4).subview(1, 2);
+    EXPECT_EQ(owned.data(), nested.storage().base);
+    EXPECT_EQ(owned.id(), nested.id());
+    EXPECT_EQ(device::cpu(), nested.storage().dev);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, borrow_has_invalid_id)
+{
+    int            raw[4] = {0, 1, 2, 3};
+    data_view<int> view   = data_view<int>::borrow(raw, 4, device_enum::CPU);
+    EXPECT_FALSE(view.id().valid());
+    EXPECT_FALSE(view.subview(1, 2).id().valid());
+    END_TEST();
+}
+
+MEMORYTEST(DataView, default_constructed_has_invalid_id)
+{
+    data_view<int> view;
+    EXPECT_FALSE(view.id().valid());
+    END_TEST();
+}

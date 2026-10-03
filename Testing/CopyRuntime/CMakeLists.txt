@@ -1,4 +1,4 @@
-# Compile copy_token and allocator paths against deterministic test-only runtimes.
+# Compile copy_token, the byte copy router (src/transfer.cpp) and allocator paths against deterministic test-only runtimes.
 # These targets never link Memory or vendor GPU libraries, exercising GPU paths
 # (device guards, stream queries, peer copies) without hardware.
 
@@ -10,7 +10,9 @@ foreach(_backend IN ITEMS Cuda Hip)
   add_executable(
     ${_target}
     TestCopyRuntime.cpp
+    gpu_dispatch_stub.cpp
     "${_copy_src}/retained_operation_service.cpp"
+    "${_copy_src}/transfer.cpp"
     "${_copy_src}/common/allocation_id.cpp"
   )
   target_include_directories(${_target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -35,7 +37,9 @@ endforeach()
 add_executable(
   MemoryCopyShimBenchPhase0
   Phase0CopyShimBench.cpp
+  gpu_dispatch_stub.cpp
   "${_copy_src}/retained_operation_service.cpp"
+  "${_copy_src}/transfer.cpp"
   "${_copy_src}/common/allocation_id.cpp"
 )
 target_include_directories(MemoryCopyShimBenchPhase0 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${_copy_include}")

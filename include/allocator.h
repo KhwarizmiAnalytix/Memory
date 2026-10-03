@@ -36,20 +36,13 @@
 #include "common/retained_operation_service.h"
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
-// GPU caching allocator (CUDA, HIP, or Metal — compile-time exclusive).
-// Unified registry: gpu::caching_allocator_for_device(i).
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
+#include "common/transfer.h"  // byte copy router, token driver operations
 
-#include "gpu/caching_allocator.h"
-
-#endif
-
+// GPU caching allocator (CUDA, HIP, or Metal — compile-time exclusive), reached
+// through backend-neutral entry points so no vendor runtime header is included.
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
 #include "gpu/caching_allocator_config.h"  // for caching_config::kMinBlockSize
-#endif
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-#include "gpu/device_guard.h"
-#include "gpu/gpu_runtime.h"
+#include "gpu/gpu_dispatch.h"
 #endif
 
 namespace memory
@@ -143,11 +136,7 @@ public:
     using pointer         = T*;
     using const_pointer   = const T*;
 
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-    using stream_t = cudaStream_t;
-#else
-    using stream_t = void*;
-#endif
+    using stream_t = stream_handle_t;
 
     static constexpr size_type scalar_size    = sizeof(value_type);
     static constexpr size_type alignment_bytes = alignment;
@@ -159,7 +148,7 @@ public:
      */
     MEMORY_FORCE_INLINE static pointer allocate(size_type n, execution_context ctx)
     {
-        return allocate(n, ctx.device_type, ctx.device_index, ctx.stream);
+        return allocate(n, ctx.device_type(), ctx.device_index(), ctx.stream);
     }
 
     /**
@@ -207,8 +196,7 @@ public:
                     "kMinBlockSize-byte alignment; requested alignment exceeds it");
             }
 #endif
-            ptr = static_cast<pointer>(
-                gpu::caching_allocator_for_device(device_index).allocate(nbytes, stream));
+            ptr = static_cast<pointer>(gpu::allocate_device_bytes(nbytes, device_index, stream));
         }
 #endif
         else
@@ -251,7 +239,7 @@ public:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         else if (is_active_gpu_device(type))
         {
-            gpu::caching_allocator_for_device(device_index).deallocate(ptr, 0, stream);
+            gpu::free_device_bytes(ptr, device_index, stream);
         }
 #endif
         else
@@ -360,7 +348,7 @@ public:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         if (is_active_gpu_device(type))
         {
-            gpu::caching_allocator_for_device(device_index).record_stream(ptr, stream);
+            gpu::record_stream_use(ptr, device_index, stream);
         }
 #else
         (void)type;
@@ -458,113 +446,18 @@ public:
             return;
         }
 
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        if (from_type == device_enum::CUDA || to_type == device_enum::CUDA ||
-            from_type == device_enum::HIP || to_type == device_enum::HIP)
-        {
-            // Register stream uses on GPU endpoints BEFORE enqueuing the copy.
-            // This closes the window between submission and registration: a
-            // deallocation arriving between cudaMemcpyAsync and record_stream
-            // could reclaim a block that the in-flight copy still references.
-            // null stream is the legacy default CUDA stream — a valid stream
-            // identity, not "no stream" (see cuda_caching_allocator::record_stream).
-            // copy_sync passes stream=nullptr and is caller-responsible for blocking;
-            // copy_async always passes a non-null stream.
-            if constexpr (track_gpu_streams)
-            {
-                if (from_type == device_enum::CUDA || from_type == device_enum::HIP)
-                {
-                    record_stream(const_cast<pointer>(from), from_type, from_index, stream);
-                }
-            }
-            if constexpr (track_gpu_streams)
-            {
-                if (to_type == device_enum::CUDA || to_type == device_enum::HIP)
-                {
-                    record_stream(to, to_type, to_index, stream);
-                }
-            }
-
-            cudaError_t result = cudaSuccess;
-            if ((from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
-                (to_type == device_enum::CUDA || to_type == device_enum::HIP) &&
-                from_index != to_index)
-            {
-                gpu::device_guard const peer_guard(to_index);
-                if (submitted != nullptr)
-                {
-                    *submitted = true;
-                }
-                result = cudaMemcpyPeerAsync(
-                    to, to_index, from, from_index, nbytes,
-                    stream != nullptr ? static_cast<cudaStream_t>(stream)
-                                      : static_cast<cudaStream_t>(nullptr));
-            }
-            else
-            {
-                cudaMemcpyKind copy_kind;
-                if (from_type == device_enum::CPU &&
-                    (to_type == device_enum::CUDA || to_type == device_enum::HIP))
-                {
-                    copy_kind = cudaMemcpyHostToDevice;
-                }
-                else if (
-                    (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
-                    to_type == device_enum::CPU)
-                {
-                    copy_kind = cudaMemcpyDeviceToHost;
-                }
-                else if (
-                    (from_type == device_enum::CUDA || from_type == device_enum::HIP) &&
-                    (to_type == device_enum::CUDA || to_type == device_enum::HIP))
-                {
-                    copy_kind = cudaMemcpyDeviceToDevice;
-                }
-                else
-                {
-                    throw std::invalid_argument(
-                        "Unsupported GPU device combination for memory copy");
-                }
-
-                int const gpu_index = (to_type == device_enum::CUDA || to_type == device_enum::HIP)
-                                          ? to_index
-                                          : from_index;
-                gpu::device_guard const guard(gpu_index);
-                if (submitted != nullptr)
-                {
-                    *submitted = true;
-                }
-                // Always use the async form so enqueuing is non-blocking.
-                // stream == nullptr means the legacy default CUDA stream (0).
-                result = cudaMemcpyAsync(
-                    to, from, nbytes, copy_kind,
-                    stream != nullptr ? static_cast<cudaStream_t>(stream)
-                                      : static_cast<cudaStream_t>(nullptr));
-            }
-            if (result != cudaSuccess)
-            {
-                throw std::runtime_error(
-                    "GPU memory copy failed: " + std::string(cudaGetErrorString(result)));
-            }
-            return;
-        }
-#elif MEMORY_HAS_METAL
-        (void)from_index;
-        (void)to_index;
-        (void)stream;
-        // Shared-storage MTLBuffers are host-addressable — all METAL sides are memcpy.
-        if (from_type == device_enum::METAL || to_type == device_enum::METAL)
-        {
-            if (submitted != nullptr)
-            {
-                *submitted = true;
-            }
-            std::memcpy(to, from, nbytes);
-            return;
-        }
-#endif
-
-        throw std::invalid_argument("Unsupported device combination for memory copy");
+        // Everything that touches a GPU endpoint goes through the byte router
+        // (src/transfer.cpp): stream-use registration, peer vs host/device copy
+        // kinds and the driver calls live there, not in this header.
+        detail::route_copy_bytes(
+            from,
+            to,
+            nbytes,
+            device{from_type, static_cast<std::int16_t>(from_index)},
+            device{to_type, static_cast<std::int16_t>(to_index)},
+            stream,
+            track_gpu_streams,
+            submitted);
     }
 
     // --- Explicit sync / async copy helpers (Order 3) ---
@@ -657,8 +550,8 @@ public:
         device_enum gpu_dev = (is_gpu_device(to_type) ? to_type : from_type);
         int         gpu_idx = (is_gpu_device(to_type) ? to_index : from_index);
         execution_context ctx;
-        ctx.device_type  = gpu_dev;
-        ctx.device_index = gpu_idx;
+        ctx.dev.type  = gpu_dev;
+        ctx.dev.index = gpu_idx;
         ctx.stream       = stream;
         copy_token token(ctx);
         if (retained)
@@ -682,25 +575,7 @@ public:
         }
         catch (...)
         {
-            bool proven_idle = true;
-#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-            if (submitted && ctx.is_gpu())
-            {
-                try
-                {
-                    gpu::device_guard const guard(ctx.device_index);
-                    proven_idle =
-                        cudaStreamSynchronize(static_cast<cudaStream_t>(ctx.stream)) == cudaSuccess;
-                }
-                catch (...)
-                {
-                    proven_idle = false;
-                }
-            }
-#else
-            (void)submitted;
-#endif
-            // cppcheck-suppress knownConditionTrueFalse ; constant only in builds without a GPU backend
+            bool const proven_idle = !submitted || !ctx.is_gpu() || detail::stream_proven_idle(ctx);
             if (proven_idle)
             {
                 // Nothing is in flight: restore admission once and release the payload.
@@ -780,11 +655,13 @@ public:
         auto holder = std::make_shared<retained_holder>(retained_holder{from, to});
         return copy_async_impl<false>(
             from.data(), from.size(), to.data(), stream,
-            from.ctx().device_type, to.ctx().device_type,
-            from.ctx().device_index, to.ctx().device_index,
+            from.ctx().device_type(), to.ctx().device_type(),
+            from.ctx().device_index(), to.ctx().device_index(),
             std::static_pointer_cast<void>(holder), true);
     }
 
+    // SIMD loop peeling is not a memory concern; it moves to Vectorization (plan 4.6, task 2.7).
+    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)
     {
         if constexpr ((alignment % scalar_size) != 0)
@@ -804,6 +681,7 @@ public:
         return (first < size) ? first : size;
     }
 
+    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
     {

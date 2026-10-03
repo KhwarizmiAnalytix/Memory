@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -18,6 +19,9 @@
 #include "common/deleter_fn.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
+#include "common/shared_storage.h"
+#include "common/storage_element.h"
+#include "common/storage_handle.h"
 #include "common/storage_identity.h"
 
 namespace memory
@@ -47,33 +51,10 @@ struct data_ptr;
 template <typename T>
 class retained_ptr
 {
+    MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(T, ::memory::storage_max_alignment);
+
 public:
     using element_type = T;
-
-    // Per-allocation control block; one heap allocation per adopt() or promotion.
-    struct control_block
-    {
-        std::atomic<int32_t> ref_count{1};
-        T*                   base{nullptr};      // allocation base
-        size_t               capacity{0};        // element count at base
-        std::size_t          nbytes{0};          // byte count (promotion path)
-        stream_handle_t      stream{nullptr};    // GPU free stream (promotion path)
-        // Promotion path: fn_del/fn_del_ctx hold the raw deleter extracted from
-        // storage_handle at promotion time.  GPU allocations set fn_del_ctx to
-        // the cache pointer and fn_del to nullptr; CPU sets fn_del to cpu_free_fn.
-        // Adopt() path: both are null; the std::function deleter below is used.
-        deleter_fn           fn_del{nullptr};
-        void*                fn_del_ctx{nullptr};
-        execution_context    ctx{};
-        storage_identity     identity{};
-        // Adopt() path deleter: called with (base, capacity, ctx) when ref drops to 0.
-        // Non-null only for adopt(); nullptr for the promotion path.
-        std::function<void(T*, size_t, execution_context const&)> deleter;
-
-        control_block()                              = default;
-        control_block(control_block const&)          = delete;
-        control_block& operator=(control_block const&) = delete;
-    };
 
     // --- Construction / Adoption ---
 
@@ -99,8 +80,40 @@ public:
     // deleter is discarded unused. The capacity is asserted by the caller, not
     // verified.
     static retained_ptr adopt(
-        T*              data,
-        size_t          capacity,
+        T*                data,
+        size_t            capacity,
+        execution_context ctx,
+        deleter_fn        deleter,
+        void*             deleter_ctx)
+    {
+        if (deleter == nullptr)
+        {
+            throw std::invalid_argument("retained_ptr::adopt: an explicit deleter is required");
+        }
+        if (!validate_adoption(data, capacity))
+        {
+            return {};
+        }
+        // Reserve the block before committing the handle: a bad_alloc here leaves
+        // the caller owning the data (the deleter has not run).
+        void* const block = shared_storage::allocate_block();
+        return retained_ptr(
+            shared_storage::construct(
+                block,
+                storage_handle(
+                    data, capacity * sizeof(T), deleter, deleter_ctx, ctx.dev, next_allocation_id()),
+                ctx),
+            data,
+            capacity);
+    }
+
+    // Convenience overload taking a callable. The callable lives in a heap thunk
+    // owned by the storage until the last reference drops; prefer the function-
+    // pointer overload above on hot paths (no allocation beyond the block). A
+    // callable that throws is counted in cleanup_diagnostic, not propagated.
+    static retained_ptr adopt(
+        T*                data,
+        size_t            capacity,
         execution_context ctx,
         std::function<void(T*, size_t, execution_context const&)> deleter)
     {
@@ -108,34 +121,41 @@ public:
         {
             throw std::invalid_argument("retained_ptr::adopt: an explicit deleter is required");
         }
-        if (data == nullptr)
+        if (!validate_adoption(data, capacity))
         {
-            if (capacity != 0)
-            {
-                throw std::invalid_argument(
-                    "retained_ptr::adopt: null base pointer with a non-zero capacity");
-            }
             return {};
         }
-        if (capacity == 0)
+        auto thunk = std::make_unique<adopt_thunk>(adopt_thunk{std::move(deleter), ctx, capacity});
+        void* const block = shared_storage::allocate_block();
+        // Past this point nothing throws: the thunk is released into the handle.
+        auto* const storage = shared_storage::construct(
+            block,
+            storage_handle(
+                data,
+                capacity * sizeof(T),
+                &adopt_thunk_free,
+                thunk.release(),
+                ctx.dev,
+                next_allocation_id()),
+            ctx);
+        return retained_ptr(storage, data, capacity);
+    }
+
+    // Wrap an allocation made by allocate_bytes() (or any storage_handle) in
+    // shared ownership without reallocating. An empty handle yields an empty
+    // retained_ptr. On bad_alloc the handle is untouched and still owned by the
+    // caller.
+    static retained_ptr from_storage(storage_handle&& handle, execution_context ctx)
+    {
+        if (handle.empty())
         {
-            throw std::invalid_argument(
-                "retained_ptr::adopt: non-null base pointer with zero capacity; "
-                "the caller keeps ownership");
+            return {};
         }
-        if (capacity > std::numeric_limits<size_t>::max() / sizeof(T))
-        {
-            throw std::overflow_error("retained_ptr::adopt: capacity * sizeof(T) overflows size_t");
-        }
-        control_block* cb  = new control_block();
-        cb->base           = data;
-        cb->capacity       = capacity;
-        cb->ctx            = ctx;
-        cb->deleter        = std::move(deleter);
-        cb->identity.alloc_id = storage_identity::next_id();
-        cb->identity.base     = static_cast<void*>(data);
-        cb->identity.capacity = capacity * sizeof(T);
-        return retained_ptr(cb, data, capacity);
+        T* const     base     = static_cast<T*>(handle.get());
+        size_t const capacity = handle.nbytes() / sizeof(T);
+        void* const  block    = shared_storage::allocate_block();
+        return retained_ptr(
+            shared_storage::construct(block, std::move(handle), ctx), base, capacity);
     }
 
     // --- Copy / Move / Destructor ---
@@ -145,7 +165,7 @@ public:
     {
         if (cb_)
         {
-            cb_->ref_count.fetch_add(1, std::memory_order_relaxed);
+            cb_->add_ref();
         }
     }
 
@@ -161,7 +181,7 @@ public:
         size_ = rhs.size_;
         if (cb_)
         {
-            cb_->ref_count.fetch_add(1, std::memory_order_relaxed);
+            cb_->add_ref();
         }
         return *this;
     }
@@ -206,7 +226,7 @@ public:
         size_t const n = (count < size_ - offset) ? count : (size_ - offset);
         if (cb_)
         {
-            cb_->ref_count.fetch_add(1, std::memory_order_relaxed);
+            cb_->add_ref();
         }
         return retained_ptr(cb_, data_ + offset, n);
     }
@@ -222,74 +242,105 @@ public:
     explicit operator bool() const noexcept { return data_ != nullptr; }
 
     // Allocation base (always cb_->base, independent of slice offset).
-    T* base() const noexcept { return cb_ ? cb_->base : nullptr; }
+    T* base() const noexcept { return cb_ ? static_cast<T*>(cb_->base()) : nullptr; }
 
     storage_identity const& identity() const noexcept
     {
         static constexpr storage_identity k{};
-        return cb_ ? cb_->identity : k;
+        return cb_ ? cb_->identity() : k;
     }
 
     execution_context const& ctx() const noexcept
     {
         static constexpr execution_context k{};
-        return cb_ ? cb_->ctx : k;
+        return cb_ ? cb_->ctx() : k;
     }
 
     // Shared reference count (0 for null/empty).
     int32_t use_count() const noexcept
     {
-        return cb_ ? cb_->ref_count.load(std::memory_order_relaxed) : 0;
+        return cb_ ? cb_->use_count() : 0;
     }
 
 private:
-    retained_ptr(control_block* cb, T* data, size_t size) noexcept
+    // State for the callable overload of adopt().
+    struct adopt_thunk
+    {
+        std::function<void(T*, size_t, execution_context const&)> fn;
+        execution_context                                         ctx;
+        size_t                                                    capacity;
+    };
+
+    static void adopt_thunk_free(void* thunk_ptr, void* base, std::size_t) noexcept
+    {
+        std::unique_ptr<adopt_thunk> thunk(static_cast<adopt_thunk*>(thunk_ptr));
+        try
+        {
+            thunk->fn(static_cast<T*>(base), thunk->capacity, thunk->ctx);
+        }
+        catch (...)
+        {
+            cleanup_diagnostic::record_failure(cleanup_source::retained_ptr);
+        }
+    }
+
+    // Shared argument checks for both adopt() overloads. Returns false for the one
+    // empty adoption (null base, zero capacity); throws for every invalid pairing.
+    static bool validate_adoption(T* data, size_t capacity)
+    {
+        if (data == nullptr)
+        {
+            if (capacity != 0)
+            {
+                throw std::invalid_argument(
+                    "retained_ptr::adopt: null base pointer with a non-zero capacity");
+            }
+            return false;
+        }
+        if (capacity == 0)
+        {
+            throw std::invalid_argument(
+                "retained_ptr::adopt: non-null base pointer with zero capacity; "
+                "the caller keeps ownership");
+        }
+        if (capacity > std::numeric_limits<size_t>::max() / sizeof(T))
+        {
+            throw std::overflow_error("retained_ptr::adopt: capacity * sizeof(T) overflows size_t");
+        }
+        return true;
+    }
+
+    // Takes over one existing reference of the storage (does not add one).
+    retained_ptr(shared_storage* cb, T* data, size_t size) noexcept
         : cb_(cb), data_(data), size_(size)
     {
     }
 
     void release() noexcept
     {
-        if (!cb_)
-        {
-            return;
-        }
-        if (cb_->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1)
-        {
-            // Promotion path (from data_ptr<T>): raw deleter extracted at promotion.
-            // GPU: fn_del = gpu_free_fn (looks up stream); fn_del_ctx = cache ptr.
-            // CPU: fn_del = cpu_free_fn; fn_del_ctx = nullptr.
-            // (plan §2.10, R1)
-            if (cb_->fn_del != nullptr && cb_->base != nullptr)
-            {
-                // Promotion path: call the raw deleter (either gpu_free_fn or cpu_free_fn).
-                // gpu_free_fn will look up the stream from the cache block.
-                cb_->fn_del(cb_->fn_del_ctx,
-                            static_cast<void*>(cb_->base),
-                            cb_->nbytes);
-            }
-            // Adopt path: user-supplied std::function deleter.
-            else if (cb_->deleter && cb_->base)
-            {
-                try
-                {
-                    cb_->deleter(cb_->base, cb_->capacity, cb_->ctx);
-                }
-                catch (...)
-                {
-                    cleanup_diagnostic::record_failure(cleanup_source::retained_ptr);
-                }
-            }
-            delete cb_;
-        }
+        shared_storage::release(cb_);  // last owner destroys the handle: one free path
         cb_   = nullptr;
         data_ = nullptr;
         size_ = 0;
     }
 
-    control_block* cb_{nullptr};
+    shared_storage* cb_{nullptr};
     T*             data_{nullptr};  // view start (may be offset from cb_->base)
     size_t         size_{0};        // view element count
 };
+
+/// Allocate count uninitialized elements and return them under shared ownership
+/// (c10 make_intrusive analogue). Zero count yields an empty pointer.
+/// Throws overflow_error when count * sizeof(T) overflows.
+template <typename T>
+retained_ptr<T> make_retained(std::size_t count, execution_context ctx)
+{
+    if (count > std::numeric_limits<std::size_t>::max() / sizeof(T))
+    {
+        throw std::overflow_error("make_retained: count * sizeof(T) overflows size_t");
+    }
+    return retained_ptr<T>::from_storage(
+        allocate_bytes(count * sizeof(T), storage_max_alignment, ctx), ctx);
+}
 
 }  // namespace memory

@@ -46,8 +46,7 @@ namespace gpu
 // caching with per-stream pools, block split/merge, and event-deferred cross-stream
 // reclamation). Metal uses metal_caching_allocator instead.
 // Callers reach it through caching_allocator_for_device() (the process-wide
-// per-device registry backing allocator<T>'s CUDA/HIP path), or via the
-// cuda_caching_allocator_template<T> wrapper. The #else stub below exists purely so
+// per-device registry backing allocator<T>'s CUDA/HIP path). The #else stub below exists purely so
 // this translation unit still compiles in Metal builds; constructing the allocator
 // there throws at runtime.
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -1783,6 +1782,20 @@ private:
 };
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
+namespace
+{
+// The public API is opaque (void*); the GPU Impl works in the vendor stream type.
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+using impl_stream_t = cudaStream_t;
+#else
+using impl_stream_t = cuda_caching_allocator::stream_type;
+#endif
+impl_stream_t native_stream(cuda_caching_allocator::stream_type stream) noexcept
+{
+    return static_cast<impl_stream_t>(stream);
+}
+}  // namespace
+
 cuda_caching_allocator::cuda_caching_allocator(int device, size_t max_cached_bytes)
     : impl_(std::make_unique<Impl>(device, max_cached_bytes))
 {
@@ -1802,12 +1815,12 @@ void* cuda_caching_allocator::allocate(size_t size, stream_type stream)
     {
         return nullptr;
     }
-    return impl_->allocate(size, stream);
+    return impl_->allocate(size, native_stream(stream));
 }
 
 void cuda_caching_allocator::deallocate(void* ptr, size_t size, stream_type stream)
 {
-    impl_->deallocate(ptr, size, stream);
+    impl_->deallocate(ptr, size, native_stream(stream));
 }
 
 void cuda_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nbytes) noexcept
@@ -1817,7 +1830,7 @@ void cuda_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nby
 
 void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
 {
-    impl_->record_stream(ptr, stream);
+    impl_->record_stream(ptr, native_stream(stream));
 }
 
 void cuda_caching_allocator::add_free_memory_callback(const free_memory_callback& callback)

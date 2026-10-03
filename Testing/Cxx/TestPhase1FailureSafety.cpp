@@ -247,8 +247,8 @@ TEST_F(TestPhase1FailureSafety, ContextPreservationInClone)
     data_ptr<float> ptr2 = ptr1.clone();
 
     // Context should be preserved
-    EXPECT_EQ(ptr2.device(), ctx.device_type);
-    EXPECT_EQ(ptr2.device_index(), ctx.device_index);
+    EXPECT_EQ(ptr2.device(), ctx.device_type());
+    EXPECT_EQ(ptr2.device_index(), ctx.device_index());
 }
 
 }  // namespace memory

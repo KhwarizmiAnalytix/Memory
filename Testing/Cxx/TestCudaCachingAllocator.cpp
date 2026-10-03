@@ -36,7 +36,9 @@
 
 #include "allocator.h"
 #include "common/data_ptr.h"
+#include "gpu/caching_allocator.h"
 #include "gpu/cuda_caching_allocator.h"
+#include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 
 #if MEMORY_HAS_PROFILER
@@ -385,95 +387,6 @@ MEMORYTEST_F(CudaCachingAllocator, handles_errors_gracefully)
     allocator.deallocate(nullptr, 1024);
 
     LOGGING_LOG_INFO("CUDA caching allocator error handling test passed");
-}
-
-/**
- * @brief Test template allocator construction and basic operations
- */
-MEMORYTEST_F(CudaCachingAllocatorTemplate, constructs_with_different_types)
-{
-    // Test template allocator for different types
-    cuda_caching_allocator_template<float, 256>  float_allocator(0, 32 * 1024ULL);
-    cuda_caching_allocator_template<double, 256> double_allocator(0, 32 * 1024ULL);
-    cuda_caching_allocator_template<int, 128>    int_allocator(0, 16 * 1024ULL);
-
-    // Verify device indices
-    EXPECT_EQ(0, float_allocator.device());
-    EXPECT_EQ(0, double_allocator.device());
-    EXPECT_EQ(0, int_allocator.device());
-
-    LOGGING_LOG_INFO("CUDA caching allocator template construction test passed");
-}
-
-/**
- * @brief Test template allocator type-safe allocation
- */
-MEMORYTEST_F(CudaCachingAllocatorTemplate, allocates_typed_memory_safely)
-{
-    cuda_caching_allocator_template<float, 256> allocator(0, 16 * 1024ULL);
-
-    // Test typed allocation
-    float* ptr1 = allocator.allocate(100);
-    EXPECT_NE(nullptr, ptr1);
-
-    // Test deallocation
-    allocator.deallocate(ptr1, 100);
-
-    // Test larger allocation
-    float* ptr2 = allocator.allocate(10000);
-    EXPECT_NE(nullptr, ptr2);
-    allocator.deallocate(ptr2, 10000);
-
-    LOGGING_LOG_INFO("CUDA caching allocator template typed allocation test passed");
-}
-
-/**
- * @brief Test template allocator alignment requirements
- */
-MEMORYTEST_F(CudaCachingAllocatorTemplate, respects_alignment_requirements)
-{
-    cuda_caching_allocator_template<double, 512> allocator(0, 16 * 1024ULL);
-
-    // Allocate memory and check alignment
-    double* ptr = allocator.allocate(50);
-    EXPECT_NE(nullptr, ptr);
-
-    // Check alignment (should be aligned to 512 bytes)
-    uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-    EXPECT_EQ(0, addr % 512);
-
-    allocator.deallocate(ptr, 50);
-
-    LOGGING_LOG_INFO("CUDA caching allocator template alignment test passed");
-}
-
-/**
- * @brief Test template allocator statistics and cache operations
- */
-MEMORYTEST_F(CudaCachingAllocatorTemplate, provides_statistics_and_cache_control)
-{
-    cuda_caching_allocator_template<int, 256> allocator(0, 8 * 1024ULL);
-
-    // Get initial stats
-    auto initial_stats = allocator.stats();
-
-    // Perform allocations
-    int* ptr1 = allocator.allocate(1000);
-    int* ptr2 = allocator.allocate(2000);
-
-    // Check stats updated
-    auto after_stats = allocator.stats();
-    EXPECT_GT(after_stats.bytes_allocated.load(), initial_stats.bytes_allocated.load());
-
-    // Deallocate
-    allocator.deallocate(ptr1, 1000);
-    allocator.deallocate(ptr2, 2000);
-    EXPECT_EQ(0, allocator.stats().bytes_allocated.load());
-
-    // Test cache clearing
-    allocator.empty_cache();
-
-    LOGGING_LOG_INFO("CUDA caching allocator template statistics test passed");
 }
 
 // ============================================================================

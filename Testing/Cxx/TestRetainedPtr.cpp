@@ -153,8 +153,8 @@ MEMORYTEST(RetainedPtr, ctx_is_preserved)
     auto rp  = retained_ptr<int>::adopt(
         raw, 2, ctx,
         [](int* p, size_t, execution_context const&) { delete[] p; });
-    EXPECT_EQ(rp.ctx().device_type, device_enum::CUDA);
-    EXPECT_EQ(rp.ctx().device_index, 3);
+    EXPECT_EQ(rp.ctx().device_type(), device_enum::CUDA);
+    EXPECT_EQ(rp.ctx().device_index(), 3);
     END_TEST();
 }
 
@@ -275,5 +275,91 @@ MEMORYTEST(RetainedPtr, adopted_deleter_runs_exactly_once_across_copies_and_slic
         EXPECT_EQ(calls, 0);
     }
     EXPECT_EQ(calls, 1);
+    END_TEST();
+}
+
+// Task 2.4: shared_storage core, function-pointer adoption, make_retained.
+namespace
+{
+struct free_probe
+{
+    int   calls{0};
+    void* seen_ptr{nullptr};
+    std::size_t seen_nbytes{0};
+};
+
+void probe_deleter(void* ctx, void* ptr, std::size_t nbytes) noexcept
+{
+    auto* p        = static_cast<free_probe*>(ctx);
+    ++p->calls;
+    p->seen_ptr    = ptr;
+    p->seen_nbytes = nbytes;
+    delete[] static_cast<int*>(ptr);
+}
+}  // namespace
+
+MEMORYTEST(RetainedPtr, function_pointer_deleter_runs_once_after_last_owner)
+{
+    free_probe probe;
+    int*       raw = new int[8]{};
+    {
+        auto rp = retained_ptr<int>::adopt(raw, 8, execution_context::cpu(), &probe_deleter, &probe);
+        auto copy  = rp;
+        auto slice = rp.slice(2, 3);
+        rp = retained_ptr<int>{};
+        copy = retained_ptr<int>{};
+        EXPECT_EQ(probe.calls, 0);  // the slice still owns the allocation
+        EXPECT_EQ(slice.size(), 3U);
+    }
+    EXPECT_EQ(probe.calls, 1);
+    EXPECT_EQ(probe.seen_ptr, static_cast<void*>(raw));
+    EXPECT_EQ(probe.seen_nbytes, 8 * sizeof(int));
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, function_pointer_adopt_rejects_null_deleter_and_keeps_ownership)
+{
+    free_probe probe;
+    int*       raw = new int[4]{};
+    EXPECT_THROW(
+        (void)retained_ptr<int>::adopt(raw, 4, execution_context::cpu(), nullptr, &probe),
+        std::invalid_argument);
+    EXPECT_EQ(probe.calls, 0);
+    delete[] raw;
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, make_retained_allocates_shared_cpu_storage)
+{
+    auto rp = memory::make_retained<float>(16, execution_context::cpu());
+    ASSERT_FALSE(rp.empty());
+    EXPECT_EQ(rp.size(), 16U);
+    EXPECT_EQ(rp.use_count(), 1);
+    EXPECT_TRUE(rp.identity().valid());
+    EXPECT_EQ(rp.identity().capacity, 16 * sizeof(float));
+    auto second = rp;
+    EXPECT_EQ(rp.use_count(), 2);
+    EXPECT_EQ(second.base(), rp.base());
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, make_retained_zero_count_is_empty_and_overflow_throws)
+{
+    EXPECT_TRUE(memory::make_retained<int>(0, execution_context::cpu()).empty());
+    EXPECT_THROW(
+        (void)memory::make_retained<std::uint64_t>(
+            std::numeric_limits<std::size_t>::max() / 4, execution_context::cpu()),
+        std::overflow_error);
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, from_storage_wraps_a_handle_without_reallocating)
+{
+    auto handle = allocate_bytes(64, 64, execution_context::cpu());
+    void* const raw = handle.get();
+    auto        rp  = retained_ptr<std::byte>::from_storage(std::move(handle), execution_context::cpu());
+    EXPECT_TRUE(handle.empty());
+    EXPECT_EQ(rp.data(), static_cast<std::byte*>(raw));
+    EXPECT_EQ(rp.size(), 64U);
     END_TEST();
 }

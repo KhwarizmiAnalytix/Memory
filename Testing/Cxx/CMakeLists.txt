@@ -52,6 +52,21 @@ foreach(_test_source IN ITEMS ${test_sources})
   list(APPEND TestFiles "${_test_source}")
 endforeach()
 
+# Task 2.6 exit: public L2/L3 headers must compile with a GPU backend selected and no
+# vendor runtime header reachable. Deliberately inherits no CUDA/HIP include directories.
+add_library(MemoryConsumerNoVendorHeaders OBJECT ConsumerNoVendorHeaders.cpp)
+target_include_directories(
+  MemoryConsumerNoVendorHeaders
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging/include/logger"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging"
+)
+target_compile_features(MemoryConsumerNoVendorHeaders PRIVATE cxx_std_20)
+target_compile_definitions(
+  MemoryConsumerNoVendorHeaders PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0
+                                       MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
+)
+
 add_executable(MemoryCxxTests ${TestFiles})
 
 # Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory

@@ -63,7 +63,7 @@ protected:
 TEST_F(CopyTokenTest, CPUTokenAlwaysComplete)
 {
     execution_context ctx;
-    ctx.device_type = device_enum::CPU;
+    ctx.dev.type = device_enum::CPU;
     copy_token token(ctx);
     EXPECT_EQ(token.state(), completion_state::complete);
     EXPECT_TRUE(token.ready());
@@ -76,8 +76,8 @@ TEST_F(CopyTokenTest, GPUTokenReadyStream)
     fake_runtime::set_stream_ready(stream, true);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     copy_token token(ctx);
 
@@ -92,8 +92,8 @@ TEST_F(CopyTokenTest, GPUTokenNotReadyStream)
     fake_runtime::set_stream_ready(stream, false);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     copy_token token(ctx);
 
@@ -108,8 +108,8 @@ TEST_F(CopyTokenTest, GPUTokenErrorStream)
     fake_runtime::set_stream_error(stream);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     copy_token token(ctx);
 
@@ -124,8 +124,8 @@ TEST_F(CopyTokenTest, GPUTokenWaitBlocks)
     fake_runtime::set_stream_ready(stream, false);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     copy_token token(ctx);
 
@@ -142,8 +142,8 @@ TEST_F(CopyTokenTest, GPUTokenWaitThrowsOnError)
     fake_runtime::set_stream_error(stream);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     copy_token token(ctx);
 
@@ -156,8 +156,8 @@ TEST_F(CopyTokenTest, GPUTokenWaitThrowsOnError)
 TEST_F(CopyTokenTest, ServiceEnqueueToken)
 {
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
@@ -180,8 +180,8 @@ TEST_F(CopyTokenTest, ServicePollCompletesReady)
     service.set_max_pending(10);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = reinterpret_cast<void*>(1);
 
     fake_runtime::set_stream_ready(ctx.stream, false);
@@ -205,8 +205,8 @@ TEST_F(CopyTokenTest, ServiceBackpressure)
     service.set_max_pending(2);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
@@ -231,7 +231,7 @@ TEST_F(CopyTokenTest, BlockingEnqueuePollsForItsOwnCapacity)
     fake_runtime::set_stream_ready(first_stream, false);
     fake_runtime::set_stream_ready(second_stream, false);
     execution_context first_ctx;
-    first_ctx.device_type = device_enum::CUDA;
+    first_ctx.dev.type = device_enum::CUDA;
     first_ctx.stream = first_stream;
     execution_context second_ctx = first_ctx;
     second_ctx.stream = second_stream;
@@ -255,7 +255,7 @@ TEST_F(CopyTokenTest, ShutdownRejectsNewWorkAndResetReopensService)
     EXPECT_EQ(service.shutdown(std::chrono::milliseconds(10)), 0);
 
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = reinterpret_cast<void*>(13);
     fake_runtime::set_stream_ready(ctx.stream, false);
     copy_token token(ctx);
@@ -275,8 +275,8 @@ TEST_F(CopyTokenTest, ServiceDrain)
     service.set_max_pending(10);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
@@ -299,8 +299,8 @@ TEST_F(CopyTokenTest, ServiceSkipsReadyToken)
     service.set_max_pending(10);
 
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, true);
 
@@ -317,7 +317,7 @@ TEST_F(CopyTokenTest, OperationEventIgnoresLaterStreamWork)
     fake_runtime::set_stream_ready(stream, true);
 
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = stream;
     copy_token token(ctx);
     token.prepare_event();
@@ -334,7 +334,7 @@ TEST_F(CopyTokenTest, OperationEventWaitSynchronizesOnlyTheEvent)
     auto stream = reinterpret_cast<void*>(2);
     fake_runtime::set_stream_ready(stream, false);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = stream;
     copy_token token(ctx);
     token.prepare_event();
@@ -354,7 +354,7 @@ TEST_F(CopyTokenTest, RetainedCopyValidatesExtentAndSupportsSlices)
     auto stream = reinterpret_cast<void*>(6);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = stream;
     auto source = allocator<T>::allocate_adopted(
         new T[6]{1, 2, 3, 4, 5, 6}, 6, ctx,
@@ -387,7 +387,7 @@ TEST_F(CopyTokenTest, RetainedCopySurvivesTokenDiscardUntilEventCompletes)
     auto stream = reinterpret_cast<void*>(7);
     fake_runtime::set_stream_ready(stream, false);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = stream;
 
     int releases = 0;
@@ -427,7 +427,7 @@ TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
     auto stream = reinterpret_cast<void*>(8);
     fake_runtime::set_stream_error(stream);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream = stream;
 
     int releases = 0;
@@ -462,7 +462,7 @@ TEST_F(CopyTokenTest, ProbeTokenReadyAfterTerminalMakesNoDriverCalls)
     auto  stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream      = stream;
     auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
     auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
@@ -485,7 +485,7 @@ TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
     auto stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
-    ctx.device_type = device_enum::CUDA;
+    ctx.dev.type = device_enum::CUDA;
     ctx.stream      = stream;
     auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
     auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
@@ -526,8 +526,8 @@ namespace
 execution_context gpu_ctx(void* stream)
 {
     execution_context ctx;
-    ctx.device_type  = device_enum::CUDA;
-    ctx.device_index = 0;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = 0;
     ctx.stream       = stream;
     return ctx;
 }
@@ -706,7 +706,7 @@ struct retained_pair
     retained_pair(int* counter, void* stream)
     {
         execution_context ctx;
-        ctx.device_type = device_enum::CUDA;
+        ctx.dev.type = device_enum::CUDA;
         ctx.stream      = stream;
         auto deleter    = [counter](float* p, size_t, execution_context const&) {
             ++*counter;
@@ -827,11 +827,11 @@ TEST_F(CopyFailureTest, SetupFailureAfterAdmissionCancelsReservationWithoutWaiti
     retained_pair pair(&releases, stream);
 
     // Current device 1, operation device 0. cudaSetDevice calls: prepare_event
-    // switches and restores (1, 2), the admission-time state() query does the
-    // same (3, 4), then the submission guard fails to switch (5) before any
-    // driver copy is issued.
+    // switches and restores (1, 2); the admission-time state() query returns
+    // pending before the event is recorded, without touching the device; then
+    // the submission guard fails to switch (3) before any driver copy is issued.
     fake_runtime::current_device          = 1;
-    fake_runtime::fail_set_device_on_call = 5;
+    fake_runtime::fail_set_device_on_call = 3;
     EXPECT_THROW(
         allocator<float>::copy_async_retained(pair.source, pair.destination, stream),
         std::runtime_error);

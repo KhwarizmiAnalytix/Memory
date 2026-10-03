@@ -161,7 +161,7 @@ TEST_F(TestPhase2CopySync, TokenContextAccessor)
     execution_context ctx = execution_context::cpu();
     copy_token token(ctx);
 
-    EXPECT_EQ(token.ctx().device_type, device_enum::CPU);
+    EXPECT_EQ(token.ctx().device_type(), device_enum::CPU);
 }
 
 // Test: large buffer copy

@@ -12,6 +12,7 @@ filegroup(
             "include/*.h",
             "include/**/*.h",
         ],
+        exclude = ["include/experimental/**"],
         allow_empty = True,
     ),
 )

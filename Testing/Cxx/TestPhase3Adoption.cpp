@@ -162,8 +162,8 @@ TEST_F(Phase3Adoption, allocate_adopted_preserves_context)
         allocator<T>::allocate_adopted(raw_ptr, 8, ctx,
                                        [](T* p, size_t, execution_context const&) { delete[] p; });
 
-    EXPECT_EQ(adopted.ctx().device_type, ctx.device_type);
-    EXPECT_EQ(adopted.ctx().device_index, ctx.device_index);
+    EXPECT_EQ(adopted.ctx().device_type(), ctx.device_type());
+    EXPECT_EQ(adopted.ctx().device_index(), ctx.device_index());
 }
 
 // --- Retained Transfer Tests ---

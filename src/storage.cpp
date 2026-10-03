@@ -65,13 +65,13 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
     {
         // Zero-size allocation returns empty storage (plan §5.1): no memory and no
         // allocation lifetime, hence the invalid ID. The device is kept.
-        device const dev{ctx.device_type, static_cast<std::int16_t>(ctx.device_index)};
+        device const dev{ctx.device_type(), static_cast<std::int16_t>(ctx.device_index())};
         return storage_handle(nullptr, 0, nullptr, nullptr, dev, allocation_id{});
     }
 
-    device const dev{ctx.device_type, static_cast<std::int16_t>(ctx.device_index)};
+    device const dev{ctx.device_type(), static_cast<std::int16_t>(ctx.device_index())};
 
-    if (ctx.device_type == device_enum::CPU)
+    if (ctx.device_type() == device_enum::CPU)
     {
         void* ptr = cpu::memory_allocator::allocate(nbytes, alignment);
         if (!ptr)
@@ -83,14 +83,14 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
     }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
-    if (is_active_gpu(ctx.device_type))
+    if (is_active_gpu(ctx.device_type()))
     {
         // Obtain the per-device cache ONCE; store its address in ctx_ so the
         // free path can reach it directly without a registry lookup
         // (plan §4.3, P2.3 gate: 0 lookups on free).
         gpu::caching_allocator& cache =
-            gpu::caching_allocator_for_device(ctx.device_index);
-        void* ptr = cache.allocate(nbytes, ctx.stream);
+            gpu::caching_allocator_for_device(ctx.device_index());
+        void* ptr = cache.allocate(nbytes, static_cast<gpu::caching_allocator::stream_type>(ctx.stream));
         if (!ptr)
         {
             throw std::bad_alloc{};
