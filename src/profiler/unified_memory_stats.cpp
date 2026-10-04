@@ -42,7 +42,12 @@ unified_cache_stats::unified_cache_stats(const unified_cache_stats& other) noexc
       inactive_split_bytes(other.inactive_split_bytes.load(std::memory_order_relaxed)),
       num_alloc_retries(other.num_alloc_retries.load(std::memory_order_relaxed)),
       num_ooms(other.num_ooms.load(std::memory_order_relaxed)),
-      num_sync_all_streams(other.num_sync_all_streams.load(std::memory_order_relaxed))
+      num_sync_all_streams(other.num_sync_all_streams.load(std::memory_order_relaxed)),
+      bytes_pending(other.bytes_pending.load(std::memory_order_relaxed)),
+      bytes_quarantined(other.bytes_quarantined.load(std::memory_order_relaxed)),
+      bytes_unaccounted(other.bytes_unaccounted.load(std::memory_order_relaxed)),
+      bytes_requested(other.bytes_requested.load(std::memory_order_relaxed)),
+      largest_cached_block(other.largest_cached_block.load(std::memory_order_relaxed))
 {
 }
 
@@ -86,6 +91,16 @@ unified_cache_stats& unified_cache_stats::operator=(const unified_cache_stats& o
         num_ooms.store(other.num_ooms.load(std::memory_order_relaxed), std::memory_order_relaxed);
         num_sync_all_streams.store(
             other.num_sync_all_streams.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        bytes_pending.store(
+            other.bytes_pending.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        bytes_quarantined.store(
+            other.bytes_quarantined.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        bytes_unaccounted.store(
+            other.bytes_unaccounted.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        bytes_requested.store(
+            other.bytes_requested.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        largest_cached_block.store(
+            other.largest_cached_block.load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
     return *this;
 }
@@ -110,6 +125,11 @@ void unified_cache_stats::reset() noexcept
     num_alloc_retries.store(0, std::memory_order_relaxed);
     num_ooms.store(0, std::memory_order_relaxed);
     num_sync_all_streams.store(0, std::memory_order_relaxed);
+    bytes_pending.store(0, std::memory_order_relaxed);
+    bytes_quarantined.store(0, std::memory_order_relaxed);
+    bytes_unaccounted.store(0, std::memory_order_relaxed);
+    bytes_requested.store(0, std::memory_order_relaxed);
+    largest_cached_block.store(0, std::memory_order_relaxed);
 }
 
 void unified_cache_stats::reset_peaks() noexcept

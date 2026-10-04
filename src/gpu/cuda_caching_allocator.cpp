@@ -1106,6 +1106,63 @@ struct cuda_caching_allocator::Impl
             }
         }
         copy.inactive_split_bytes.store(split_bytes, std::memory_order_relaxed);
+
+        // Backing equation scan (tasks 7.1, 7.4): classify every block the
+        // allocator can reach exactly once.
+        std::set<cache_block const*> seen;
+        size_t live = 0, requested = 0, pending = 0, cached = 0, quarantined = 0, largest = 0;
+        auto const classify = [&](cache_block const* block, bool in_pool)
+        {
+            if (block == nullptr || !seen.insert(block).second)
+            {
+                return;
+            }
+            if (block->allocated)
+            {
+                live += block->size;
+                requested += block->requested_size;
+            }
+            else if (block->quarantined)
+            {
+                quarantined += block->size;
+            }
+            else if (in_pool)
+            {
+                cached += block->size;
+                largest = std::max(largest, block->size);
+            }
+            else
+            {
+                pending += block->size;
+            }
+        };
+        for (auto const& entry : allocated_blocks_)
+        {
+            classify(entry.second, false);
+        }
+        for (const block_pool* pool : {&small_blocks_, &large_blocks_})
+        {
+            for (const cache_block* block : pool->blocks)
+            {
+                classify(block, true);
+            }
+        }
+        for (pending_event const& queued : pending_events_)
+        {
+            classify(queued.block, false);
+        }
+        for (cache_block const* block : quarantine_metadata_)
+        {
+            classify(block, false);
+        }
+        size_t const reserved = stats_.bytes_reserved.load(std::memory_order_relaxed);
+        size_t const sum      = live + pending + cached + quarantined;
+        copy.bytes_pending.store(pending, std::memory_order_relaxed);
+        copy.bytes_quarantined.store(quarantined, std::memory_order_relaxed);
+        copy.bytes_requested.store(requested, std::memory_order_relaxed);
+        copy.largest_cached_block.store(largest, std::memory_order_relaxed);
+        copy.bytes_unaccounted.store(
+            reserved > sum ? reserved - sum : 0, std::memory_order_relaxed);
         return copy;
     }
 

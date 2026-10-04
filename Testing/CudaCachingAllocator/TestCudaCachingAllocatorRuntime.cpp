@@ -933,3 +933,57 @@ TEST_F(CudaCachingAllocatorRuntime, TraceKeepsOneAllocationIdUntilTheBlockIsReus
     EXPECT_EQ(allocs[high][0], frees[high][1]) << "the merge must not change the freed id";
     allocator.record_memory_history(false);
 }
+
+// Tasks 7.1/7.4: reserved == live + pending + reusable + quarantined at every
+// step of a replay that splits, defers a cross-stream free and quarantines a
+// block, and the waste fields match their definitions.
+namespace
+{
+void expect_backing_equation(cuda_caching_allocator const& a)
+{
+    auto const   s   = a.stats();
+    size_t const sum = s.bytes_allocated + s.bytes_pending + s.bytes_cached + s.bytes_quarantined;
+    EXPECT_EQ(s.bytes_reserved, sum + s.bytes_unaccounted);
+    EXPECT_EQ(0u, s.bytes_unaccounted);
+}
+}  // namespace
+
+TEST_F(CudaCachingAllocatorRuntime, BackingEquationReconcilesThroughSplitPendingAndQuarantine)
+{
+    cuda_caching_allocator allocator(0);
+    expect_backing_equation(allocator);
+
+    void* a = allocator.allocate(1000);  // splits a fresh segment
+    void* b = allocator.allocate(5000);
+    expect_backing_equation(allocator);
+    {
+        auto const s = allocator.stats();
+        EXPECT_EQ(1000u + 5000u, s.bytes_requested);
+        EXPECT_EQ(s.bytes_allocated - 6000u, s.internal_waste_bytes());
+        EXPECT_GT(s.inactive_split_bytes, 0u);
+        EXPECT_EQ(s.bytes_cached, s.largest_cached_block)
+            << "one free tail: the largest reusable block is all of the cache";
+    }
+
+    // Pending: a cross-stream use whose event has not completed.
+    allocator.record_stream(a, rt::stream(0));
+    rt::event_ready[1] = false;
+    allocator.deallocate(a, 1000);
+    expect_backing_equation(allocator);
+    EXPECT_GT(allocator.stats().bytes_pending, 0u);
+
+    // Quarantine: event creation fails for a second cross-stream block.
+    allocator.record_stream(b, rt::stream(1));
+    allocator.record_stream(b, rt::stream(2));
+    rt::fail_event_record_at_call = 2;
+    EXPECT_THROW(allocator.deallocate(b, 5000), std::runtime_error);
+    expect_backing_equation(allocator);
+    EXPECT_GT(allocator.stats().bytes_quarantined, 0u);
+
+    rt::event_ready[1] = true;
+    void* c = allocator.allocate(1000);
+    expect_backing_equation(allocator);
+    allocator.deallocate(c, 1000);
+    expect_backing_equation(allocator);
+    EXPECT_EQ(0u, allocator.stats().bytes_pending);
+}

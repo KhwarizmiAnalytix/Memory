@@ -138,15 +138,15 @@ MEMORYTEST(GpuMemoryHistory, sequence_numbers_are_monotonic)
     END_TEST();
 }
 
-MEMORYTEST(GpuMemoryHistory, legacy_record_overload_sets_zero_requested_size)
+MEMORYTEST(GpuMemoryHistory, record_stores_requested_size_and_id_verbatim)
 {
     gpu_memory_history h;
     h.set_enabled(true, 10);
-    h.record(gpu_memory_trace_action::alloc, nullptr, 256, 256, 256ULL, 1024ULL, 0LL, /*alloc_id=*/0);
+    h.record(gpu_memory_trace_action::alloc, nullptr, 256, 200, 256ULL, 1024ULL, 0LL, /*alloc_id=*/9);
     auto v = h.copy();
     ASSERT_EQ(v.size(), 1U);
-    EXPECT_EQ(v[0].requested_size, 0U);
-    EXPECT_EQ(v[0].alloc_id, 0U);
+    EXPECT_EQ(v[0].requested_size, 200U);
+    EXPECT_EQ(v[0].alloc_id, 9U);
     EXPECT_EQ(v[0].size, 256U);
     END_TEST();
 }

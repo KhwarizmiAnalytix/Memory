@@ -69,6 +69,43 @@ struct MEMORY_VISIBILITY unified_cache_stats
     // Number of synchronize-and-free-events passes (empty_cache / OOM flush)
     std::atomic<size_t> num_sync_all_streams{0};
 
+    // Backing equation (plan §5.4, task 7.1), filled by cuda_caching_allocator::stats()
+    // (a scan under the allocator lock, not a hot-path read):
+    //   bytes_reserved == bytes_allocated + bytes_pending + bytes_cached
+    //                     + bytes_quarantined + bytes_unaccounted
+    // bytes_allocated is live capacity; bytes_cached is reusable capacity (free
+    // blocks in the pools); bytes_pending is freed capacity still waiting for a
+    // cross-stream event; bytes_quarantined is capacity withheld because a use
+    // could not be proven complete or its metadata could not be cached.
+    // bytes_unaccounted is the residue and must be 0: it is non-zero only when a
+    // double fault lost quarantined block metadata (the memory is still held).
+    std::atomic<size_t> bytes_pending{0};
+    std::atomic<size_t> bytes_quarantined{0};
+    std::atomic<size_t> bytes_unaccounted{0};
+
+    // Waste definitions (task 7.4), same scan:
+    //  - bytes_requested: sum of caller-requested sizes of live allocations.
+    //    Internal waste = bytes_allocated - bytes_requested (rounding and
+    //    unsplit remainders inside live blocks); see internal_waste_bytes().
+    //  - inactive_split_bytes (above): capacity of free blocks that are part of
+    //    a split segment (cannot be returned to the driver while a neighbour is live).
+    //  - largest_cached_block: the largest single reusable block, the biggest
+    //    request that a cache hit can serve.
+    // Hit/miss denominators: cache_hits + cache_misses counts allocation
+    // requests that reached the cache lookup (a request that then fails with
+    // OOM is a miss; a zero-size request returns before the lookup and is in
+    // neither). External fragmentation is not derived from these.
+    std::atomic<size_t> bytes_requested{0};
+    std::atomic<size_t> largest_cached_block{0};
+
+    // Capacity lost to rounding inside live blocks. Valid on a stats() copy.
+    size_t internal_waste_bytes() const noexcept
+    {
+        size_t const a = bytes_allocated.load(std::memory_order_relaxed);
+        size_t const r = bytes_requested.load(std::memory_order_relaxed);
+        return a > r ? a - r : 0;
+    }
+
     // Default constructor
     unified_cache_stats() = default;
 
