@@ -56,8 +56,13 @@ struct xorshift
 
 struct lock_counts
 {
-    std::uint64_t acquisitions{0}, contended{0}, wait_ns{0};
+    std::uint64_t acquisitions{0}, contended{0}, wait_ns{0}, outer{0}, hold_cycles{0};
 };
+
+#if LOCK_STATS_ENABLED
+double g_cycles_per_ns = 1.0;  // TSC rate, calibrated in run_main
+double g_hold_floor_ns = 0.0;  // hold time of an empty lock/unlock (the two TSC reads)
+#endif
 
 struct worker_out
 {
@@ -72,7 +77,7 @@ lock_counts thread_locks()
 {
 #if LOCK_STATS_ENABLED
     auto const& s = std::g_bench_lock_stats;
-    return {s.acquisitions, s.contended, s.wait_ns};
+    return {s.acquisitions, s.contended, s.wait_ns, s.outer_acquisitions, s.hold_cycles};
 #else
     return {};
 #endif
@@ -100,7 +105,11 @@ void run_worker(std::atomic<bool> const& go, size_t ops, Body&& body, worker_out
     }
     out.end_ns = phase0::now_ns();
     lock_counts const l1 = thread_locks();
-    out.locks = {l1.acquisitions - l0.acquisitions, l1.contended - l0.contended, l1.wait_ns - l0.wait_ns};
+    out.locks = {l1.acquisitions - l0.acquisitions,
+                 l1.contended - l0.contended,
+                 l1.wait_ns - l0.wait_ns,
+                 l1.outer - l0.outer,
+                 l1.hold_cycles - l0.hold_cycles};
 }
 
 enum class workload
@@ -200,6 +209,8 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
         lk.acquisitions += o.locks.acquisitions;
         lk.contended += o.locks.contended;
         lk.wait_ns += o.locks.wait_ns;
+        lk.outer += o.locks.outer;
+        lk.hold_cycles += o.locks.hold_cycles;
     }
     double const wall_s    = (end - start) / 1e9;
     double const total_ops = static_cast<double>(ops_per_thread * threads);
@@ -237,6 +248,14 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
     r.counters.push_back({"lock_wait_ns_per_op", static_cast<double>(lk.wait_ns) / total_ops});
     r.counters.push_back({"lock_wait_share_of_time",
                           static_cast<double>(lk.wait_ns) / (wall_s * 1e9 * static_cast<double>(threads))});
+    // Critical-section length: mean outermost hold per acquisition, raw and with the empty-lock
+    // floor (two TSC reads) subtracted; hold_share = locked time / wall time (1.0 = lock never idle).
+    double const hold_ns =
+        lk.outer ? static_cast<double>(lk.hold_cycles) / g_cycles_per_ns / static_cast<double>(lk.outer) : 0.0;
+    r.counters.push_back({"lock_hold_ns_per_acq_raw", hold_ns});
+    r.counters.push_back({"lock_hold_ns_per_acq_net", std::max(0.0, hold_ns - g_hold_floor_ns)});
+    r.counters.push_back({"lock_hold_share_of_wall",
+                          static_cast<double>(lk.hold_cycles) / g_cycles_per_ns / (wall_s * 1e9)});
 #else
     (void)lk;
 #endif
@@ -278,6 +297,31 @@ static int run_main(int argc, char** argv)
 #endif
     rep.note("scope", "latency is not evidence about fragmentation; no fragmentation claim is made");
 
+#if LOCK_STATS_ENABLED
+    {
+        // TSC rate against the steady clock, then the floor of an empty lock/unlock hold.
+        auto const    t0 = std::chrono::steady_clock::now();
+        std::uint64_t const c0 = BENCH_TSC();
+        while (std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(200))
+        {
+        }
+        std::uint64_t const c1 = BENCH_TSC();
+        double const ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+        g_cycles_per_ns = static_cast<double>(c1 - c0) / ns;
+        std::bench_timed_recursive_mutex m;
+        lock_counts const                 a = thread_locks();
+        for (int i = 0; i < 1000000; ++i)
+        {
+            m.lock();
+            m.unlock();
+        }
+        lock_counts const b = thread_locks();
+        g_hold_floor_ns = static_cast<double>(b.hold_cycles - a.hold_cycles) / g_cycles_per_ns /
+                          static_cast<double>(b.outer - a.outer);
+        rep.note("tsc_ghz", std::to_string(g_cycles_per_ns));
+        rep.note("hold_floor_ns", std::to_string(g_hold_floor_ns));
+    }
+#endif
     size_t const warm_ops  = quick ? 20000 : 300000;
     size_t const mixed_ops = quick ? 10000 : 100000;
     for (size_t r = 1; r <= reps; ++r)
