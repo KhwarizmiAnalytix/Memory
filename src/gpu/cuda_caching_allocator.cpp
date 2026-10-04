@@ -25,6 +25,7 @@
 #include "common/cleanup_diagnostic.h"
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
+#include "common/storage_identity.h"
 #include "gpu/caching_allocator_config.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -444,6 +445,11 @@ struct cache_block
     int                event_count{0};
     inline_stream_set  stream_uses;
     void*              segment_base{nullptr};
+    // Identity of the allocation that last occupied this block (task 7.2).
+    // Assigned when the block is handed out, kept through free, deferred
+    // completion and quarantine, and replaced (never reused) by the next
+    // allocation. A free tail created by a split carries 0.
+    uint64_t           alloc_id{0};
     bool                   vm_backed{false};
     // Set when cudaEventRecord fails for one of this block's recorded
     // cross-stream uses partway through insert_events_locked(): the streams
@@ -720,7 +726,12 @@ struct cuda_caching_allocator::Impl
         stats_.successful_frees++;
         stats_.bytes_allocated -= block->size;
         record_trace_locked(
-            gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
+            gpu_memory_trace_action::free_requested,
+            ptr,
+            block->size,
+            block->stream,
+            block->requested_size,
+            block->alloc_id);
 #if MEMORY_HAS_PROFILER
         report_event_locked(ptr, -static_cast<int64_t>(block->size));
 #endif
@@ -775,7 +786,12 @@ struct cuda_caching_allocator::Impl
                 stats_.successful_frees++;
                 stats_.bytes_allocated -= block->size;
                 record_trace_locked(
-                    gpu_memory_trace_action::free_requested, ptr, block->size, block->stream);
+                    gpu_memory_trace_action::free_requested,
+                    ptr,
+                    block->size,
+                    block->stream,
+                    block->requested_size,
+                    block->alloc_id);
 #if MEMORY_HAS_PROFILER
                 report_event_locked(ptr, -static_cast<int64_t>(block->size));
 #endif
@@ -946,7 +962,12 @@ struct cuda_caching_allocator::Impl
     // original error is already propagating), so it must never fail the
     // operation: a failed trace record is counted, not thrown (task 1.7).
     void record_trace_locked(
-        gpu_memory_trace_action action, void* address, size_t size, cudaStream_t stream) noexcept
+        gpu_memory_trace_action action,
+        void*                   address,
+        size_t                  size,
+        cudaStream_t            stream,
+        size_t                  requested_size = 0,
+        uint64_t                alloc_id       = 0) noexcept
     {
         try
         {
@@ -954,9 +975,11 @@ struct cuda_caching_allocator::Impl
                 action,
                 address,
                 size,
+                requested_size,
                 stats_.bytes_allocated.load(std::memory_order_relaxed),
                 stats_.bytes_reserved.load(std::memory_order_relaxed),
-                stream_as_int(stream));
+                stream_as_int(stream),
+                alloc_id);
         }
         catch (...)
         {
@@ -1300,7 +1323,9 @@ private:
 
         if (split)
         {
-            void* const  old_ptr  = remaining->ptr;
+            void* const    old_ptr  = remaining->ptr;
+            uint64_t const old_id   = remaining->alloc_id;
+            size_t const   old_req  = remaining->requested_size;
             cache_block* old_prev = remaining->prev;
             head->registration_counter = remaining->registration_counter;
             head->segment_base         = remaining->segment_base;
@@ -1314,6 +1339,8 @@ private:
             remaining->prev = head;
             remaining->ptr  = static_cast<char*>(remaining->ptr) + rounded;
             remaining->size -= rounded;
+            remaining->alloc_id       = 0;
+            remaining->requested_size = 0;
             try
             {
                 remaining->pool->blocks.insert(remaining);
@@ -1321,6 +1348,8 @@ private:
             catch (...)
             {
                 remaining->size += rounded;
+                remaining->alloc_id       = old_id;
+                remaining->requested_size = old_req;
                 remaining->ptr  = old_ptr;
                 remaining->prev = old_prev;
                 if (old_prev != nullptr)
@@ -1337,11 +1366,18 @@ private:
         // Committed: nothing below can fail.
         head->allocated      = true;
         head->requested_size = orig_size;
+        head->alloc_id       = next_allocation_id().value;
         stats_.successful_allocations++;
         stats_.bytes_allocated += head->size;
         bump_peak_locked(
             stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
-        record_trace_locked(gpu_memory_trace_action::alloc, head->ptr, head->size, head->stream);
+        record_trace_locked(
+            gpu_memory_trace_action::alloc,
+            head->ptr,
+            head->size,
+            head->stream,
+            orig_size,
+            head->alloc_id);
 #if MEMORY_HAS_PROFILER
         report_event_locked(head->ptr, static_cast<int64_t>(head->size));
 #endif
@@ -1418,7 +1454,9 @@ private:
         // src_is_prev branch), so recording block->ptr *after* merging would
         // pair this free_completed trace entry with the wrong address and
         // break alloc/free event pairing for anything replaying the trace.
-        void* const freed_ptr = block->ptr;
+        void* const    freed_ptr       = block->ptr;
+        size_t const   freed_requested = block->requested_size;
+        uint64_t const freed_id        = block->alloc_id;
         try_merge_locked(block, block->prev);
         try_merge_locked(block, block->next);
 
@@ -1441,7 +1479,12 @@ private:
         add_cached_locked(static_cast<std::ptrdiff_t>(freed_size));
         
         record_trace_locked(
-            gpu_memory_trace_action::free_completed, freed_ptr, freed_size, block->stream);
+            gpu_memory_trace_action::free_completed,
+            freed_ptr,
+            freed_size,
+            block->stream,
+            freed_requested,
+            freed_id);
     }
 
     void erase_from_pool_locked(block_pool& pool, cache_block* block)

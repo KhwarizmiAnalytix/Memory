@@ -97,7 +97,7 @@ MEMORYTEST(BoundedTraceRing, zero_capacity_counts_lost)
 MEMORYTEST(GpuMemoryHistory, disabled_records_nothing)
 {
     gpu_memory_history h;
-    h.record(gpu_memory_trace_action::alloc, nullptr, 1024, 0, 1024, 1024, 0);
+    h.record(gpu_memory_trace_action::alloc, nullptr, 1024, 0, 1024, 1024, 0, /*alloc_id=*/0);
     auto v = h.copy();
     EXPECT_TRUE(v.empty());
     END_TEST();
@@ -127,7 +127,7 @@ MEMORYTEST(GpuMemoryHistory, sequence_numbers_are_monotonic)
     h.set_enabled(true, 10);
     for (int i = 0; i < 5; ++i)
     {
-        h.record(gpu_memory_trace_action::alloc, nullptr, 64, 0, 64, 64, 0);
+        h.record(gpu_memory_trace_action::alloc, nullptr, 64, 0, 64, 64, 0, /*alloc_id=*/0);
     }
     auto v = h.copy();
     ASSERT_EQ(v.size(), 5U);
@@ -142,7 +142,7 @@ MEMORYTEST(GpuMemoryHistory, legacy_record_overload_sets_zero_requested_size)
 {
     gpu_memory_history h;
     h.set_enabled(true, 10);
-    h.record(gpu_memory_trace_action::alloc, nullptr, 256, 256ULL, 1024ULL, 0LL);
+    h.record(gpu_memory_trace_action::alloc, nullptr, 256, 256, 256ULL, 1024ULL, 0LL, /*alloc_id=*/0);
     auto v = h.copy();
     ASSERT_EQ(v.size(), 1U);
     EXPECT_EQ(v[0].requested_size, 0U);

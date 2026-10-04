@@ -43,6 +43,7 @@
 
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
+#include "common/storage_identity.h"
 #include "gpu/caching_allocator_config.h"
 
 #if MEMORY_HAS_PROFILER
@@ -101,6 +102,7 @@ struct cache_block
     cache_block*  prev{nullptr};
     cache_block*  next{nullptr};
     int64_t       registration_counter{-1};
+    uint64_t      alloc_id{0};  // last occupant's identity (task 7.2); 0 = none
     // Command-buffer tokens that must complete before this block can be
     // recycled.  Each record_stream() call appends one token if not already
     // present; mark_completion() removes it.  The block is recycled once all
@@ -249,7 +251,12 @@ struct metal_caching_allocator::Impl
         block->allocated = false;
         stats_.successful_frees++;
         stats_.bytes_allocated -= block->size;
-        record_trace_locked(gpu_memory_trace_action::free_requested, ptr, block->size);
+        record_trace_locked(
+            gpu_memory_trace_action::free_requested,
+            ptr,
+            block->size,
+            block->requested_size,
+            block->alloc_id);
 #if MEMORY_HAS_PROFILER
         report_event_locked(ptr, -static_cast<int64_t>(block->size));
 #endif
@@ -415,15 +422,22 @@ struct metal_caching_allocator::Impl
                allowed_memory_maximum_;
     }
 
-    void record_trace_locked(gpu_memory_trace_action action, void* address, size_t size)
+    void record_trace_locked(
+        gpu_memory_trace_action action,
+        void*                   address,
+        size_t                  size,
+        size_t                  requested_size = 0,
+        uint64_t                alloc_id       = 0)
     {
         history_.record(
             action,
             address,
             size,
+            requested_size,
             stats_.bytes_allocated.load(std::memory_order_relaxed),
             stats_.bytes_reserved.load(std::memory_order_relaxed),
-            0);
+            0,
+            alloc_id);
     }
 
 #if MEMORY_HAS_PROFILER
@@ -740,18 +754,26 @@ private:
             remaining->prev = block;
             remaining->ptr  = static_cast<char*>(remaining->ptr) + rounded;
             remaining->size -= rounded;
+            remaining->alloc_id       = 0;
+            remaining->requested_size = 0;
             remaining->pool->blocks.insert(remaining);
             bytes_cached_ += remaining->size;
         }
 
         block->allocated      = true;
         block->requested_size = orig_size;
+        block->alloc_id       = next_allocation_id().value;
         allocated_blocks_.emplace(block->ptr, block);
         stats_.successful_allocations++;
         stats_.bytes_allocated += block->size;
         bump_peak_locked(
             stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
-        record_trace_locked(gpu_memory_trace_action::alloc, block->ptr, block->size);
+        record_trace_locked(
+            gpu_memory_trace_action::alloc,
+            block->ptr,
+            block->size,
+            orig_size,
+            block->alloc_id);
 #if MEMORY_HAS_PROFILER
         report_event_locked(block->ptr, static_cast<int64_t>(block->size));
 #endif
@@ -766,14 +788,21 @@ private:
         // that neighbor's (earlier) base address (see try_merge_locked's
         // dst->prev == src branch), so recording block->ptr *after* merging
         // would pair this free_completed trace entry with the wrong address.
-        void* const freed_ptr = block->ptr;
+        void* const    freed_ptr       = block->ptr;
+        size_t const   freed_requested = block->requested_size;
+        uint64_t const freed_id        = block->alloc_id;
         try_merge_locked(block, block->prev);
         try_merge_locked(block, block->next);
 
         block->pool->blocks.insert(block);
         bytes_cached_ += freed_size;
         peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
-        record_trace_locked(gpu_memory_trace_action::free_completed, freed_ptr, freed_size);
+        record_trace_locked(
+            gpu_memory_trace_action::free_completed,
+            freed_ptr,
+            freed_size,
+            freed_requested,
+            freed_id);
     }
 
     void try_merge_locked(cache_block* dst, cache_block* src)

@@ -125,9 +125,9 @@ inline int64_t trace_timestamp_ns() noexcept
  * allocates heap memory, so it cannot fail or throw inside the allocator lock.
  * Callers must serialize (hold the allocator mutex).
  *
- * Extended record() overload accepts the new trace entry fields (alloc_id,
- * requested_size).  The old signature is preserved for callers that don't yet
- * have those values.
+ * record() takes every field explicitly; there is no zero-filling overload
+ * (task 7.2). Entries that are not an allocation's lifecycle (segment_alloc,
+ * segment_free, oom, snapshot) pass alloc_id 0 on purpose.
  */
 class gpu_memory_history
 {
@@ -158,7 +158,7 @@ public:
         size_t                  total_allocated,
         size_t                  total_reserved,
         int64_t                 stream,
-        uint64_t                alloc_id = 0)
+        uint64_t                alloc_id)
     {
         if (!enabled_)
         {
@@ -176,20 +176,6 @@ public:
         e.sequence_num    = seq_++;
         e.timestamp_ns    = trace_timestamp_ns();
         ring_.push(e);
-    }
-
-    // Legacy overload for callers that do not yet supply requested_size /
-    // alloc_id.  Forwards to the full overload with zeroed extended fields.
-    void record(
-        gpu_memory_trace_action action,
-        void*                   address,
-        size_t                  size,
-        size_t                  total_allocated,
-        size_t                  total_reserved,
-        int64_t                 stream)
-    {
-        record(action, address, size, /*requested_size=*/0, total_allocated, total_reserved,
-               stream, /*alloc_id=*/0);
     }
 
     std::vector<gpu_memory_trace_entry> copy() const { return ring_.copy(); }

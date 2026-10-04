@@ -30,6 +30,7 @@
 
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 #include "fake_runtime.h"
 #include "common/storage_handle.h"
@@ -872,4 +873,63 @@ TEST_F(CudaCachingAllocatorRuntime, EventAllocationFailureOnCrossStreamFreeQuara
             EXPECT_EQ(rt::event_creates, rt::event_destroys) << "event leaked";
         }
     }
+}
+
+// Task 7.2: a trace replay sees one allocation id from alloc through free (also
+// through a merge) and a different id when the same address is handed out again;
+// the requested size is the caller's, not the rounded capacity.
+TEST_F(CudaCachingAllocatorRuntime, TraceKeepsOneAllocationIdUntilTheBlockIsReused)
+{
+    using memory::gpu::gpu_memory_trace_action;
+    cuda_caching_allocator allocator(0);
+    allocator.record_memory_history(true, 64);
+
+    void* const low  = allocator.allocate(1000);
+    void* const high = allocator.allocate(3000);
+    allocator.deallocate(low, 1000);
+    allocator.deallocate(high, 3000);  // merges with the free neighbour
+    void* const again = allocator.allocate(1000);
+    allocator.deallocate(again, 1000);
+
+    auto const trace = allocator.snapshot().device_trace;
+    std::map<void*, std::vector<std::uint64_t>> allocs;
+    std::map<void*, std::vector<std::uint64_t>> frees;
+    for (auto const& e : trace)
+    {
+        if (e.action == gpu_memory_trace_action::alloc)
+        {
+            EXPECT_NE(0u, e.alloc_id);
+            allocs[e.address].push_back(e.alloc_id);
+            if (e.address == low)
+            {
+                EXPECT_EQ(1000u, e.requested_size);
+            }
+            if (e.address == high)
+            {
+                EXPECT_EQ(3000u, e.requested_size);
+            }
+        }
+        else if (
+            e.action == gpu_memory_trace_action::free_requested ||
+            e.action == gpu_memory_trace_action::free_completed)
+        {
+            frees[e.address].push_back(e.alloc_id);
+        }
+        else if (e.action == gpu_memory_trace_action::segment_alloc)
+        {
+            EXPECT_EQ(0u, e.alloc_id) << "a segment is not an allocation";
+        }
+    }
+    ASSERT_EQ(2u, allocs[low].size()) << "low's address was handed out twice";
+    EXPECT_NE(allocs[low][0], allocs[low][1]) << "reuse must mint a new id";
+    EXPECT_NE(allocs[low][0], allocs[high][0]);
+    ASSERT_EQ(4u, frees[low].size());  // requested + completed, twice
+    EXPECT_EQ(allocs[low][0], frees[low][0]);
+    EXPECT_EQ(allocs[low][0], frees[low][1]);
+    EXPECT_EQ(allocs[low][1], frees[low][2]);
+    EXPECT_EQ(allocs[low][1], frees[low][3]);
+    ASSERT_EQ(2u, frees[high].size());
+    EXPECT_EQ(allocs[high][0], frees[high][0]);
+    EXPECT_EQ(allocs[high][0], frees[high][1]) << "the merge must not change the freed id";
+    allocator.record_memory_history(false);
 }
