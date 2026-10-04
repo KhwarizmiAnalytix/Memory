@@ -169,11 +169,85 @@ TEST_F(PinnedRuntime, FailedEventRecordingQuarantinesBacking)
     rt::fail_record = false;
     pool.empty_cache();
     EXPECT_EQ(512U, pool.stats().bytes_pending);
+    EXPECT_EQ(512U, pool.stats().bytes_quarantined);  // plan 6.3: reported apart from plain pending
     EXPECT_EQ(1U, pool.stats().num_errors);
     EXPECT_EQ(0, rt::host_frees);
     auto* other = pool.allocate(100);
     EXPECT_NE(ptr, other);
     pool.deallocate(other);
+}
+
+// Plan 6.3: padding and the four byte classes are reported separately and add up.
+TEST_F(PinnedRuntime, StatsSeparateLivePendingReusableQuarantinedAndPadding)
+{
+    pinned_memory_allocator pool;
+    auto*                   live    = pool.allocate(100);   // 512 B class, stays live
+    auto*                   cached  = pool.allocate(100);
+    auto*                   pending = pool.allocate(100);
+    pool.deallocate(cached);  // no stream: immediately reusable
+    rt::ready[1] = false;
+    pool.record_stream(pending, rt::stream(1));
+    pool.deallocate(pending);  // stream not ready: pending
+
+    auto const s = pool.stats();
+    EXPECT_EQ(512U, s.bytes_allocated);  // live
+    EXPECT_EQ(512U, s.bytes_pending);
+    EXPECT_EQ(512U, s.bytes_cached);  // reusable
+    EXPECT_EQ(0U, s.bytes_quarantined);
+    EXPECT_EQ(3U * 63U, s.bytes_padding);
+    EXPECT_EQ(3U * (512U + 63U), s.bytes_reserved);  // padding is part of the backing
+    EXPECT_EQ(s.bytes_reserved, s.bytes_allocated + s.bytes_pending + s.bytes_cached + s.bytes_padding);
+    rt::ready[1] = true;
+    pool.deallocate(live);
+    pool.empty_cache();
+}
+
+// Plan 6.3: shrink() releases only reusable blocks, never waits, and leaves live,
+// pending and quarantined bytes alone even when the target cannot be reached.
+TEST_F(PinnedRuntime, ShrinkNeverFreesInFlightBytes)
+{
+    pinned_memory_allocator pool;
+    auto*                   live    = pool.allocate(100);
+    auto*                   cached  = pool.allocate(100);
+    auto*                   pending = pool.allocate(100);
+    pool.deallocate(cached);
+    rt::ready[1] = false;
+    pool.record_stream(pending, rt::stream(1));
+    pool.deallocate(pending);
+    int const frees_before = rt::host_frees;
+    int const syncs_before = rt::synchronizations;
+
+    std::size_t const released = pool.shrink(0);  // asks for everything
+    EXPECT_EQ(512U + 63U, released);              // only the reusable block went
+    EXPECT_EQ(frees_before + 1, rt::host_frees);
+    EXPECT_EQ(syncs_before, rt::synchronizations);  // it did not wait for the pending one
+    auto s = pool.stats();
+    EXPECT_EQ(512U, s.bytes_allocated);  // live untouched
+    EXPECT_EQ(512U, s.bytes_pending);    // in flight untouched
+    EXPECT_EQ(0U, s.bytes_cached);
+    EXPECT_EQ(2U * (512U + 63U), s.bytes_reserved);  // the target was not reachable
+
+    EXPECT_EQ(0U, pool.shrink(0));  // nothing more is reusable
+    rt::ready[1] = true;            // the pending transfer completes
+    EXPECT_EQ(512U + 63U, pool.shrink(512U + 63U));  // now it is reusable and goes
+    EXPECT_EQ(512U + 63U, pool.stats().bytes_reserved);
+    pool.deallocate(live);
+    pool.empty_cache();
+}
+
+TEST_F(PinnedRuntime, ShrinkStopsAtTheTarget)
+{
+    pinned_memory_allocator pool;
+    void*                   blocks[4];
+    for (auto& b : blocks)
+        b = pool.allocate(100);
+    for (auto* b : blocks)
+        pool.deallocate(b);
+    EXPECT_EQ(4U * (512U + 63U), pool.stats().bytes_reserved);
+    EXPECT_EQ(2U * (512U + 63U), pool.shrink(2U * (512U + 63U)));
+    EXPECT_EQ(2U * (512U + 63U), pool.stats().bytes_reserved);
+    EXPECT_EQ(2U, pool.stats().driver_frees);
+    pool.empty_cache();
 }
 
 TEST_F(PinnedRuntime, FailedEventQueryQuarantinesBacking)

@@ -16,6 +16,7 @@
 #include "common/device.h"
 #include "common/memory_macros.h"
 #include "common/execution_context.h"
+#include "common/transfer.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
 #include "gpu/gpu_dispatch.h"
@@ -32,19 +33,26 @@ namespace memory::gpu
 // driver allocation is reused, avoiding repeated round trips through the
 // caching allocator and driver.
 //
-// Lifetime contract:
-//   - One gpu_workspace per operator (or one per stream, shared across calls).
-//   - acquire() returns a raw pointer into the slab; the caller must not
-//     hold this pointer across a subsequent acquire() or reset() call.
-//   - release() resets the cursor only — it does NOT synchronize the stream.
-//     The caller must ensure the GPU stream has completed all work that uses
-//     the acquired slices BEFORE calling release() if those slices will be
-//     re-acquired for new work on a DIFFERENT stream.  For same-stream reuse
-//     (the typical pattern), stream ordering guarantees safety without an
-//     explicit sync.
-//   - rebind() to a different stream requires BOTH release() AND that the
-//     old stream is quiescent.  rebind() enforces the release() pre-condition
-//     with a CHECK; stream quiescence is caller-managed.
+// Lifetime contract (plan 6.2):
+//   - Live slices: MULTIPLE slices may be live at once. acquire() bumps a cursor
+//     and returns a distinct, 256-byte aligned, non-overlapping slice each time;
+//     every slice stays valid until release(), reset() or destruction, which end
+//     all of them together. There is no per-slice release.
+//   - Order: slices are used on the workspace's own stream, so same-stream reuse
+//     after release() is ordered by the stream and needs no synchronization.
+//   - release() only rewinds the cursor. It never synchronizes. It must not be
+//     treated as a completion point for work on ANOTHER stream.
+//   - rebind() to a different stream (same device) keeps the slab, so it FAILS
+//     CLOSED: it throws std::runtime_error unless the previous stream is idle at
+//     that moment (a non-blocking query), leaving the workspace unchanged. The
+//     caller waits for the old stream (or a token) and retries. rebind() to a
+//     different device frees the slab on the original device and needs no proof.
+//     Both require release() first (logging::exception otherwise, in every build).
+//   - reset() frees the slab, which returns to the caching allocator keyed on the
+//     workspace's stream, so no other stream can be handed it. It requires
+//     release() first (logging::exception otherwise): freeing under live slices
+//     would let their owners keep using memory the cache may hand out again. The
+//     destructor frees unconditionally (it cannot throw).
 //   - If capacity is exceeded, acquire() throws std::bad_alloc; the caller
 //     should fall back to a fresh allocator<T>::allocate() call.
 //
@@ -127,28 +135,39 @@ public:
     void release() noexcept { cursor_ = 0; }
 
     // Free the backing allocation entirely.  A subsequent acquire() will
-    // re-allocate.
-    void reset() { release_backing(); }
+    // re-allocate. Requires release() first: fails closed (logging::exception)
+    // while slices are live.
+    void reset()
+    {
+        LOGGING_CHECK(
+            cursor_ == 0,
+            "gpu_workspace::reset called while slices are still acquired (cursor > 0); "
+            "call release() before reset()");
+        release_backing();
+    }
 
     // Re-bind to a different execution context (e.g. a new stream each call).
-    // Pre-conditions (enforced for the release() call; stream quiescence is
-    // caller-managed — see class comment):
-    //   - release() must have been called: CHECKs that cursor_ == 0.
-    //
-    // If the new context targets a different device than the current backing
-    // allocation, the backing is freed here (on the original device) before the
-    // context is updated.  A same-device rebind retains the cached backing slab;
-    // the caller must ensure the old stream is quiescent before issuing new
-    // work through acquire() on the new stream.
+    // Requires release() first (LOGGING_CHECK that cursor_ == 0). A different
+    // device frees the slab on the original device. A different stream on the same
+    // device keeps the slab, so the previous stream must be idle now: the check is a
+    // non-blocking query, and failing it (or being unable to ask) throws
+    // std::runtime_error with the workspace unchanged. Same stream: no check.
     void rebind(execution_context ctx)
     {
         LOGGING_CHECK(
             cursor_ == 0,
             "gpu_workspace::rebind called while slices are still acquired (cursor > 0); "
             "call release() before rebind()");
-        if (backing_ != nullptr && ctx.device_index() != ctx_.device_index())
+        if (backing_ != nullptr)
         {
-            release_backing();  // free on original device before switching
+            if (ctx.device_index() != ctx_.device_index())
+            {
+                release_backing();  // free on original device before switching
+            }
+            else if (ctx.stream != ctx_.stream)
+            {
+                require_previous_stream_idle();
+            }
         }
         ctx_ = ctx;
     }
@@ -159,6 +178,26 @@ public:
     execution_context ctx()      const noexcept { return ctx_; }
 
 private:
+    // Fail closed: the slab is about to be used from another stream, which is safe
+    // only if work already submitted on the old one has finished.
+    void require_previous_stream_idle() const
+    {
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        if (ctx_.is_gpu() &&
+            detail::token_stream_query(ctx_.device_index(), ctx_.stream).status ==
+                detail::driver_status::ok)
+        {
+            return;
+        }
+#endif
+        if (ctx_.is_gpu())
+        {
+            throw std::runtime_error(
+                "gpu_workspace::rebind: the previous stream is not known to be idle; "
+                "wait for it (or its completion token) and retry");
+        }
+    }
+
     void ensure_backing(size_t min_bytes)
     {
         size_t const needed = (min_bytes > capacity_) ? min_bytes : capacity_;

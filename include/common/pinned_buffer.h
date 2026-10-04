@@ -25,6 +25,8 @@
 #include <utility>
 
 #include "common/cleanup_diagnostic.h"
+#include "common/execution_context.h"
+#include "common/retained_ptr.h"
 #include "helper/pinned_memory_allocator.h"
 
 namespace memory
@@ -93,6 +95,26 @@ public:
         if (allocator_)
             allocator_->copy_from_device_async(data_, source, size_bytes(), stream);
     }
+    /// Hand the storage to a shared `retained_ptr<T>` (plan 6.3) so a retained copy
+    /// (`allocator<T>::copy_async_retained`) keeps it alive until the transfer
+    /// completes, however many user handles are dropped meanwhile. The last owner
+    /// returns the block to its pinned pool; a failed return is counted in
+    /// `cleanup_diagnostic`. The endpoint is a host (CPU-context) endpoint. On a
+    /// throw (bad_alloc from the control block) this buffer still owns the storage.
+    retained_ptr<T> into_retained() &&
+    {
+        if (data_ == nullptr)
+        {
+            return {};
+        }
+        retained_ptr<T> shared = retained_ptr<T>::adopt(
+            data_, size_, execution_context::cpu(), &free_to_pool, allocator_);
+        allocator_ = nullptr;  // ownership moved only now that adopt() succeeded
+        data_      = nullptr;
+        size_      = 0;
+        return shared;
+    }
+
     /// A false result indicates a runtime failure; storage is quarantined safely.
     bool reset() noexcept
     {
@@ -110,6 +132,15 @@ public:
     }
 
 private:
+    static void free_to_pool(void* pool, void* ptr, std::size_t) noexcept
+    {
+        auto* allocator = static_cast<cpu::pinned_memory_allocator*>(pool);
+        if (allocator != nullptr && !allocator->deallocate(ptr))
+        {
+            cleanup_diagnostic::record_failure(cleanup_source::pinned_buffer);
+        }
+    }
+
     // Destructor/move-assign release: reset() cannot throw, but a false result
     // means the storage was quarantined; a swallowed failure is not a successful
     // cleanup (plan §5.2), so it is counted.

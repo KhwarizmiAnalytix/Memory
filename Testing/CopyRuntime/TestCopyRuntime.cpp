@@ -1250,6 +1250,29 @@ TEST_F(CopyFailureTest, LifetimeHoldsPageableHostAndAdoptedDeviceEndpointsUntilC
     EXPECT_EQ(1, device_releases);
 }
 
+TEST_F(CopyFailureTest, SlicesKeepTheOriginatingStorageAliveThroughAnInFlightCopy)
+{
+    service().set_max_pending(8);
+    auto stream = reinterpret_cast<void*>(33);
+    fake_runtime::set_stream_ready(stream, false);
+    int releases = 0;
+    {
+        retained_pair pair(&releases, stream);
+        auto          src_slice = pair.source.slice(1, 2);
+        auto          dst_slice = pair.destination.slice(1, 2);
+        {
+            retained_pair dropped = std::move(pair);  // the base handles go away first
+        }
+        EXPECT_EQ(0, releases);  // the slices still own the whole allocation
+        (void)allocator<float>::copy_async_retained(src_slice, dst_slice, stream);
+    }  // slices gone too; only the in-flight copy owns the storage
+    EXPECT_EQ(0, releases);
+    EXPECT_EQ(1U, service().pending_count());
+    fake_runtime::set_stream_ready(stream, true);
+    EXPECT_EQ(1U, service().poll().completed);
+    EXPECT_EQ(2, releases);  // both allocations freed once, after completion
+}
+
 #endif  // MEMORY_HAS_CUDA
 
 // Task 1.8: if adoption itself fails to allocate, the deleter has not run and the

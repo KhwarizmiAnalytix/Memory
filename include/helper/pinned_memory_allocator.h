@@ -32,6 +32,8 @@ struct MEMORY_VISIBILITY pinned_memory_stats
     std::size_t bytes_allocated{0};  // Live rounded block capacity.
     std::size_t bytes_cached{0};     // Immediately reusable capacity.
     std::size_t bytes_pending{0};    // Awaiting streams, including quarantined blocks.
+    std::size_t bytes_quarantined{0};  // Subset of bytes_pending (or live) that is never reused.
+    std::size_t bytes_padding{0};    // Alignment padding inside bytes_reserved.
     std::size_t bytes_reserved{0};   // Driver-requested bytes, including alignment padding.
     std::size_t peak_bytes_reserved{0};
     std::size_t cache_hits{0};
@@ -102,13 +104,21 @@ public:
     MEMORY_API void set_max_cached_bytes(std::size_t bytes);
     MEMORY_API std::size_t max_cached_bytes() const;
 
-    /// Total backing budget: live + cached + pending bytes combined.
+    /// Non-blocking shrink: releases reusable (cached) blocks, largest first, until
+    /// bytes_reserved <= @p target_backing_bytes or none are left. Never touches a
+    /// live, pending or quarantined block, and never waits for a stream: in-flight
+    /// bytes stay, so the target may not be reached. Returns the bytes released.
+    MEMORY_API std::size_t shrink(std::size_t target_backing_bytes);
+
+    /// Total backing budget: live + cached + pending bytes combined, padding included.
     /// Allocate() throws std::bad_alloc when this limit would be exceeded.
     /// 0 means unlimited (the default).  Separate from set_max_cached_bytes
     /// which only limits the reusable-cache portion.
     MEMORY_API void        set_max_backing_bytes(std::size_t bytes);
     MEMORY_API std::size_t max_backing_bytes() const;
 
+    /// Counts are exact. bytes_quarantined and bytes_padding are computed by a scan
+    /// of the block table: do not call this on a hot path.
     MEMORY_API pinned_memory_stats stats() const;
     MEMORY_API int                 device() const noexcept;
 

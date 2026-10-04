@@ -244,11 +244,19 @@ struct pinned_memory_allocator::Impl
         }
     }
 
-    void trim(std::size_t limit) noexcept
+    // Release reusable blocks, largest first, while the cache exceeds @p limit or
+    // the reserved backing exceeds @p reserved_target. Only cached blocks are
+    // touched: live, pending and quarantined ones are never freed here.
+    void trim(
+        std::size_t limit,
+        std::size_t reserved_target = std::numeric_limits<std::size_t>::max()) noexcept
     {
-        for (std::size_t i = cached_.size(); i-- > 0 && stats_.bytes_cached > limit;)
+        auto const over = [&] {
+            return stats_.bytes_cached > limit || stats_.bytes_reserved > reserved_target;
+        };
+        for (std::size_t i = cached_.size(); i-- > 0 && over();)
         {
-            while (cached_[i] && stats_.bytes_cached > limit)
+            while (cached_[i] && over())
             {
                 auto* b    = cached_[i];
                 cached_[i] = b->next;
@@ -454,6 +462,25 @@ struct pinned_memory_allocator::Impl
         process_pending(wait);
         trim(limit);
     }
+
+    std::size_t shrink(std::size_t target)
+    {
+        gpu::device_guard guard(device_);
+        process_pending(false);  // poll only: a block still in flight stays
+        std::size_t const before = stats_.bytes_reserved;
+        trim(std::numeric_limits<std::size_t>::max(), target);
+        return before - stats_.bytes_reserved;
+    }
+
+    void fill_scan_stats(pinned_memory_stats& out) const noexcept
+    {
+        out.bytes_padding = blocks_.size() * (alignment - 1);
+        for (auto const& entry : blocks_)
+        {
+            if (entry.second->quarantined)
+                out.bytes_quarantined += entry.second->capacity;
+        }
+    }
 #else
     static void* allocate(std::size_t bytes)
     {
@@ -473,6 +500,8 @@ struct pinned_memory_allocator::Impl
             throw std::runtime_error("Pinned host transfers require CUDA or HIP");
     }
     static void collect(bool, std::size_t) {}
+    static std::size_t shrink(std::size_t) { return 0; }
+    static void fill_scan_stats(pinned_memory_stats&) noexcept {}
 #endif
 };
 
@@ -534,10 +563,17 @@ std::size_t pinned_memory_allocator::max_backing_bytes() const
     std::scoped_lock lock(impl_->mutex_);
     return impl_->backing_limit_;
 }
+std::size_t pinned_memory_allocator::shrink(std::size_t target_backing_bytes)
+{
+    std::scoped_lock lock(impl_->mutex_);
+    return impl_->shrink(target_backing_bytes);
+}
 pinned_memory_stats pinned_memory_allocator::stats() const
 {
     std::scoped_lock lock(impl_->mutex_);
-    return impl_->stats_;
+    pinned_memory_stats out = impl_->stats_;
+    impl_->fill_scan_stats(out);
+    return out;
 }
 int pinned_memory_allocator::device() const noexcept
 {

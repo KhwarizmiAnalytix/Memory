@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "copy_runtime_hip",
+    "backend": "hip",
+    "evidence": "shim",
+    "git_sha": "9803264",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryCopyHipRuntimeTests.exe",
+    "recorded": "2026-10-04 10:36:40"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 28,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 28
+  }
+}

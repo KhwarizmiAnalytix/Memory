@@ -25,9 +25,13 @@
 #include "common/copy_token.h"
 #include "common/data_ptr.h"
 #include "common/retained_operation_service.h"
+#include "common/pinned_buffer.h"
+#include "common/pinned_staging_ring.h"
 #include "common/retained_ptr.h"
 #include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
+#include "gpu/gpu_workspace.h"
+#include "helper/pinned_memory_allocator.h"
 
 using namespace memory;
 using namespace memory::gpu;
@@ -351,6 +355,32 @@ TEST_F(Phase4Hardware, DefaultStreamModesAreExplicit)
 #endif
 }
 
+// 5.5: ordered teardown. With a retained copy still in flight the runtime teardown
+// reports it and touches nothing else; once it completes, teardown succeeds.
+TEST_F(Phase4Hardware, ShutdownRuntimeWaitsForRetainedWorkBeforeTearingDownCaches)
+{
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    test_stream             s;
+    execution_context const ctx{device_enum::CUDA, 0, s.stream};
+    stream_blocker          blocker(s.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    {
+        auto source      = make_retained<float>(kCount, ctx);
+        auto destination = make_retained<float>(kCount, ctx);
+        (void)allocator<float>::copy_async_retained(source, destination, s.stream);
+    }
+    EXPECT_EQ(shutdown_runtime(std::chrono::milliseconds(30)), 1U);  // reported, not torn down
+    EXPECT_EQ(service.pending_count(), 1U);
+    EXPECT_THROW(
+        (void)service.enqueue(copy_token(ctx), 0, false), std::runtime_error);  // admission closed
+
+    blocker.open();
+    EXPECT_EQ(shutdown_runtime(std::chrono::seconds(5)), 0U);
+    EXPECT_FALSE(blocker.timed_out());
+    service.reset();  // reopen admission for the tests that follow
+}
+
 // 5.6 on the real cache: managed GPU storage behind a retained copy stays allocated
 // (not returned to the cache for reuse) after every user handle is dropped, until the
 // copy behind a held stream completes; then the service releases it.
@@ -383,6 +413,160 @@ TEST_F(Phase4Hardware, RetainedManagedGpuCopySurvivesDroppedHandlesUntilCompleti
     EXPECT_EQ(allocator<float>::memory_allocated(0), baseline)
         << "after completion the service must have released both blocks";
     EXPECT_EQ(service.failed_count(), 0U);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 on a real device (plan 6.2-6.4). Shim and CPU coverage: TestCpuArena.cpp
+// and the PinnedRuntime shim; these need a device and a held stream.
+// ---------------------------------------------------------------------------
+namespace
+{
+class Phase6Hardware : public Phase4Hardware
+{
+};
+}  // namespace
+
+// 6.2: several slices may be live at once; reset() and rebind() refuse while any is;
+// moving to another stream keeps the slab only if the old stream is idle now.
+TEST_F(Phase6Hardware, WorkspaceFailsClosedOnLiveSlicesAndOnABusyPreviousStream)
+{
+    test_stream             a;
+    test_stream             b;
+    execution_context const ctx_a{device_enum::CUDA, 0, a.stream};
+    execution_context const ctx_b{device_enum::CUDA, 0, b.stream};
+    gpu_workspace           ws{1U << 16, ctx_a};
+
+    auto* p1 = static_cast<char*>(ws.acquire(300));
+    auto* p2 = static_cast<char*>(ws.acquire(300));
+    ASSERT_NE(p1, nullptr);
+    ASSERT_NE(p2, nullptr);
+    EXPECT_GE(p2 - p1, 300) << "slices must not overlap";
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(p1) % 256, 0U);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(p2) % 256, 0U);
+    EXPECT_THROW(ws.reset(), logging::exception);
+    EXPECT_THROW(ws.rebind(ctx_b), logging::exception);
+    EXPECT_EQ(ws.used(), 600U + 212U);  // the refusals changed nothing (padding to 256)
+
+    ws.release();
+    stream_blocker blocker(a.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    EXPECT_THROW(ws.rebind(ctx_b), std::runtime_error) << "stream a still has work queued";
+    EXPECT_EQ(ws.ctx().stream, a.stream);  // unchanged on refusal
+    EXPECT_NO_THROW(ws.rebind(ctx_a));     // same stream: ordered by the stream, no proof
+
+    ASSERT_EQ(blocker.release(), cudaSuccess);  // opens the hold and drains the stream
+    EXPECT_FALSE(blocker.timed_out());
+    EXPECT_NO_THROW(ws.rebind(ctx_b));
+    EXPECT_EQ(ws.ctx().stream, b.stream);
+    EXPECT_NO_THROW(ws.reset());
+    EXPECT_EQ(ws.capacity(), 0U);
+}
+
+// 6.3: a pinned endpoint adopted into a retained copy stays allocated in its pool
+// after the user handle is dropped, until the held transfer completes; then it goes
+// back to the pool.
+TEST_F(Phase6Hardware, RetainedPinnedCopySurvivesDroppedHandlesUntilCompletion)
+{
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    auto& pool = cpu::pinned_allocator_for_device(0);
+    pool.empty_cache();
+    test_stream             s;
+    execution_context const ctx{device_enum::CUDA, 0, s.stream};
+    auto                    destination = make_retained<float>(kCount, ctx);
+    {
+        pinned_buffer<float> warm(kCount);  // pre-warm the pool: no cudaHostAlloc while held
+    }
+    pool.poll();
+    size_t const live_before = pool.stats().bytes_allocated;
+
+    stream_blocker blocker(s.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    {
+        pinned_buffer<float> host(kCount);
+        for (size_t i = 0; i < kCount; ++i)
+        {
+            host.data()[i] = 3.0F;
+        }
+        auto source = std::move(host).into_retained();
+        EXPECT_EQ(host.data(), nullptr);  // NOLINT(bugprone-use-after-move)
+        (void)allocator<float>::copy_async_retained(source, destination, s.stream);
+    }  // the only user handle to the pinned memory is gone; the transfer is held
+    EXPECT_EQ(service.pending_count(), 1U);
+    EXPECT_GT(pool.stats().bytes_allocated, live_before)
+        << "the pinned block must stay live while the transfer is in flight";
+
+    blocker.open();
+    EXPECT_EQ(service.wait_all(std::chrono::seconds(5)), 0U);
+    EXPECT_FALSE(blocker.timed_out());
+    EXPECT_EQ(pool.stats().bytes_allocated, live_before)
+        << "after completion the service must have returned the block to the pool";
+    EXPECT_EQ(service.failed_count(), 0U);
+
+    pinned_host<float> check(kCount);
+    ASSERT_EQ(
+        cudaMemcpy(
+            check.data(), destination.data(), kCount * sizeof(float), cudaMemcpyDeviceToHost),
+        cudaSuccess);
+    EXPECT_EQ(check.data()[0], 3.0F);
+    EXPECT_EQ(check.data()[kCount - 1], 3.0F);
+}
+
+// 6.4: a slot comes back only when the transfer submitted for it has completed.
+TEST_F(Phase6Hardware, StagingRingReusesASlotOnlyAfterItsTransferCompletes)
+{
+    test_stream             s;
+    execution_context const ctx{device_enum::CUDA, 0, s.stream};
+    data_ptr<float>         device_buffer(kCount, ctx);
+    pinned_staging_ring<float> ring(2, kCount);
+    EXPECT_EQ(ring.idle_count(), 2U);
+
+    stream_blocker blocker(s.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    std::vector<size_t> used;
+    for (int i = 0; i < 2; ++i)
+    {
+        auto slot = ring.acquire(std::chrono::milliseconds(100));
+        used.push_back(slot.index());
+        for (size_t j = 0; j < slot.size(); ++j)
+        {
+            slot.data()[j] = static_cast<float>(i + 1);
+        }
+        ring.submit(
+            slot,
+            allocator<float>::copy_async(
+                slot.data(), kCount, device_buffer.data(), s.stream, device_enum::CPU,
+                device_enum::CUDA, 0, 0));
+    }
+    EXPECT_NE(used[0], used[1]);
+    EXPECT_EQ(ring.in_flight_count(), 2U);
+    EXPECT_FALSE(ring.try_acquire().has_value()) << "no slot may be reused while its copy is held";
+    EXPECT_THROW((void)ring.acquire(std::chrono::milliseconds(20)), std::runtime_error);
+
+    blocker.open();
+    auto again = ring.acquire(std::chrono::seconds(5));
+    EXPECT_FALSE(blocker.timed_out());
+    EXPECT_LT(again.index(), 2U);
+    ring.release(again);
+    EXPECT_THROW(ring.release(again), std::invalid_argument);  // not acquired any more
+    EXPECT_EQ(ring.quarantined_count(), 0U);
+}
+
+// 6.4: a failed transfer quarantines its slot for good; with every slot gone the
+// wait fails at once instead of running out its timeout.
+TEST_F(Phase6Hardware, StagingRingQuarantinesTheSlotOfAFailedTransfer)
+{
+    pinned_staging_ring<float> ring(1, 16);
+    auto                       slot = ring.acquire(std::chrono::milliseconds(100));
+    execution_context          ctx{device_enum::CUDA, 0, nullptr};
+    copy_token                 token(ctx);
+    memory::detail::copy_token_access::fail(token);  // as a driver failure would
+    ring.submit(slot, token);
+    EXPECT_FALSE(ring.try_acquire().has_value());
+    EXPECT_EQ(ring.quarantined_count(), 1U);
+    const auto started = clock_type::now();
+    EXPECT_THROW((void)ring.acquire(std::chrono::seconds(5)), std::runtime_error);
+    EXPECT_LT(clock_type::now() - started, std::chrono::seconds(1));
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP
