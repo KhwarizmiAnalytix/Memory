@@ -26,6 +26,13 @@
 
 using namespace memory;
 
+// Counters defined by the shim's gpu_dispatch stub (gpu_dispatch_stub.cpp).
+namespace memory::gpu::test
+{
+extern std::atomic<int>         record_stream_use_calls;
+extern std::atomic<void const*> foreign_pointer;
+}  // namespace memory::gpu::test
+
 namespace
 {
 std::atomic<bool>   g_count_new{false};
@@ -52,11 +59,31 @@ void* operator new(std::size_t n)
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
+namespace
+{
+// Every event the library created is accounted for: pooled events (plan 3.4) are
+// released first, so a leaked event shows as creates != destroys.
+bool no_event_leaked()
+{
+    memory::detail::release_token_event_pool();
+    return fake_runtime::event_creates == fake_runtime::event_destroys;
+}
+}  // namespace
+
 class CopyTokenTest : public ::testing::Test
 {
 protected:
-    void SetUp() override { fake_runtime::reset(); }
-    void TearDown() override { fake_runtime::reset(); }
+    // Pooled token events outlive a token; drop them so each test starts clean.
+    void SetUp() override
+    {
+        memory::detail::release_token_event_pool();
+        fake_runtime::reset();
+    }
+    void TearDown() override
+    {
+        memory::detail::release_token_event_pool();
+        fake_runtime::reset();
+    }
 };
 
 // Test: token reports complete for CPU operations
@@ -495,7 +522,8 @@ TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
         (void)allocator<T>::copy_async_retained(src, dst, stream);
         (void)service.poll();
     }
-    int const creates0 = fake_runtime::event_creates;
+    int const creates0  = fake_runtime::event_creates;
+    int const destroys0 = fake_runtime::event_destroys;
     g_new_calls = 0;
     g_count_new = true;
     for (int i = 0; i < 100; ++i)
@@ -504,16 +532,15 @@ TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
         (void)service.poll();
     }
     g_count_new = false;
-    size_t const heap    = g_new_calls.load();
-    int const    creates = fake_runtime::event_creates - creates0;
+    size_t const heap     = g_new_calls.load();
+    int const    creates  = fake_runtime::event_creates - creates0;
+    int const    destroys = fake_runtime::event_destroys - destroys0;
     RecordProperty("retained_copy_heap_allocations_per_100", static_cast<int>(heap));
     RecordProperty("retained_copy_event_creates_per_100", creates);
-    // Target (§6.1, task 3.4): 0 heap allocations, 0 event create/destroy.
-    if (heap != 0 || creates != 0)
-    {
-        GTEST_SKIP() << "expected-fail (plan 3.4): " << heap << " heap allocations and " << creates
-                     << " event creates per 100 retained copies";
-    }
+    // §6.1, task 3.4: steady state allocates nothing and creates/destroys no event.
+    EXPECT_EQ(0u, heap);
+    EXPECT_EQ(0, creates);
+    EXPECT_EQ(0, destroys);
     (void)service.shutdown(std::chrono::milliseconds(100));
 }
 #endif  // MEMORY_HAS_CUDA
@@ -808,7 +835,7 @@ TEST_F(CopyFailureTest, EventCreationFailureSubmitsNothingAndRestoresAdmissionOn
     EXPECT_EQ(failed_before_, service().failed_count());
     EXPECT_EQ(1, pair.source.use_count());  // temporary owners released
     EXPECT_EQ(1, pair.destination.use_count());
-    EXPECT_EQ(fake_runtime::event_creates, fake_runtime::event_destroys);
+    EXPECT_TRUE(no_event_leaked());
 
     // The single admission slot (limit 1) is free again.
     auto token = allocator<float>::copy_async_retained(pair.source, pair.destination, stream);
@@ -842,7 +869,7 @@ TEST_F(CopyFailureTest, SetupFailureAfterAdmissionCancelsReservationWithoutWaiti
     EXPECT_EQ(0U, service().pending_count());  // admission restored
     EXPECT_EQ(failed_before_, service().failed_count());
     EXPECT_EQ(1, pair.source.use_count());  // payload released
-    EXPECT_EQ(fake_runtime::event_creates, fake_runtime::event_destroys);
+    EXPECT_TRUE(no_event_leaked());
 
     fake_runtime::current_device = 0;
     EXPECT_NO_THROW(
@@ -965,3 +992,317 @@ TEST_F(CopyTokenTest, AdoptionAllocationFailureLeavesTheCallerOwningThePointer)
     }
     EXPECT_EQ(calls, 1);  // ownership returned exactly once, freed exactly once
 }
+
+// ===========================================================================
+// Phase 4: transfer completion and context semantics (plan 4.1-4.7)
+// ===========================================================================
+namespace
+{
+execution_context cuda_ctx(void* stream, int device = 0)
+{
+    execution_context ctx;
+    ctx.dev.type  = device_enum::CUDA;
+    ctx.dev.index = static_cast<std::int16_t>(device);
+    ctx.stream    = stream;
+    return ctx;
+}
+}  // namespace
+
+// 4.1: a failed device activation is an error, never a result. Before this task a
+// query whose device switch failed went ahead on the wrong device and could report
+// a copy complete.
+TEST_F(CopyTokenTest, ActivationFailureDuringQueryFailsTheTokenAndKeepsTheDevice)
+{
+    auto stream = reinterpret_cast<void*>(5);
+    fake_runtime::set_stream_ready(stream, true);  // the event IS complete
+    copy_token token(cuda_ctx(stream, 0));
+    token.prepare_event();
+    token.record_event();
+
+    fake_runtime::current_device          = 1;  // the query must switch to device 0 ...
+    fake_runtime::fail_set_device_on_call = fake_runtime::set_device_calls + 1;  // ... and fails
+    EXPECT_EQ(token.state(), completion_state::failed);
+    EXPECT_FALSE(token.ready());
+    EXPECT_EQ(fake_runtime::current_device, 1) << "the caller's device must be left alone";
+    fake_runtime::fail_set_device_on_call = 0;
+
+    // The failure is published once and is stable: later queries and waits agree.
+    EXPECT_EQ(token.state(), completion_state::failed);
+    EXPECT_THROW(token.wait(), std::runtime_error);
+}
+
+TEST_F(CopyTokenTest, ActivationFailureDuringWaitFailsTheTokenAndNeverSynchronizes)
+{
+    auto stream = reinterpret_cast<void*>(6);
+    fake_runtime::set_stream_ready(stream, false);
+    copy_token token(cuda_ctx(stream, 0));
+    token.prepare_event();
+    token.record_event();
+
+    fake_runtime::current_device          = 2;
+    fake_runtime::fail_set_device_on_call = fake_runtime::set_device_calls + 1;
+    EXPECT_THROW(token.wait(), std::runtime_error);
+    fake_runtime::fail_set_device_on_call = 0;
+    EXPECT_EQ(fake_runtime::event_syncs, 0) << "nothing may be waited on in the wrong context";
+    EXPECT_EQ(fake_runtime::current_device, 2);
+    EXPECT_EQ(token.state(), completion_state::failed);
+}
+
+TEST_F(CopyTokenTest, SuccessfulCrossDeviceQueryRestoresThePreviousDevice)
+{
+    auto stream = reinterpret_cast<void*>(7);
+    fake_runtime::set_stream_ready(stream, true);
+    copy_token token(cuda_ctx(stream, 0));
+    token.prepare_event();
+    token.record_event();
+    fake_runtime::current_device = 3;
+    EXPECT_EQ(token.state(), completion_state::complete);
+    EXPECT_EQ(fake_runtime::current_device, 3);
+}
+
+#if MEMORY_HAS_CUDA
+// 4.2: copy_sync returns when ITS copy completed: it waits on the copy's own
+// event, on the stream it was given, with no stream or device synchronize.
+TEST_F(CopyTokenTest, CopySyncWaitsOnItsOwnEventOnTheGivenStream)
+{
+    auto  stream = reinterpret_cast<void*>(3);
+    auto  other  = reinterpret_cast<void*>(4);
+    float src[4] = {1, 2, 3, 4};
+    float dst[4] = {};
+    fake_runtime::set_stream_ready(stream, false);  // earlier work on the stream is pending
+    fake_runtime::set_stream_ready(other, false);   // unrelated work elsewhere stays pending
+
+    allocator<float>::copy_sync(src, 4, dst, device_enum::CPU, device_enum::CUDA, 0, 0, stream);
+
+    EXPECT_EQ(dst[3], 4.0F);
+    EXPECT_EQ(fake_runtime::event_records, 1);
+    EXPECT_EQ(fake_runtime::event_syncs, 1) << "waits on its own event";
+    EXPECT_EQ(fake_runtime::stream_syncs, 0) << "not on the whole stream";
+    EXPECT_EQ(fake_runtime::device_syncs, 0) << "never device-wide";
+    EXPECT_EQ(fake_runtime::get_stream_state(other), fake_runtime::STREAM_NOT_READY)
+        << "unrelated streams are untouched";
+    EXPECT_TRUE(no_event_leaked());
+}
+
+TEST_F(CopyTokenTest, CopySyncNeverReportsCompletionForAFailedCopyOrWait)
+{
+    auto  stream = reinterpret_cast<void*>(3);
+    float src[4] = {1, 2, 3, 4};
+    float dst[4] = {};
+
+    fake_runtime::fail_memcpy = true;  // submission fails: nothing in flight
+    EXPECT_THROW(
+        allocator<float>::copy_sync(src, 4, dst, device_enum::CPU, device_enum::CUDA, 0, 0, stream),
+        std::runtime_error);
+    fake_runtime::fail_memcpy = false;
+    EXPECT_EQ(dst[0], 0.0F);
+
+    fake_runtime::set_stream_error(stream);  // the wait on the copy's event fails
+    EXPECT_THROW(
+        allocator<float>::copy_sync(src, 4, dst, device_enum::CPU, device_enum::CUDA, 0, 0, stream),
+        std::runtime_error);
+}
+
+// 4.3: a null stream is only meaningful when the caller and the library agree on
+// which default stream it names, and a per-thread default stream cannot be a cache
+// identity. Ambiguity is rejected before anything is acquired or submitted.
+namespace
+{
+struct library_mode_guard
+{
+    explicit library_mode_guard(memory::detail::default_stream_mode mode)
+    {
+        memory::detail::set_library_default_stream_mode_for_testing(mode);
+    }
+    ~library_mode_guard()
+    {
+        memory::detail::set_library_default_stream_mode_for_testing(
+            memory::detail::default_stream_mode::legacy);
+    }
+};
+}  // namespace
+
+TEST_F(CopyTokenTest, AmbiguousNullStreamIsRejectedBeforeAnySubmission)
+{
+    using memory::detail::default_stream_mode;
+    float src[4] = {1, 2, 3, 4};
+    float dst[4] = {};
+    {
+        library_mode_guard const per_thread(default_stream_mode::per_thread);  // caller is legacy
+        EXPECT_THROW(
+            allocator<float>::copy_async(src, 4, dst, nullptr, device_enum::CPU, device_enum::CUDA),
+            std::invalid_argument);
+        EXPECT_THROW(
+            allocator<float>::copy_sync(src, 4, dst, device_enum::CPU, device_enum::CUDA),
+            std::invalid_argument);
+        EXPECT_THROW(
+            allocator<float>::record_stream(dst, device_enum::CUDA, 0, nullptr),
+            std::invalid_argument);
+        EXPECT_EQ(fake_runtime::copies, 0);
+        EXPECT_EQ(fake_runtime::event_creates, 0) << "rejected before any reservation";
+
+        // An explicit stream names one stream in either mode: the supported path.
+        auto stream = reinterpret_cast<void*>(3);
+        fake_runtime::set_stream_ready(stream, true);
+        EXPECT_NO_THROW(
+            allocator<float>::copy_async(src, 4, dst, stream, device_enum::CPU, device_enum::CUDA)
+                .wait());
+    }
+    // Legacy on both sides: the null stream is unambiguous and accepted.
+    fake_runtime::set_stream_ready(nullptr, true);
+    EXPECT_NO_THROW(
+        allocator<float>::copy_async(src, 4, dst, nullptr, device_enum::CPU, device_enum::CUDA)
+            .wait());
+}
+
+TEST_F(CopyTokenTest, StreamHandleValidationMatrix)
+{
+    using memory::detail::default_stream_mode;
+    using memory::detail::validate_stream_handle;
+    auto explicit_stream = reinterpret_cast<void*>(3);
+    {
+        library_mode_guard const library(default_stream_mode::legacy);
+        EXPECT_NO_THROW(validate_stream_handle(nullptr, default_stream_mode::legacy));
+        EXPECT_THROW(
+            validate_stream_handle(nullptr, default_stream_mode::per_thread), std::invalid_argument);
+        EXPECT_NO_THROW(validate_stream_handle(explicit_stream, default_stream_mode::per_thread));
+    }
+    {
+        library_mode_guard const library(default_stream_mode::per_thread);
+        // Agreeing is not enough: one cache identity cannot name every thread's stream.
+        EXPECT_THROW(
+            validate_stream_handle(nullptr, default_stream_mode::per_thread), std::invalid_argument);
+        EXPECT_THROW(
+            validate_stream_handle(nullptr, default_stream_mode::legacy), std::invalid_argument);
+        EXPECT_NO_THROW(validate_stream_handle(explicit_stream, default_stream_mode::per_thread));
+    }
+}
+
+// 4.4: record_stream is reuse-only. It keeps the block from being recycled until the
+// consumer's stream catches up; it never makes that stream wait for the producer.
+// stream_wait is the ordering call.
+TEST_F(CopyTokenTest, RecordStreamAloneDoesNotOrderAConsumerButStreamWaitDoes)
+{
+    auto  producer = reinterpret_cast<void*>(3);
+    auto  consumer = reinterpret_cast<void*>(4);
+    float src[4]   = {1, 2, 3, 4};
+    float dst[4]   = {};
+    fake_runtime::set_stream_ready(producer, false);  // the copy is still running
+
+    copy_token token =
+        allocator<float>::copy_async(src, 4, dst, producer, device_enum::CPU, device_enum::CUDA);
+    allocator<float>::record_stream(dst, device_enum::CUDA, 0, consumer);
+    EXPECT_EQ(token.state(), completion_state::pending);
+    EXPECT_TRUE(fake_runtime::stream_waits.empty())
+        << "record_stream alone leaves the consumer free to run ahead of the producer";
+
+    token.stream_wait(consumer);
+    ASSERT_EQ(fake_runtime::stream_waits.size(), 1U);
+    EXPECT_EQ(fake_runtime::stream_waits[0].first, consumer);
+
+    // A finished operation needs no device-side wait.
+    token.wait();
+    fake_runtime::stream_waits.clear();
+    token.stream_wait(consumer);
+    EXPECT_TRUE(fake_runtime::stream_waits.empty());
+}
+
+TEST_F(CopyTokenTest, StreamWaitFailureAndFailedTokensThrow)
+{
+    auto producer = reinterpret_cast<void*>(3);
+    auto consumer = reinterpret_cast<void*>(4);
+    fake_runtime::set_stream_ready(producer, false);
+    copy_token pending(cuda_ctx(producer));
+    pending.prepare_event();
+    pending.record_event();
+
+    fake_runtime::fail_stream_wait = true;
+    EXPECT_THROW(pending.stream_wait(consumer), std::runtime_error);
+    fake_runtime::fail_stream_wait = false;
+
+    copy_token failed(cuda_ctx(producer));
+    memory::detail::copy_token_access::fail(failed);
+    EXPECT_THROW(failed.stream_wait(consumer), std::runtime_error);
+
+    copy_token no_event(cuda_ctx(producer));  // never submitted: nothing to wait on
+    EXPECT_THROW(no_event.stream_wait(consumer), std::runtime_error);
+
+    copy_token cpu_token;
+    EXPECT_NO_THROW(cpu_token.stream_wait(consumer));
+}
+
+// 4.5: an unsupported peer copy is rejected before any reservation, stream-use
+// record or driver call. The copy only checks peer access; it never grants it.
+TEST_F(CopyTokenTest, UnsupportedPeerCopyIsRejectedBeforeAnySubmission)
+{
+    auto  stream = reinterpret_cast<void*>(3);
+    float src[4] = {1, 2, 3, 4};
+    float dst[4] = {};
+    fake_runtime::set_stream_ready(stream, true);
+    fake_runtime::peer_denied[1][0] = true;  // device 1 cannot reach device 0
+    int const uses_before           = memory::gpu::test::record_stream_use_calls.load();
+
+    EXPECT_THROW(
+        allocator<float>::copy_async(src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 1),
+        std::invalid_argument);
+    EXPECT_GT(fake_runtime::peer_access_queries, 0);
+    EXPECT_EQ(fake_runtime::peer_copies, 0);
+    EXPECT_EQ(fake_runtime::copies, 0);
+    EXPECT_EQ(fake_runtime::event_creates, 0);
+    EXPECT_EQ(fake_runtime::event_records, 0);
+    EXPECT_EQ(memory::gpu::test::record_stream_use_calls.load(), uses_before);
+
+    // The opposite direction is supported and the copy goes through.
+    EXPECT_NO_THROW(
+        allocator<float>::copy_async(
+            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 1, 0)
+            .wait());
+    EXPECT_EQ(fake_runtime::peer_copies, 1);
+
+    // An out-of-range device cannot be queried and is rejected the same way.
+    EXPECT_THROW(
+        allocator<float>::copy_async(src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 7),
+        std::invalid_argument);
+
+    // Same-device copies never consult peer access.
+    int const queries = fake_runtime::peer_access_queries;
+    EXPECT_NO_THROW(
+        allocator<float>::copy_async(
+            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 2, 2)
+            .wait());
+    EXPECT_EQ(fake_runtime::peer_access_queries, queries);
+}
+
+// 4.7: an interior, freed or foreign GPU pointer cannot be tracked by the cache, so
+// the copy is refused before either endpoint's stream use is recorded or any work
+// is submitted (it used to fail partway, after recording the first endpoint).
+TEST_F(CopyTokenTest, InteriorOrForeignGpuPointerIsRejectedBeforeSubmission)
+{
+    auto  stream   = reinterpret_cast<void*>(3);
+    float base[8]  = {};
+    float other[8] = {};
+    fake_runtime::set_stream_ready(stream, true);
+    memory::gpu::test::foreign_pointer = base + 1;  // the cache does not own this address
+    int const uses_before              = memory::gpu::test::record_stream_use_calls.load();
+
+    EXPECT_THROW(
+        allocator<float>::copy_async(
+            other, 4, base + 1, stream, device_enum::CUDA, device_enum::CUDA),
+        std::invalid_argument);  // interior destination
+    EXPECT_THROW(
+        allocator<float>::copy_async(
+            base + 1, 4, other, stream, device_enum::CUDA, device_enum::CUDA),
+        std::invalid_argument);  // interior source
+    EXPECT_EQ(fake_runtime::copies, 0);
+    EXPECT_EQ(fake_runtime::event_records, 0);
+    EXPECT_EQ(memory::gpu::test::record_stream_use_calls.load(), uses_before)
+        << "the valid endpoint must not be recorded when the other is refused";
+
+    memory::gpu::test::foreign_pointer = nullptr;
+    EXPECT_NO_THROW(
+        allocator<float>::copy_async(
+            other, 4, base, stream, device_enum::CUDA, device_enum::CUDA)
+            .wait());
+    EXPECT_EQ(fake_runtime::copies, 1);
+}
+#endif  // MEMORY_HAS_CUDA

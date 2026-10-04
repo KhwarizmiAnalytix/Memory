@@ -289,27 +289,30 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
     }
     RecordProperty("warm_alloc_free_heap_allocations_per_100", static_cast<int>(heap));
     EXPECT_EQ(malloc_before, rt::malloc_calls) << "warm alloc/free must make 0 driver calls";
-    // Expected-fail until 3.8 (allocated_blocks_ node) and the free-pool set node
-    // are removed from the warm path: 3 heap allocations per alloc/free pair today.
-    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.8): " << heap << " heap allocations / 100 pairs";
+    // Plan 3.8: live-map and free-pool nodes are recycled (was 3 per pair).
+    EXPECT_EQ(0u, heap) << "warm alloc/free must not allocate";
 }
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 {
     cuda_caching_allocator allocator(0);
+    auto const             split_and_merge = [&]
+    {
+        void* a = allocator.allocate(512);
+        void* b = allocator.allocate(512);
+        allocator.deallocate(a, 512);
+        allocator.deallocate(b, 512);
+    };
     allocator.deallocate(allocator.allocate(4096), 4096);
+    split_and_merge();  // first use grows block metadata and nodes once
     size_t heap = 0;
     {
         new_probe probe;
-        void*     a = allocator.allocate(512);
-        void*     b = allocator.allocate(512);
-        allocator.deallocate(a, 512);
-        allocator.deallocate(b, 512);
+        split_and_merge();
         heap = probe.count();
     }
     RecordProperty("split_heap_allocations", static_cast<int>(heap));
-    // Expected-fail: freelist covers cache_block, but pool set / map nodes still allocate.
-    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.8): " << heap << " heap allocations on split";
+    EXPECT_EQ(0u, heap) << "steady-state split/merge must not allocate";
 }
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeRecordStreamUpToFourStreamsNoHeap)
@@ -411,25 +414,113 @@ TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
     EXPECT_THROW(allocator.deallocate(p, 4096), logging::exception);
 }
 
-// §6.1 "GPU free": event record only for cross-stream uses and 0 heap allocations.
-// Today a cross-stream free allocates (event bookkeeping); recorded as expected-fail.
+// §6.1 "GPU free": event record only for cross-stream uses, 0 heap allocations.
+// Plan 3.3: a steady-state cross-stream free takes no device guard, creates no
+// event and allocates nothing.
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
 {
     cuda_caching_allocator allocator(0);
+    auto const             cross_stream_pair = [&](size_t streams)
+    {
+        void* p = allocator.allocate(4096);
+        for (size_t s = 1; s <= streams; ++s)
+        {
+            allocator.record_stream(p, rt::stream(s));
+        }
+        allocator.deallocate(p, 4096);
+    };
     allocator.deallocate(allocator.allocate(4096), 4096);
-    size_t heap = 0;
+    cross_stream_pair(4);  // warm: creates the pooled events, grows the queue
+    cross_stream_pair(4);
+    int const devices_before = rt::get_device_calls;
+    int const creates_before = rt::event_create_calls;
+    int const records_before = rt::event_record_calls;
+    size_t    heap           = 0;
     {
         new_probe probe;
         for (int i = 0; i < 10; ++i)
         {
-            void* p = allocator.allocate(4096);
-            allocator.record_stream(p, rt::stream(1));
-            allocator.deallocate(p, 4096);
+            cross_stream_pair(4);
         }
         heap = probe.count();
     }
     RecordProperty("cross_stream_free_heap_allocations_per_10", static_cast<int>(heap));
-    if (heap != 0) GTEST_SKIP() << "expected-fail (plan 3.2/3.3): " << heap << " heap allocations / 10 cross-stream pairs";
+    EXPECT_EQ(0u, heap);
+    EXPECT_EQ(devices_before, rt::get_device_calls) << "idle/pooled path must not query the device";
+    EXPECT_EQ(creates_before, rt::event_create_calls) << "steady state must reuse pooled events";
+    EXPECT_EQ(records_before + 40, rt::event_record_calls) << "one record per cross-stream use";
+}
+
+// Plan 3.5: cached bytes are an O(1) atomic read that tracks the free pools
+// through allocate, split, free+merge and release.
+TEST_F(CudaCachingAllocatorRuntime, CachedBytesTrackFreePoolsWithoutLocking)
+{
+    cuda_caching_allocator allocator(0);
+    EXPECT_EQ(0u, allocator.bytes_cached_now());
+    void* p = allocator.allocate(4096);
+    EXPECT_EQ(allocator.bytes_reserved_now() - allocator.bytes_allocated_now(), allocator.bytes_cached_now())
+        << "the rest of the segment is cached after a split";
+    allocator.deallocate(p, 4096);
+    EXPECT_EQ(allocator.bytes_reserved_now(), allocator.bytes_cached_now());
+    EXPECT_EQ(allocator.stats().bytes_cached.load(), allocator.bytes_cached_now());
+    size_t const peak = allocator.peak_bytes_cached_now();
+    EXPECT_GE(peak, allocator.bytes_cached_now());
+    allocator.empty_cache();
+    EXPECT_EQ(0u, allocator.bytes_cached_now());
+    EXPECT_EQ(peak, allocator.peak_bytes_cached_now());
+    allocator.reset_peak_stats();
+    EXPECT_EQ(0u, allocator.peak_bytes_cached_now());
+}
+
+// Plan 3.3: polling is bounded per call, but a cache miss forces progress so
+// completed events never starve a request that the cache could serve.
+TEST_F(CudaCachingAllocatorRuntime, BoundedPollingStillReclaimsUnderPressure)
+{
+    cuda_caching_allocator allocator(0);
+    constexpr int          kBlocks = 40;  // more pending events than one poll examines
+    std::vector<void*>     ptrs;
+    for (int i = 0; i < kBlocks; ++i)
+    {
+        ptrs.push_back(allocator.allocate(4096));
+    }
+    rt::event_ready[1] = false;  // stream(0)'s events are not ready: they stay queued
+    for (void* p : ptrs)
+    {
+        allocator.record_stream(p, rt::stream(0));
+        allocator.deallocate(p, 4096);
+    }
+    int const mallocs = rt::malloc_calls;
+    rt::event_ready[1] = true;  // all work completes
+    // The first call polls a bounded number of events; the cache still holds
+    // enough completed blocks to serve every request without a driver call.
+    std::vector<void*> again;
+    for (int i = 0; i < kBlocks; ++i)
+    {
+        again.push_back(allocator.allocate(4096));
+    }
+    EXPECT_EQ(mallocs, rt::malloc_calls) << "pressure poll must reap completed events before the driver";
+    for (void* p : again)
+    {
+        allocator.deallocate(p, 4096);
+    }
+}
+
+// Plan 3.3: not-ready events keep their block withheld and later events of the
+// same stream are not queried past the first not-ready one.
+TEST_F(CudaCachingAllocatorRuntime, NotReadyEventKeepsBlockWithheldUntilComplete)
+{
+    cuda_caching_allocator allocator(0);
+    void*                  p = allocator.allocate(4096);
+    allocator.record_stream(p, rt::stream(0));
+    rt::event_ready[1] = false;
+    allocator.deallocate(p, 4096);
+    void* q = allocator.allocate(4096);
+    EXPECT_NE(p, q) << "a block with an unfinished cross-stream use must not be reused";
+    rt::event_ready[1] = true;
+    void* r            = allocator.allocate(4096);
+    EXPECT_EQ(p, r) << "the block returns once its event completes";
+    allocator.deallocate(q, 4096);
+    allocator.deallocate(r, 4096);
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +678,10 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
             break;
         }
     }
-    EXPECT_GE(fired, 2);
+    // Plan 3.8: container nodes are recycled, so on a warmed cache the split's
+    // only allocation boundary left is the block metadata. The node-allocation
+    // boundaries (live map, free pool) are covered by the cold segment case.
+    EXPECT_GE(fired, 1);
 }
 
 TEST_F(CudaCachingAllocatorRuntime, FreeFailingBeforeCommitLeavesTheBlockLiveAndRetryable)

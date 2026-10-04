@@ -23,6 +23,7 @@
 #include "common/storage_element.h"
 #include "common/storage_handle.h"
 #include "common/storage_identity.h"
+#include "common/transfer.h"
 
 namespace memory
 {
@@ -339,6 +340,7 @@ retained_ptr<T> make_retained(std::size_t count, execution_context ctx)
     {
         throw std::overflow_error("make_retained: count * sizeof(T) overflows size_t");
     }
+    detail::validate_context_stream(ctx);
     return retained_ptr<T>::from_storage(
         allocate_bytes(count * sizeof(T), storage_max_alignment, ctx), ctx);
 }

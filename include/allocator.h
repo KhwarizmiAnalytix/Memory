@@ -196,6 +196,7 @@ public:
                     "kMinBlockSize-byte alignment; requested alignment exceeds it");
             }
 #endif
+            detail::validate_stream_handle(stream, detail::caller_default_stream_mode());
             ptr = static_cast<pointer>(gpu::allocate_device_bytes(nbytes, device_index, stream));
         }
 #endif
@@ -327,6 +328,11 @@ public:
      * No-op for CPU and Metal. Matches PyTorch recordStream: the block is not
      * reused until @p stream completes.
      *
+     * Reuse-only (plan 4.4): this does not order @p stream after whatever produced
+     * the data. A consumer that must see a finished copy waits on the copy's token
+     * (copy_token::stream_wait or wait()); record_stream alone leaves it racing
+     * the producer.
+     *
      * @p stream == nullptr is CUDA/HIP's own spelling for the default stream,
      * not "no stream" — it must still be forwarded. A block allocated on a
      * non-default stream and then used on the default stream is a real
@@ -348,6 +354,7 @@ public:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         if (is_active_gpu_device(type))
         {
+            detail::validate_stream_handle(stream, detail::caller_default_stream_mode());
             gpu::record_stream_use(ptr, device_index, stream);
         }
 #else
@@ -395,7 +402,14 @@ public:
     // (the caller returns early), positive counts reject null endpoints, byte
     // overflow and unsupported backend combinations.
     MEMORY_FORCE_INLINE static void validate_copy(
-        const_pointer from, size_type n, const_pointer to, device_enum from_type, device_enum to_type)
+        const_pointer from,
+        size_type     n,
+        const_pointer to,
+        device_enum   from_type,
+        device_enum   to_type,
+        int           from_index = 0,
+        int           to_index   = 0,
+        stream_t      stream     = nullptr)
     {
         if (n == 0)
         {
@@ -409,6 +423,16 @@ public:
         if (!is_copy_endpoint(from_type) || !is_copy_endpoint(to_type))
         {
             throw std::invalid_argument("Unsupported device combination for memory copy");
+        }
+        if (from_type != device_enum::CPU || to_type != device_enum::CPU)
+        {
+            // Context checks that need the runtime: an unambiguous stream (4.3) and
+            // a supported route, including peer access across devices (4.5). Both
+            // throw std::invalid_argument before anything is acquired or submitted.
+            detail::validate_stream_handle(stream, detail::caller_default_stream_mode());
+            detail::validate_route(
+                device{from_type, static_cast<std::int16_t>(from_index)},
+                device{to_type, static_cast<std::int16_t>(to_index)});
         }
     }
 
@@ -432,7 +456,7 @@ public:
         {
             return;
         }
-        validate_copy(from, n, to, from_type, to_type);
+        validate_copy(from, n, to, from_type, to_type, from_index, to_index, stream);
 
         const auto nbytes = checked_byte_count(n, scalar_size);
 
@@ -462,12 +486,19 @@ public:
 
     // --- Explicit sync / async copy helpers (Order 3) ---
 
-    // copy_sync: blocking cross-device copy. Never returns until the transfer
-    // is complete.  Equivalent to copy(..., stream=nullptr).
-    // Synchronous copy: blocks until transfer is complete and visible.
-    // For CPU↔CPU: uses memcpy (synchronous by nature)
-    // For GPU transfers: submits async work, waits for completion before returning
-    // Guarantees: After return, destination is stable and visible to consumers
+    // copy_sync: blocking copy. Returns when THIS copy has completed and its
+    // destination is visible; it waits on the copy's own completion event, never on
+    // the whole stream or device, so unrelated work queued on the stream after the
+    // copy does not delay the return and no device-wide synchronize is issued
+    // (plan 4.2).
+    //   CPU<->CPU: memcpy (synchronous by nature).
+    //   GPU: the copy is enqueued on @p stream with the usual stream-use tracking and
+    //   the call waits on its token. Pass an explicit stream: a null stream is the
+    //   caller's default stream (legacy default stream unless the translation unit
+    //   is built per-thread), which on the legacy stream also orders behind every
+    //   other blocking stream, and an ambiguous null is rejected (4.3). Pageable host
+    //   endpoints are safe: the wait covers any staging the driver does.
+    //   A failed copy or wait throws and never reports completion.
     MEMORY_FORCE_INLINE static void copy_sync(
         const_pointer from,
         size_type     n,
@@ -475,29 +506,29 @@ public:
         device_enum   from_type  = device_enum::CPU,
         device_enum   to_type    = device_enum::CPU,
         int           from_index = 0,
-        int           to_index   = 0)
+        int           to_index   = 0,
+        stream_t      stream     = nullptr)
     {
-        // CPU↔CPU copy is inherently synchronous
+        // CPU<->CPU copy is inherently synchronous
         if (from_type == device_enum::CPU && to_type == device_enum::CPU)
         {
             copy(from, n, to, from_type, to_type, from_index, to_index, nullptr);
             return;
         }
 
-        // GPU transfers: use async infrastructure with explicit wait
-        // Use nullptr stream (legacy default CUDA stream) for sync behavior
-        copy_token token = copy_async(from, n, to, nullptr, from_type, to_type,
+        copy_token token = copy_async(from, n, to, stream, from_type, to_type,
                                       from_index, to_index);
-        token.wait();  // Block until transfer completes
+        token.wait();  // this copy's event, not the stream or the device
     }
 
     // copy_async: enqueue a non-blocking copy on @p stream and return a
     // copy_token.  Both GPU endpoints have record_stream called BEFORE the
     // copy is submitted, so the caching allocator defers their reuse until
     // the stream catches up regardless of whether the caller holds the token.
-    // record_stream requires the pointer to be a live allocation from this
-    // caching allocator; interior or foreign GPU pointers are caller-managed
-    // (record_stream will CHECK-fail if the base is not found in the cache).
+    // Each GPU endpoint must be the base of a live allocation from the caching
+    // allocator: an interior, freed or foreign GPU pointer is rejected with
+    // std::invalid_argument before anything is recorded or submitted (plan 4.7).
+    // Slice a data_ptr through data_view/clone, not by pointer arithmetic.
     // For pageable CPU endpoints the caller must wait() the token before
     // accessing the host buffer again.
     MEMORY_FORCE_INLINE static copy_token copy_async(
@@ -541,7 +572,7 @@ public:
         {
             return copy_token{};  // zero-count copy is a no-op; payload released on return
         }
-        validate_copy(from, n, to, from_type, to_type);
+        validate_copy(from, n, to, from_type, to_type, from_index, to_index, stream);
 
         // Phase 2. Build a context that identifies which device/stream to wait on.
         // Use is_gpu_device (enum-based) rather than is_active_gpu_device
@@ -652,7 +683,9 @@ public:
             retained_ptr<T> from;
             retained_ptr<T> to;
         };
-        auto holder = std::make_shared<retained_holder>(retained_holder{from, to});
+        // One recycled block for state + control block (plan 3.4).
+        auto holder = std::allocate_shared<retained_holder>(
+            detail::recycled_allocator<retained_holder>{}, retained_holder{from, to});
         return copy_async_impl<false>(
             from.data(), from.size(), to.data(), stream,
             from.ctx().device_type(), to.ctx().device_type(),

@@ -142,6 +142,11 @@ public:
      */
     MEMORY_API void record_stream(void* ptr, stream_type stream);
 
+    /// True when @p ptr is the base address of a live allocation from this cache
+    /// (not an interior pointer, a freed block or foreign memory). Takes the
+    /// device lock; used to validate copy endpoints before anything is submitted.
+    MEMORY_API bool owns_live_allocation(void const* ptr) const;
+
     /**
      * @brief Clear all cached memory immediately
      * @note This will synchronize with all pending CUDA operations
@@ -232,6 +237,10 @@ public:
     MEMORY_API size_t peak_bytes_allocated_now() const noexcept;
     MEMORY_API size_t bytes_reserved_now()       const noexcept;
     MEMORY_API size_t peak_bytes_reserved_now()  const noexcept;
+    // Bytes sitting in the free pools, immediately reusable (blocks awaiting
+    // cross-stream events are not counted): O(1), no lock.
+    MEMORY_API size_t bytes_cached_now()         const noexcept;
+    MEMORY_API size_t peak_bytes_cached_now()    const noexcept;
 
     /**
      * @brief Enable or disable the allocation-history ring

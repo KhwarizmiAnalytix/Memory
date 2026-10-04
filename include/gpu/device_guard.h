@@ -53,23 +53,45 @@ public:
             throw_on_cuda_error(cudaSetDevice(device), "cudaSetDevice");
             changed_ = true;
         }
+        active_ = true;
     }
 
     // Best-effort variant for noexcept teardown (allocator destructors): the
     // runtime may already be unloading (cudaErrorCudartUnloading). Skip the
     // switch rather than throw.
+    //
+    // Check active() before relying on the device: when activation failed the
+    // current device is NOT @p device, and a caller that goes on to answer a
+    // question about device-local state (an event query, say) must report the
+    // failure instead of a result from the wrong context (plan 4.1).
     device_guard(int device, std::nothrow_t) noexcept
     {
-        int current = 0;
-        if (cudaGetDevice(&current) == cudaSuccess)
+        int         current = 0;
+        cudaError_t status  = cudaGetDevice(&current);
+        if (status == cudaSuccess)
         {
             prev_ = current;
-            if (current != device && cudaSetDevice(device) == cudaSuccess)
+            if (current == device)
             {
-                changed_ = true;
+                active_ = true;
+            }
+            else
+            {
+                status = cudaSetDevice(device);
+                if (status == cudaSuccess)
+                {
+                    changed_ = true;
+                    active_  = true;
+                }
             }
         }
+        error_ = static_cast<int>(status);
     }
+
+    /// True when @p device is the current device for this guard's lifetime.
+    bool active() const noexcept { return active_; }
+    /// Raw driver code of the failed activation step; 0 when active().
+    int error() const noexcept { return error_; }
 
     device_guard(device_guard const&)            = delete;
     device_guard& operator=(device_guard const&) = delete;
@@ -84,7 +106,9 @@ public:
 
 private:
     int  prev_{0};
+    int  error_{0};
     bool changed_{false};
+    bool active_{false};
 };
 
 }  // namespace memory::gpu

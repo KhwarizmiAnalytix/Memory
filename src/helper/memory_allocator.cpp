@@ -19,6 +19,7 @@
 
 #include "helper/memory_allocator.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>  // for std::memset
@@ -31,6 +32,7 @@
 #include <profiler.h>
 
 #include "profiler/profiled_cpu_memory_reporter.h"
+#include "profiler/profiling_gate.h"
 #endif
 
 #if MEMORY_HAS_TBB
@@ -68,9 +70,16 @@ namespace memory::cpu::memory_allocator
 #if MEMORY_HAS_PROFILER
 namespace
 {
+// profiler::memory_profiling_active() takes a process-wide mutex; the gate keeps
+// the profiling-off path to a thread-local decrement (plan 3.6, R8).
+MEMORY_FORCE_INLINE bool profiling_active() noexcept
+{
+    return detail::profiling_gate::active([] { return profiler::memory_profiling_active(); });
+}
+
 MEMORY_FORCE_INLINE void maybe_record_allocation(void* ptr, std::size_t nbytes)
 {
-    if MEMORY_UNLIKELY (profiler::memory_profiling_active())
+    if MEMORY_UNLIKELY (profiling_active())
     {
         cpu_memory_reporter().record_allocation(ptr, nbytes);
     }
@@ -78,7 +87,7 @@ MEMORY_FORCE_INLINE void maybe_record_allocation(void* ptr, std::size_t nbytes)
 
 MEMORY_FORCE_INLINE void maybe_record_deallocation(void* ptr)
 {
-    const bool active = profiler::memory_profiling_active();
+    const bool active = profiling_active();
     if MEMORY_UNLIKELY (active || cpu_memory_reporter().has_tracked_blocks())
     {
         cpu_memory_reporter().record_deallocation(ptr, active);
@@ -87,7 +96,7 @@ MEMORY_FORCE_INLINE void maybe_record_deallocation(void* ptr)
 
 MEMORY_FORCE_INLINE void maybe_record_out_of_memory(std::size_t nbytes)
 {
-    if MEMORY_UNLIKELY (profiler::memory_profiling_active())
+    if MEMORY_UNLIKELY (profiling_active())
     {
         cpu_memory_reporter().record_out_of_memory(nbytes);
     }
@@ -97,6 +106,15 @@ MEMORY_FORCE_INLINE void maybe_record_out_of_memory(std::size_t nbytes)
 
 namespace
 {
+// Alignment up to this is what the plain (unaligned) entry point already
+// guarantees on the backends that take the fast path below.
+[[maybe_unused]] constexpr std::size_t kNaturalAlignment = 16;
+
+// Opt-in implicit NUMA placement (plan 3.6): the old behavior bound every
+// allocation with an mbind(MPOL_MF_MOVE) syscall. Placement is now explicit, so
+// by default an allocation makes no syscall beyond the backend's own.
+std::atomic<bool> g_numa_placement{false};
+
 // Hot path: raw allocation with no init or bookkeeping logic.
 // static linkage lets the compiler inline this into allocate() and, via LTO,
 // into callers that pass a constant init_policy_enum::UNINITIALIZED so the
@@ -104,6 +122,14 @@ namespace
 MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment) noexcept
 {
 #if MEMORY_HAS_MIMALLOC
+    // mimalloc aligns a block to the largest power of two dividing its size class,
+    // up to 16 bytes (a 24-byte block is only 8-aligned), and mi_free handles both
+    // entry points. So the unaligned path is valid exactly when the size is a
+    // multiple of the requested small alignment.
+    if (alignment <= kNaturalAlignment && (nbytes & (alignment - 1)) == 0)
+    {
+        return mi_malloc(nbytes);
+    }
     return mi_aligned_alloc(alignment, nbytes);
 #elif MEMORY_HAS_TBB
     return scalable_aligned_malloc(nbytes, alignment);
@@ -113,9 +139,9 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
     return _aligned_malloc(nbytes, alignment);
 #else
     // POSIX systems
-    if (alignment < sizeof(void*))
+    if (alignment <= kNaturalAlignment)
     {
-        return malloc(nbytes);
+        return malloc(nbytes);  // malloc is aligned for max_align_t (16 bytes on 64-bit)
     }
     void* ptr = nullptr;
     // cppcheck-suppress memleak ; ptr is returned to the caller
@@ -148,9 +174,12 @@ void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
         return nullptr;
     }
 
-    // NUMA optimization
+    // NUMA placement is explicit: only when enabled through set_numa_placement().
 #if MEMORY_HAS_NUMA
-    NUMAMove(ptr, nbytes, GetCurrentNUMANode());
+    if MEMORY_UNLIKELY (g_numa_placement.load(std::memory_order_relaxed))
+    {
+        NUMAMove(ptr, nbytes, GetCurrentNUMANode());
+    }
 #endif
 
     // Memory initialization — UNINITIALIZED is the overwhelmingly common case;
@@ -191,6 +220,16 @@ void free(void* ptr, MEMORY_UNUSED std::size_t nbytes) noexcept
         ::free(ptr);
 #endif
     }
+}
+
+void set_numa_placement(bool enabled) noexcept
+{
+    g_numa_placement.store(enabled, std::memory_order_relaxed);
+}
+
+bool numa_placement() noexcept
+{
+    return g_numa_placement.load(std::memory_order_relaxed);
 }
 
 std::size_t usable_size(const void* ptr) noexcept

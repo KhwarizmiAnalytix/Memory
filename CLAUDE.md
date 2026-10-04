@@ -52,6 +52,10 @@ allocation paths:
 `allocator<T>` dispatches GPU allocate/free through `is_active_gpu_device()`
 so CUDA/HIP/Metal share one call site (Metal still rejects `double`).
 
+Do **not** call `profiler::memory_profiling_active()` directly on an allocation hot
+path: it takes the Profiler's process-wide mutex (plan §3.5 R8, ~9 µs per pair at 32
+threads). Go through `detail::profiling_gate` (`profiler/profiling_gate.h`).
+
 Do **not** call `empty_cache` on the allocate/free hot path. Do **not**
 reintroduce the deleted BFC/pool/retry/tracking backends, `process_state`,
 the `Allocator` interface, `gpu_memory_*` helpers, or `visualization/`

@@ -77,7 +77,7 @@ auto moved = std::move(tensor);  // ✅ Fast
 ```
 
 **Use when:** You own the lifetime, single component
-**Note:** Copying is not implicit — use `clone()` for explicit deep-copy
+**Note:** Copying is not implicit — use `clone()` for explicit deep-copy. `clone()` is complete when it returns: for GPU memory it waits for its own copy (one event round trip), so the result can be read on any stream. Use `copy_async()` with a token where overlap matters.
 
 ---
 
@@ -283,6 +283,10 @@ Sources are `data_ptr`, `retained_ptr`, `pinned_buffer` and `gpu_cache`. `cleanu
 
 **Stream recording:** GPU buffers automatically have `record_stream()` called before submission, so the caching allocator defers their reuse until the stream completes. Pageable (non-pinned) CPU buffers require manual synchronization.
 
+`record_stream()` is reuse-only: it does not make a consumer stream wait for the producer. To order a consumer after a copy, call `token.stream_wait(consumer_stream)` (or `token.wait()` on the host). GPU copy endpoints must be the base of a live allocation; interior, freed and foreign GPU pointers are rejected with `std::invalid_argument` before anything is submitted, as is a peer copy between devices that cannot access each other.
+
+**Streams:** pass an explicit stream for GPU work. A null stream is accepted only when the caller and the library agree it means the legacy default stream; an ambiguous null stream, a null stream in per-thread-default-stream mode, and `cudaStreamPerThread` itself are rejected with `std::invalid_argument`.
+
 ### Token results are stable
 
 All copies of a token share one operation. The first terminal result (complete or failed) is recorded once and every copy, on every thread, then sees the same result, whatever work is queued on the stream afterwards:
@@ -351,7 +355,7 @@ Memory/
 | Option | Default | Purpose |
 |--------|---------|---------|
 | `MEMORY_ENABLE_TBB` | OFF | TBB scalable allocator |
-| `MEMORY_ENABLE_NUMA` | OFF | NUMA-aware allocation |
+| `MEMORY_ENABLE_NUMA` | OFF | NUMA support; per-allocation node binding stays off unless `cpu::memory_allocator::set_numa_placement(true)` |
 | `MEMORY_ENABLE_MIMALLOC_STATS` | OFF | Runtime stats reporting |
 | `MEMORY_ENABLE_COVERAGE` | OFF | Coverage instrumentation |
 | `MEMORY_ENABLE_SANITIZER` | OFF | Sanitizer (address/memory/thread/undefined) |

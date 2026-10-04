@@ -6,7 +6,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <thread>
 #include <unordered_set>
+#include <vector>
 
 #include "common/data_ptr.h"
 #include "common/storage_identity.h"
@@ -312,5 +314,46 @@ TEST_F(TestPhase3Identity, OneGeneratorAcrossTheLibraryBoundary)
         EXPECT_GT(direct, from_client);
         last = direct;
     }
+}
+
+// Plan 3.6: IDs come from per-thread blocks, so threads never share a counter
+// line per allocation. They must stay unique across threads (and increase within
+// one thread); ordering between threads is not promised.
+TEST_F(TestPhase3Identity, ThreadsGetDisjointIdsAndEachThreadIncreases)
+{
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 5000;  // several blocks per thread
+    std::vector<std::vector<uint64_t>> per(kThreads);
+    std::vector<std::thread>           threads;
+    for (int t = 0; t < kThreads; ++t)
+    {
+        threads.emplace_back(
+            [&per, t]
+            {
+                per[t].reserve(kPerThread);
+                for (int i = 0; i < kPerThread; ++i)
+                {
+                    per[t].push_back(next_allocation_id().value);
+                }
+            });
+    }
+    for (auto& th : threads)
+    {
+        th.join();
+    }
+    std::unordered_set<uint64_t> all;
+    for (auto const& ids : per)
+    {
+        for (size_t i = 0; i < ids.size(); ++i)
+        {
+            EXPECT_NE(0u, ids[i]);
+            EXPECT_TRUE(all.insert(ids[i]).second) << "duplicate id " << ids[i];
+            if (i > 0)
+            {
+                EXPECT_LT(ids[i - 1], ids[i]);
+            }
+        }
+    }
+    EXPECT_EQ(static_cast<size_t>(kThreads) * kPerThread, all.size());
 }
 }  // namespace memory

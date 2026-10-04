@@ -278,7 +278,7 @@ void retained_operation_service::reset() noexcept
     // deque construction allocates a container proxy and may throw.
     try
     {
-        std::deque<pending_op> to_drain;
+        std::vector<pending_op> to_drain;
         {
             std::unique_lock<std::mutex> lock(mu_);
             to_drain.swap(pending_);

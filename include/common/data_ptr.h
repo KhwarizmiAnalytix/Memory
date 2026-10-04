@@ -52,6 +52,7 @@ struct data_ptr
     MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
         : stream_(ctx.stream)
     {
+        detail::validate_context_stream(ctx);  // an ambiguous null stream is rejected (4.3)
         handle_ = allocate_bytes(size * sizeof(value_t), allocator_t::alignment_bytes, ctx);
     }
 
@@ -63,6 +64,13 @@ struct data_ptr
     }
 
     // Adopt by cloning: allocate owned storage and copy @p data into it.
+    //
+    // The copy is COMPLETE on return (plan 4.6): for GPU endpoints the constructor
+    // waits on the copy's own completion event before handing the object back, so
+    // the new storage can be read on any stream. Before 4.6 this only enqueued the
+    // copy on @p stream, and a consumer on another stream could read a
+    // half-written clone. Cost: one event round trip per GPU clone; use
+    // copy_async() with a token where overlap matters.
     MEMORY_FORCE_INLINE data_ptr(
         value_t const* data,
         size_t         size,
@@ -73,8 +81,8 @@ struct data_ptr
     {
         if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy(data, size, this->data(), type, type,
-                              device_index, device_index, stream);
+            allocator_t::copy_sync(data, size, this->data(), type, type,
+                                   device_index, device_index, stream);
         }
     }
 
@@ -90,13 +98,23 @@ struct data_ptr
     {
         if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy(data, size, this->data(), from_type, to_type,
-                              from_index, to_index, stream);
+            allocator_t::copy_sync(data, size, this->data(), from_type, to_type,
+                                   from_index, to_index, stream);
         }
     }
 
+    // Deep copy of a view. A view of GPU memory must window an allocation the cache
+    // tracks: a borrowed view (no allocation id) or an interior slice cannot have
+    // its use recorded against the owning block, so it is rejected with
+    // std::invalid_argument before any storage is acquired or work submitted
+    // (plan 4.7). CPU views are always accepted. Complete on return, like clone().
     MEMORY_FORCE_INLINE explicit data_ptr(data_view<value_t> const& view)
-        : data_ptr(view.data(), view.size(), view.device(), view.device_index(), view.stream())
+        : data_ptr(
+              checked_view_source(view),
+              view.size(),
+              view.device(),
+              view.device_index(),
+              view.stream())
     {
     }
 
@@ -137,6 +155,7 @@ struct data_ptr
         return data_view<value_t>(*this, offset, count);
     }
 
+    // Deep copy, complete on return (plan 4.6): see the copying constructors.
     MEMORY_FORCE_INLINE data_ptr clone() const
     {
         if (handle_.empty()) return {};
@@ -197,6 +216,30 @@ struct data_ptr
     friend struct data_view<value_t>;
 
 private:
+    // Source pointer of a view copy, or throws std::invalid_argument when the view
+    // names GPU memory the cache cannot track (borrowed or interior).
+    static value_t const* checked_view_source(data_view<value_t> const& view)
+    {
+        if (view.data() == nullptr || view.size() == 0 || view.device() == device_enum::CPU)
+        {
+            return view.data();
+        }
+        auto const& ref = view.storage();
+        if (!ref.id.valid())
+        {
+            throw std::invalid_argument(
+                "data_ptr(data_view): a borrowed GPU view has no allocation the cache tracks; "
+                "copy from the owning data_ptr, or copy through a staging buffer");
+        }
+        if (view.data() != ref.base)
+        {
+            throw std::invalid_argument(
+                "data_ptr(data_view): an interior GPU slice cannot be copied by pointer; "
+                "copy the whole allocation or clone() the owner");
+        }
+        return view.data();
+    }
+
     storage_handle  handle_{};
     stream_handle_t stream_{nullptr};
 };

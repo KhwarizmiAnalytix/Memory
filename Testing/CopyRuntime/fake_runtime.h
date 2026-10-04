@@ -26,6 +26,8 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <utility>
+#include <vector>
 
 using cudaError_t  = int;
 using cudaStream_t = void*;
@@ -84,6 +86,20 @@ inline bool                                  fail_memcpy       = false;
 inline int                                   fail_set_device_on_call = 0;
 inline int                                   set_device_calls        = 0;
 inline std::set<void*>                       backing;
+// Ordering and peer-access model (plan 4.4/4.5).
+// stream_waits records every cudaStreamWaitEvent(stream, event) the library issued.
+inline std::vector<std::pair<cudaStream_t, void*>> stream_waits;
+inline bool                                  fail_stream_wait  = false;
+// peer_denied[device][peer] makes cudaDeviceCanAccessPeer(device, peer) report 0;
+// the default (all false) means every pair can access each other.
+inline bool                                  peer_denied[8][8];
+inline int                                   peer_access_queries = 0;
+inline void                                  allow_all_peers()
+{
+    for (auto& row : peer_denied)
+        for (bool& cell : row)
+            cell = false;
+}
 
 inline void reset()
 {
@@ -111,6 +127,10 @@ inline void reset()
     fail_memcpy = false;
     fail_set_device_on_call = 0;
     set_device_calls = 0;
+    stream_waits.clear();
+    fail_stream_wait = false;
+    allow_all_peers();
+    peer_access_queries = 0;
 }
 
 inline void set_stream_ready(cudaStream_t stream, bool is_ready = true)
@@ -285,6 +305,24 @@ inline cudaError_t cudaEventSynchronize(cudaEvent_t event)
         return 3;
     event->complete = true;
     fake_runtime::set_stream_ready(event->stream, true);
+    return 0;
+}
+
+inline cudaError_t cudaStreamWaitEvent(cudaStream_t stream, cudaEvent_t event, unsigned)
+{
+    if (fake_runtime::fail_stream_wait)
+        return 3;
+    fake_runtime::stream_waits.emplace_back(stream, static_cast<void*>(event));
+    return 0;
+}
+
+inline cudaError_t cudaDeviceCanAccessPeer(int* can_access, int device, int peer)
+{
+    ++fake_runtime::peer_access_queries;
+    if (device < 0 || device >= fake_runtime::device_count || peer < 0 ||
+        peer >= fake_runtime::device_count)
+        return cudaErrorInvalidValue;
+    *can_access = fake_runtime::peer_denied[device][peer] ? 0 : 1;
     return 0;
 }
 

@@ -42,6 +42,13 @@ void record_stream_use(void* ptr, int device_index, stream_handle_t stream)
     caching_allocator_for_device(device_index).record_stream(ptr, backend_stream(stream));
 }
 
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+bool owns_live_allocation(void const* ptr, int device_index)
+{
+    return caching_allocator_for_device(device_index).owns_live_allocation(ptr);
+}
+#endif
+
 void empty_cache(int device_index)
 {
     caching_allocator_for_device(device_index).empty_cache();

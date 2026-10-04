@@ -68,6 +68,16 @@ MEMORY_API void* allocate(
 MEMORY_API void free(void* ptr, std::size_t nbytes = 0) noexcept;
 
 /**
+ * @brief Enables or disables binding each new allocation to the calling thread's
+ * NUMA node (an mbind syscall per allocation). Off by default (plan 3.6): the
+ * operating system's first-touch policy places pages, and an allocation makes no
+ * syscall of its own. Only effective in builds with NUMA support; harmless
+ * elsewhere. Allocations made before the call are not moved.
+ */
+MEMORY_API void set_numa_placement(bool enabled) noexcept;
+MEMORY_API bool numa_placement() noexcept;
+
+/**
  * @brief Returns the usable size of a block previously returned by allocate().
  *
  * Queries the underlying allocator (mimalloc, TBB, or the platform malloc)

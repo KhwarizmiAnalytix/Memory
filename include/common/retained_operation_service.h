@@ -12,6 +12,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include "common/copy_token.h"
 #include "common/memory_export.h"
@@ -122,7 +123,7 @@ private:
 
     mutable std::mutex           mu_;
     std::condition_variable      cv_;          // Signals when space available or ops complete
-    std::deque<pending_op>       pending_;
+    std::vector<pending_op>      pending_;     // capacity retained: steady state does not allocate
     std::deque<copy_token>       failed_;      // Quarantine failures with owners retained
     size_t                       max_pending_{0};  // 0 = unlimited
     bool                         stopping_{false};

@@ -34,6 +34,11 @@ MEMORY_API void free_device_bytes(void* ptr, int device_index, stream_handle_t s
 /// Record a cross-stream use of a live allocation (torch recordStream).
 MEMORY_API void record_stream_use(void* ptr, int device_index, stream_handle_t stream);
 
+/// True when @p ptr is the base address of a live allocation in the per-device
+/// cache (CUDA/HIP). Interior pointers, freed blocks and foreign memory are false.
+/// Lets a copy reject an endpoint the cache cannot track before it submits work.
+MEMORY_API bool owns_live_allocation(void const* ptr, int device_index);
+
 // torch.cuda.memory analogues over the per-device cache.
 MEMORY_API void        empty_cache(int device_index = 0);
 MEMORY_API std::size_t memory_allocated(int device_index = 0);

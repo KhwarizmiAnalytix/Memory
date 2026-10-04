@@ -294,3 +294,47 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
 
     LOGGING_LOG_INFO("Memory port mimalloc statistics availability tests completed successfully");
 }
+
+// Plan 3.6: a small alignment takes the backend's unaligned entry point. The block
+// must still be aligned as requested, writable across its whole size, and
+// released by the common free.
+MEMORYTEST(MemoryPortTest, SmallAlignmentFastPathKeepsTheAlignmentContract)
+{
+    for (std::size_t alignment : {std::size_t{8}, std::size_t{16}})
+    {
+        // Sizes that are and are not multiples of the alignment: only the former may
+        // take the unaligned entry point, and both must come back aligned.
+        for (std::size_t size : {std::size_t{1}, std::size_t{16}, std::size_t{24}, std::size_t{4096}})
+        {
+            void* ptr = cpu::memory_allocator::allocate(size, alignment);
+            ASSERT_NE(nullptr, ptr);
+            EXPECT_TRUE(IsAligned(ptr, alignment));
+            std::memset(ptr, 0xAB, size);
+            cpu::memory_allocator::free(ptr, size);
+        }
+    }
+    void* zeroed = cpu::memory_allocator::allocate(64, 16, cpu::memory_allocator::init_policy_enum::ZERO);
+    ASSERT_NE(nullptr, zeroed);
+    for (std::size_t i = 0; i < 64; ++i)
+    {
+        EXPECT_EQ(0, static_cast<unsigned char*>(zeroed)[i]);
+    }
+    cpu::memory_allocator::free(zeroed, 64);
+    END_TEST();
+}
+
+// Plan 3.6: implicit NUMA binding is opt-in; the default is no per-allocation
+// placement call. The flag round-trips in every build (it only takes effect where
+// NUMA support is compiled in).
+MEMORYTEST(MemoryPortTest, NumaPlacementIsExplicitAndOffByDefault)
+{
+    EXPECT_FALSE(cpu::memory_allocator::numa_placement());
+    cpu::memory_allocator::set_numa_placement(true);
+    EXPECT_TRUE(cpu::memory_allocator::numa_placement());
+    void* ptr = cpu::memory_allocator::allocate(256);  // must still allocate with it on
+    ASSERT_NE(nullptr, ptr);
+    cpu::memory_allocator::free(ptr);
+    cpu::memory_allocator::set_numa_placement(false);
+    EXPECT_FALSE(cpu::memory_allocator::numa_placement());
+    END_TEST();
+}

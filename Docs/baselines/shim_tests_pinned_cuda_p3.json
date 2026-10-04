@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "pinned_runtime_cuda",
+    "backend": "cuda",
+    "evidence": "shim",
+    "git_sha": "5eb1e25",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryPinnedCudaRuntimeTests.exe",
+    "recorded": "2026-10-04 00:42:29"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 18,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 18
+  }
+}

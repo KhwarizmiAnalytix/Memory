@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -253,6 +254,114 @@ inline void free_segment(int device, raw_segment const& seg)
 
 struct block_pool;
 
+// Node recycler for the cache's node-based containers (plan 3.8, §6.1): a node
+// freed by erase() goes on a freelist instead of back to the heap, so the warm
+// allocate/free path (erase from the free pool + insert on free, insert/erase in
+// the live map) stops calling operator new once the cache has warmed up. Single
+// node requests of the first-seen size are recycled; anything else (bucket
+// arrays, other node types) falls through to operator new. Not thread-safe: the
+// owner's mutex serializes every container operation.
+class node_pool
+{
+public:
+    node_pool() = default;
+    node_pool(node_pool const&)            = delete;
+    node_pool& operator=(node_pool const&) = delete;
+
+    ~node_pool()
+    {
+        while (head_ != nullptr)
+        {
+            entry* const next = head_->next;
+            ::operator delete(static_cast<void*>(head_));
+            head_ = next;
+        }
+    }
+
+    void* allocate(size_t bytes)
+    {
+        if (node_size_ == 0 && bytes >= sizeof(entry))
+        {
+            node_size_ = bytes;
+        }
+        if (bytes == node_size_ && head_ != nullptr)
+        {
+            entry* const e = head_;
+            head_          = e->next;
+            return e;
+        }
+        return ::operator new(bytes);
+    }
+
+    void deallocate(void* p, size_t bytes) noexcept
+    {
+        if (bytes == node_size_)
+        {
+            head_ = new (p) entry{head_};
+            return;
+        }
+        ::operator delete(p);
+    }
+
+private:
+    struct entry
+    {
+        entry* next;
+    };
+    entry* head_{nullptr};
+    size_t node_size_{0};
+};
+
+template <typename T>
+struct pool_allocator
+{
+    using value_type = T;
+    template <typename U>
+    struct rebind
+    {
+        using other = pool_allocator<U>;
+    };
+
+    explicit pool_allocator(node_pool* pool) noexcept : pool_(pool) {}
+    template <typename U>
+    pool_allocator(pool_allocator<U> const& other) noexcept : pool_(other.pool_)  // NOLINT
+    {
+    }
+
+    T* allocate(size_t n)
+    {
+        if (n == 1)
+        {
+            return static_cast<T*>(pool_->allocate(sizeof(T)));
+        }
+        return static_cast<T*>(::operator new(n * sizeof(T)));
+    }
+
+    void deallocate(T* p, size_t n) noexcept
+    {
+        if (n == 1)
+        {
+            pool_->deallocate(p, sizeof(T));
+            return;
+        }
+        ::operator delete(static_cast<void*>(p));
+    }
+
+    template <typename U>
+    bool operator==(pool_allocator<U> const& o) const noexcept
+    {
+        return pool_ == o.pool_;
+    }
+    template <typename U>
+    bool operator!=(pool_allocator<U> const& o) const noexcept
+    {
+        return pool_ != o.pool_;
+    }
+
+    node_pool* pool_;
+};
+
+
 // Inline set for recording cross-stream uses (plan §6.1, P3.2, H2).
 // Holds up to kInline streams without heap allocation; a heap-allocated
 // overflow std::set handles the rare case of > kInline distinct streams.
@@ -281,18 +390,28 @@ struct inline_stream_set
         }
     }
 
-    // Move all recorded streams into out, clearing this set.
-    void drain(std::set<cudaStream_t>& out)
+    size_t size() const noexcept
+    {
+        return static_cast<size_t>(size_) + (overflow_ ? overflow_->size() : 0);
+    }
+
+    // Visits every recorded stream once, without copying the set.
+    template <typename F>
+    void for_each(F&& f) const
     {
         for (int i = 0; i < size_; ++i)
-            out.insert(slots_[i]);
+            f(slots_[i]);
         if (overflow_)
         {
             for (cudaStream_t s : *overflow_)
-                out.insert(s);
-            overflow_.reset();
+                f(s);
         }
+    }
+
+    void clear() noexcept
+    {
         size_ = 0;
+        overflow_.reset();
     }
 
 private:
@@ -391,10 +510,14 @@ private:
 // ever reused on the stream they were allocated on.
 struct block_pool
 {
-    explicit block_pool(bool is_small_pool) : is_small(is_small_pool) {}
+    block_pool(bool is_small_pool, node_pool& nodes)
+        : blocks(cache_block_comparator{}, pool_allocator<cache_block*>(&nodes)),
+          is_small(is_small_pool)
+    {
+    }
 
-    std::set<cache_block*, cache_block_comparator> blocks;
-    const bool                                     is_small;
+    std::set<cache_block*, cache_block_comparator, pool_allocator<cache_block*>> blocks;
+    const bool                                                                   is_small;
 };
 
 // Block freelist for P3.2 (plan §6.1, H3): recycles cache_block metadata
@@ -485,6 +608,13 @@ struct cuda_caching_allocator::Impl
         size_t const alloc_size = segment_size_for(rounded);
 
         cache_block* block = get_free_block_locked(pool, stream, rounded);
+        if (block == nullptr && !pending_events_.empty())
+        {
+            // Pressure: the bounded poll above may have left completed events
+            // unreaped; reap them all before spending a driver call.
+            process_events_locked(kPollUnbounded);
+            block = get_free_block_locked(pool, stream, rounded);
+        }
         if (block == nullptr && trigger_free_memory_callbacks_locked())
         {
             // A callback freed device memory; retry the cache before the driver,
@@ -712,6 +842,13 @@ struct cuda_caching_allocator::Impl
         block->stream_uses.insert(stream);
     }
 
+    bool owns_live_allocation(void const* ptr) const
+    {
+        std::scoped_lock const lock(mutex_);
+        auto const             it = allocated_blocks_.find(const_cast<void*>(ptr));
+        return it != allocated_blocks_.end() && it->second->allocated;
+    }
+
     void empty_cache()
     {
         std::scoped_lock const lock(mutex_);
@@ -764,7 +901,7 @@ struct cuda_caching_allocator::Impl
     void reset_peak_stats()
     {
         std::scoped_lock const lock(mutex_);
-        peak_bytes_cached_ = bytes_cached_;
+        peak_bytes_cached_ = bytes_cached_.load(std::memory_order_relaxed);
         stats_.peak_bytes_cached.store(bytes_cached_, std::memory_order_relaxed);
         stats_.peak_bytes_allocated.store(
             stats_.bytes_allocated.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -894,12 +1031,9 @@ struct cuda_caching_allocator::Impl
         {
             consider(block);
         }
-        for (auto& kv : cuda_events_)
+        for (pending_event const& queued : pending_events_)
         {
-            for (auto& queued : kv.second)
-            {
-                consider(queued.second);
-            }
+            consider(queued.block);
         }
         for (auto& entry : unique)
         {
@@ -959,10 +1093,24 @@ struct cuda_caching_allocator::Impl
     size_t peak_bytes_allocated_now() const noexcept { return stats_.peak_bytes_allocated.load(std::memory_order_relaxed); }
     size_t bytes_reserved_now()       const noexcept { return stats_.bytes_reserved.load(std::memory_order_relaxed); }
     size_t peak_bytes_reserved_now()  const noexcept { return stats_.peak_bytes_reserved.load(std::memory_order_relaxed); }
+    size_t bytes_cached_now()         const noexcept { return bytes_cached_.load(std::memory_order_relaxed); }
+    size_t peak_bytes_cached_now()    const noexcept { return peak_bytes_cached_.load(std::memory_order_relaxed); }
 
     int device() const { return device_; }
 
 private:
+    // Single writer (mutex_ held): a relaxed load/store pair, not an atomic RMW.
+    // Publishes the new value (and its peak) for lock-free readers.
+    void add_cached_locked(std::ptrdiff_t delta) noexcept
+    {
+        size_t const now = bytes_cached_.load(std::memory_order_relaxed) + static_cast<size_t>(delta);
+        bytes_cached_.store(now, std::memory_order_relaxed);
+        if (now > peak_bytes_cached_.load(std::memory_order_relaxed))
+        {
+            peak_bytes_cached_.store(now, std::memory_order_relaxed);
+        }
+    }
+
     bool trigger_free_memory_callbacks_locked()
     {
         // All callbacks run (no short-circuit), matching upstream; each reports
@@ -989,7 +1137,7 @@ private:
         }
         cache_block* block = *it;
         pool.blocks.erase(it);
-        bytes_cached_ -= block->size;
+        add_cached_locked(-static_cast<std::ptrdiff_t>(block->size));
         return block;
     }
 
@@ -1183,7 +1331,7 @@ private:
                 block_freelist_.release(head);
                 throw;
             }
-            bytes_cached_ += remaining->size;
+            add_cached_locked(static_cast<std::ptrdiff_t>(remaining->size));
         }
 
         // Committed: nothing below can fail.
@@ -1209,8 +1357,8 @@ private:
         try
         {
             block->pool->blocks.insert(block);
-            bytes_cached_ += block->size;
-            peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
+            add_cached_locked(static_cast<std::ptrdiff_t>(block->size));
+            
         }
         catch (...)
         {
@@ -1290,8 +1438,8 @@ private:
             note_failure_locked();
             return;
         }
-        bytes_cached_ += freed_size;
-        peak_bytes_cached_ = std::max(peak_bytes_cached_, bytes_cached_);
+        add_cached_locked(static_cast<std::ptrdiff_t>(freed_size));
+        
         record_trace_locked(
             gpu_memory_trace_action::free_completed, freed_ptr, freed_size, block->stream);
     }
@@ -1365,29 +1513,32 @@ private:
     void insert_events_locked(cache_block* block)
     {
         // Tracks an event acquired from the pool but not yet confirmed queued
-        // into cuda_events_ (i.e. its cudaEventRecord has not yet succeeded).
+        // into pending_events_ (i.e. its cudaEventRecord has not yet succeeded).
         // A failure between acquiring it and queuing it must recycle it here,
         // or the underlying driver event object leaks: it would be neither in
-        // event_pool_ (available for reuse) nor cuda_events_ (destroyed at
+        // event_pool_ (available for reuse) nor pending_events_ (destroyed at
         // allocator teardown via the pool).
         cudaEvent_t pending_event = nullptr;
         // Boundary/interop path: a CUDA error here must not orphan the block
-        // between the pools and the event queues. Device activation and the
-        // copy of the use set can fail too, so they are inside the try.
+        // between the pools and the event queues. Queue room is reserved first
+        // so nothing after a successful cudaEventRecord can throw.
         try
         {
-            device_guard const guard(device_);
-            // drain() leaves block->stream_uses intact if copying it throws.
-            std::set<cudaStream_t> streams;
-            block->stream_uses.drain(streams);
-            for (cudaStream_t stream : streams)
-            {
-                pending_event = acquire_event_locked();
-                throw_on_cuda_error(cudaEventRecord(pending_event, stream), "cudaEventRecord");
-                cuda_events_[stream].emplace_back(pending_event, block);
-                block->event_count++;
-                pending_event = nullptr;  // ownership transferred to cuda_events_
-            }
+            pending_events_.reserve(pending_events_.size() + block->stream_uses.size());
+            // The device is activated only to create an event (plan 3.3): a
+            // pooled event is recorded without touching the current device,
+            // because an event stays bound to the device it was created on.
+            std::optional<device_guard> guard;
+            block->stream_uses.for_each(
+                [&](cudaStream_t stream)
+                {
+                    pending_event = acquire_event_locked(guard);
+                    throw_on_cuda_error(cudaEventRecord(pending_event, stream), "cudaEventRecord");
+                    pending_events_.push_back({pending_event, block, stream});
+                    block->event_count++;
+                    pending_event = nullptr;  // ownership transferred to pending_events_
+                });
+            block->stream_uses.clear();
         }
         catch (...)
         {
@@ -1398,6 +1549,7 @@ private:
                 // reuse rather than leaking the driver resource.
                 recycle_event_locked(pending_event);
             }
+            block->stream_uses.clear();
             // This path is only entered for a block that has recorded stream
             // uses, so their completion is unproven unless every event was
             // queued (and then nothing could have thrown). Reusing the block
@@ -1409,7 +1561,7 @@ private:
             if (block->event_count == 0)
             {
                 // No event was queued: the block will never appear in
-                // cuda_events_ and cannot be found by release_all_blocks_noexcept
+                // pending_events_ and cannot be found by release_all_blocks_noexcept
                 // via any pool or map. Track it here so teardown can free the
                 // cache_block metadata (the GPU memory stays withheld).
                 track_quarantined_metadata_locked(block);
@@ -1418,13 +1570,17 @@ private:
         }
     }
 
-    cudaEvent_t acquire_event_locked()
+    cudaEvent_t acquire_event_locked(std::optional<device_guard>& guard)
     {
         if (!event_pool_.empty())
         {
             cudaEvent_t event = event_pool_.back();
             event_pool_.pop_back();
             return event;
+        }
+        if (!guard)
+        {
+            guard.emplace(device_);
         }
         cudaEvent_t event = nullptr;
         throw_on_cuda_error(
@@ -1446,66 +1602,98 @@ private:
         }
     }
 
-    void process_events_locked()
+    // Polls pending cross-stream events. Idle (nothing pending) costs one
+    // branch and no driver call. Events complete in order per stream, so after a
+    // stream's first not-ready event its later events are skipped without a
+    // query. `max_queries` bounds the driver queries of one call (plan 3.3);
+    // pressure paths pass kPollUnbounded to force progress. cudaEventQuery does
+    // not need the owning device to be current (an event stays bound to the
+    // device that created it), so no device guard is taken here.
+    static constexpr size_t kPollBudget    = 16;
+    static constexpr size_t kPollUnbounded = std::numeric_limits<size_t>::max();
+
+    void process_events_locked(size_t max_queries = kPollBudget)
     {
-        if (cuda_events_.empty())
+        if (pending_events_.empty())
         {
             return;
         }
-        // Events are device-local: polling must run on the owning device.
-        device_guard const guard(device_);
+        constexpr size_t kMaxBlocked = 8;
+        cudaStream_t     blocked[kMaxBlocked];
+        size_t           blocked_count = 0;
+        size_t           queries       = 0;
+        size_t const     count         = pending_events_.size();
+        size_t           write         = 0;
+        size_t           read          = 0;
 
-        // Per-stream queues are drained independently so one stream's long-running
-        // work does not head-of-line block reclamation from other streams.
-        for (auto map_it = cuda_events_.begin(); map_it != cuda_events_.end();)
+        // Moves the unexamined tail down so the vector stays consistent when the
+        // scan stops early (budget spent, or a driver error).
+        auto const keep_tail = [&]()
         {
-            auto& queue = map_it->second;
-            while (!queue.empty())
+            for (; read < count; ++read, ++write)
             {
-                cudaEvent_t        event  = queue.front().first;
-                cache_block* const block  = queue.front().second;
-                cudaError_t const  status = cudaEventQuery(event);
+                pending_events_[write] = pending_events_[read];
+            }
+            pending_events_.resize(write);
+        };
+
+        for (; read < count; ++read)
+        {
+            pending_event const entry = pending_events_[read];
+            bool                skip  = false;
+            for (size_t i = 0; i < blocked_count; ++i)
+            {
+                skip = skip || blocked[i] == entry.stream;
+            }
+            if (!skip && queries >= max_queries)
+            {
+                break;
+            }
+            if (!skip)
+            {
+                ++queries;
+                cudaError_t const status = cudaEventQuery(entry.event);
                 if (status == cudaSuccess)
                 {
-                    recycle_event_locked(event);
-                    queue.pop_front();
-                    block->event_count--;
-                    // A quarantined block (see insert_events_locked) is never
-                    // returned to a free pool: its untracked streams' uses
-                    // were never proven complete, so it stays permanently
-                    // withheld rather than becoming reusable on the strength
-                    // of a partial count. Track the orphaned metadata for
-                    // teardown cleanup (GPU memory remains withheld).
-                    if (block->event_count == 0)
-                    {
-                        if (block->quarantined)
-                        {
-                            track_quarantined_metadata_locked(block);
-                        }
-                        else
-                        {
-                            free_block_locked(block);
-                        }
-                    }
+                    recycle_event_locked(entry.event);
+                    complete_event_locked(entry.block);
+                    continue;
                 }
-                else if (status == cudaErrorNotReady)
+                if (status != cudaErrorNotReady)
                 {
-                    (void)cudaGetLastError();  // clear the not-ready error state
-                    break;
-                }
-                else
-                {
+                    keep_tail();
                     throw_on_cuda_error(status, "cudaEventQuery");
                 }
+                (void)cudaGetLastError();  // clear the not-ready error state
+                if (blocked_count < kMaxBlocked)
+                {
+                    blocked[blocked_count++] = entry.stream;
+                }
             }
-            if (queue.empty())
-            {
-                map_it = cuda_events_.erase(map_it);
-            }
-            else
-            {
-                ++map_it;
-            }
+            pending_events_[write++] = entry;
+        }
+        keep_tail();
+    }
+
+    // One queued event of `block` has completed. A quarantined block (see
+    // insert_events_locked) is never returned to a free pool: its untracked
+    // streams' uses were never proven complete, so it stays withheld rather
+    // than becoming reusable on the strength of a partial count. Its metadata
+    // is tracked for teardown (the GPU memory remains withheld).
+    void complete_event_locked(cache_block* block)
+    {
+        block->event_count--;
+        if (block->event_count != 0)
+        {
+            return;
+        }
+        if (block->quarantined)
+        {
+            track_quarantined_metadata_locked(block);
+        }
+        else
+        {
+            free_block_locked(block);
         }
     }
 
@@ -1513,29 +1701,27 @@ private:
     {
         stats_.num_sync_all_streams++;
         device_guard const guard(device_);
-        for (auto map_it = cuda_events_.begin(); map_it != cuda_events_.end();)
+        size_t             done = 0;
+        try
         {
-            auto& queue = map_it->second;
-            while (!queue.empty())
+            for (; done < pending_events_.size(); ++done)
             {
-                cudaEvent_t        event = queue.front().first;
-                cache_block* const block = queue.front().second;
+                pending_event const entry = pending_events_[done];
                 // On failure the entry stays queued and untouched (no event is
                 // both pooled and queued).
-                throw_on_cuda_error(cudaEventSynchronize(event), "cudaEventSynchronize");
-                queue.pop_front();
-                recycle_event_locked(event);
-                block->event_count--;
-                if (block->event_count == 0)
-                {
-                    if (block->quarantined)
-                        track_quarantined_metadata_locked(block);
-                    else
-                        free_block_locked(block);
-                }
+                throw_on_cuda_error(cudaEventSynchronize(entry.event), "cudaEventSynchronize");
+                recycle_event_locked(entry.event);
+                complete_event_locked(entry.block);
             }
-            map_it = cuda_events_.erase(map_it);
         }
+        catch (...)
+        {
+            pending_events_.erase(
+                pending_events_.begin(),
+                pending_events_.begin() + static_cast<std::ptrdiff_t>(done));
+            throw;
+        }
+        pending_events_.clear();
     }
 
     void release_segment_locked(cache_block* block)
@@ -1575,7 +1761,7 @@ private:
             // split remainders share a segment with live neighbors and must stay.
             if (!block->is_split())
             {
-                bytes_cached_ -= block->size;
+                add_cached_locked(-static_cast<std::ptrdiff_t>(block->size));
                 pool.blocks.erase(block);
                 release_segment_locked(block);
             }
@@ -1614,7 +1800,7 @@ private:
             {
                 break;
             }
-            bytes_cached_ -= victim->size;
+            add_cached_locked(-static_cast<std::ptrdiff_t>(victim->size));
             victim->pool->blocks.erase(victim);
             release_segment_locked(victim);
         }
@@ -1658,13 +1844,10 @@ private:
                 collect(entry.second);
             }
             allocated_blocks_.clear();
-            for (auto& entry : cuda_events_)
+            for (pending_event const& queued : pending_events_)
             {
-                for (auto& queued : entry.second)
-                {
-                    cudaEventDestroy(queued.first);
-                    collect(queued.second);
-                }
+                cudaEventDestroy(queued.event);
+                collect(queued.block);
             }
             for (cache_block* block : quarantine_metadata_)
             {
@@ -1677,7 +1860,7 @@ private:
             // Allocation failure during set ops; continue anyway to clean up.
         }
 
-        cuda_events_.clear();
+        pending_events_.clear();
         for (cudaEvent_t event : event_pool_)
         {
             cudaEventDestroy(event);
@@ -1710,8 +1893,9 @@ private:
     size_t max_cached_bytes_;
     double memory_fraction_{1.0};
     size_t allowed_memory_maximum_{std::numeric_limits<size_t>::max()};
-    size_t bytes_cached_{0};
-    size_t peak_bytes_cached_{0};
+    // Written under mutex_, read lock-free by bytes_cached_now() (plan 3.5).
+    std::atomic<size_t> bytes_cached_{0};
+    std::atomic<size_t> peak_bytes_cached_{0};
     // Budget reserved for in-flight alloc_segment_unlocked() driver calls, not
     // yet reflected in stats_.bytes_reserved. See reserved_would_exceed_locked().
     size_t pending_reserved_bytes_{0};
@@ -1722,13 +1906,34 @@ private:
     // Recursive, matching upstream: free-memory callbacks run under the lock and
     // may re-enter this allocator to free memory.
     mutable std::recursive_mutex mutex_;
-    block_pool                   small_blocks_{true};
-    block_pool                   large_blocks_{false};
+    // Declared before the containers that allocate from them (destroyed after).
+    node_pool                    free_pool_nodes_;
+    node_pool                    live_map_nodes_;
+    block_pool                   small_blocks_{true, free_pool_nodes_};
+    block_pool                   large_blocks_{false, free_pool_nodes_};
     // Live allocations by pointer; free blocks live in the pool sets and blocks
     // with outstanding cross-stream events live in the event queues.
-    memory_map<void*, cache_block*> allocated_blocks_;
-    std::unordered_map<cudaStream_t, std::deque<std::pair<cudaEvent_t, cache_block*>>> cuda_events_;
-    std::vector<cudaEvent_t>                                                           event_pool_;
+    std::unordered_map<
+        void*,
+        cache_block*,
+        std::hash<void*>,
+        std::equal_to<void*>,
+        pool_allocator<std::pair<void* const, cache_block*>>>
+        allocated_blocks_{
+            0,
+            std::hash<void*>{},
+            std::equal_to<void*>{},
+            pool_allocator<std::pair<void* const, cache_block*>>(&live_map_nodes_)};
+    // Outstanding cross-stream events in submission order (per-stream order is
+    // completion order); capacity is retained so steady state does not allocate.
+    struct pending_event
+    {
+        cudaEvent_t  event;
+        cache_block* block;
+        cudaStream_t stream;
+    };
+    std::vector<pending_event> pending_events_;
+    std::vector<cudaEvent_t>   event_pool_;
     // Quarantined blocks whose last event has already completed (or whose event
     // recording failed entirely): the GPU memory is permanently withheld, but
     // the cache_block metadata must be freed at teardown to satisfy LSan.
@@ -1754,6 +1959,7 @@ struct cuda_caching_allocator::Impl
     }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
+    bool                owns_live_allocation(void const*) const { return false; }
     void                add_free_memory_callback(const cuda_caching_allocator::free_memory_callback&) {}
     void                clear_free_memory_callbacks() {}
     void                empty_cache() {}
@@ -1828,6 +2034,11 @@ void cuda_caching_allocator::deallocate_with_stream_lookup(void* ptr, size_t nby
     impl_->deallocate_with_stream_lookup(ptr, nbytes);
 }
 
+bool cuda_caching_allocator::owns_live_allocation(void const* ptr) const
+{
+    return impl_->owns_live_allocation(ptr);
+}
+
 void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
 {
     impl_->record_stream(ptr, native_stream(stream));
@@ -1897,6 +2108,8 @@ size_t cuda_caching_allocator::bytes_allocated_now()      const noexcept { retur
 size_t cuda_caching_allocator::peak_bytes_allocated_now() const noexcept { return impl_->peak_bytes_allocated_now(); }
 size_t cuda_caching_allocator::bytes_reserved_now()       const noexcept { return impl_->bytes_reserved_now(); }
 size_t cuda_caching_allocator::peak_bytes_reserved_now()  const noexcept { return impl_->peak_bytes_reserved_now(); }
+size_t cuda_caching_allocator::bytes_cached_now()         const noexcept { return impl_->bytes_cached_now(); }
+size_t cuda_caching_allocator::peak_bytes_cached_now()    const noexcept { return impl_->peak_bytes_cached_now(); }
 
 void cuda_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
 {

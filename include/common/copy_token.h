@@ -62,7 +62,10 @@ class MEMORY_VISIBILITY copy_token
 public:
     copy_token() noexcept = default;
 
-    explicit copy_token(execution_context ctx) : state_(std::make_shared<shared_state>(ctx)) {}
+    explicit copy_token(execution_context ctx)
+        : state_(std::allocate_shared<shared_state>(detail::recycled_allocator<shared_state>{}, ctx))
+    {
+    }
 
     copy_token(copy_token&&) noexcept                 = default;
     copy_token& operator=(copy_token&&) noexcept      = default;
@@ -185,6 +188,50 @@ public:
         {
             throw std::runtime_error(describe_failure(final_state));
         }
+#endif
+    }
+
+    // Explicit ordering (plan 4.4): make @p consumer wait, on the device, for this
+    // operation's recorded work, so work enqueued on it afterwards observes the
+    // finished copy. This is the only call that orders a consumer after a
+    // producer: allocator<T>::record_stream only keeps the memory from being
+    // reused until a stream catches up, and does NOT make that stream wait for the
+    // producer. A complete token needs no wait and returns at once; a failed token
+    // throws; a pending token with no recorded event cannot be waited on and throws.
+    void stream_wait(stream_handle_t consumer) const
+    {
+        if (!state_)
+        {
+            return;
+        }
+        auto const published = state_->terminal.load(std::memory_order_acquire);
+        if (decode_state(published) == completion_state::complete)
+        {
+            return;
+        }
+        if (decode_state(published) == completion_state::failed)
+        {
+            throw std::runtime_error(describe_failure(published));
+        }
+        if (!state_->ctx.is_gpu())
+        {
+            return;
+        }
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
+        if (!state_->event_created || !state_->event_recorded.load(std::memory_order_acquire))
+        {
+            throw std::runtime_error(
+                "copy_token::stream_wait(): the operation has no recorded event to wait on");
+        }
+        detail::driver_result const result = detail::token_stream_wait(state_->event, consumer);
+        if (result.status != detail::driver_status::ok)
+        {
+            throw std::runtime_error(
+                std::string("copy_token::stream_wait() failed: ") +
+                detail::driver_error_string(result.code));
+        }
+#else
+        (void)consumer;
 #endif
     }
 
@@ -365,7 +412,8 @@ private:
     {
         if (!state_)
         {
-            state_ = std::make_shared<shared_state>(execution_context::cpu());
+            state_ = std::allocate_shared<shared_state>(
+                detail::recycled_allocator<shared_state>{}, execution_context::cpu());
         }
     }
 
