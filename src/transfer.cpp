@@ -383,18 +383,18 @@ public:
         {
             return false;
         }
-        if (idle.capacity() < kMaxPooled)
+        try
         {
-            try
+            if (idle.capacity() < kMaxPooled)
             {
                 idle.reserve(kMaxPooled);
             }
-            catch (...)
-            {
-                return false;
-            }
+            idle.push_back(event);  // capacity is reserved: cannot reallocate
         }
-        idle.push_back(event);
+        catch (...)
+        {
+            return false;
+        }
         return true;
     }
 

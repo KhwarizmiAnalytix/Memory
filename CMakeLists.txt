@@ -94,7 +94,8 @@ mark_as_advanced(MEMORY_ENABLE_MIMALLOC_STATS)
 option(MEMORY_ENABLE_MEMKIND "Enable memkind extended-memory allocator (Linux only)" OFF)
 
 # Google Benchmark integration for micro-benchmarking allocator paths.
-option(MEMORY_ENABLE_BENCHMARK "Enable Google Benchmark for Memory" ON)
+option(MEMORY_ENABLE_BENCHMARK "Enable Google Benchmark for Memory (Release-like builds only)" ON)
+
 
 # Icecream distributed compilation launcher (rarely needed; hidden by default).
 option(MEMORY_ENABLE_ICECC "Use Icecream (icecc) distributed compiler for Memory" OFF)
@@ -183,6 +184,17 @@ include(CheckSymbolExists)
 include(compiler_checks) # Detects compiler capabilities; sets PROJECT_* flags
 include(checks) # Additional feature-check macros
 include(build_type) # Validates / normalises CMAKE_BUILD_TYPE
+
+# Benchmarks measure optimized code: a Debug (or coverage/sanitizer) build says
+# nothing about performance, so they are only built when the build type is
+# optimized. Multi-config generators decide at build time, so they keep the option.
+if(MEMORY_ENABLE_BENCHMARK AND NOT CMAKE_CONFIGURATION_TYPES)
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _memory_bench_type)
+  if(NOT _memory_bench_type MATCHES "^(RELEASE|RELWITHDEBINFO|MINSIZEREL)$")
+    message(STATUS "Memory: benchmarks disabled for CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}' (Release-like builds only)")
+    set(MEMORY_ENABLE_BENCHMARK OFF)
+  endif()
+endif()
 include(platform) # Platform flags (macOS rpath, Windows /utf-8, …)
 include(CMakeDependentOption)
 

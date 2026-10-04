@@ -272,8 +272,18 @@ struct new_probe
 };
 }  // namespace
 
+// The zero-allocation probes count operator new. With debug iterators (the MSVC STL
+// in a Debug build) every container carries an allocated proxy, so the counts
+// are not those of the shipped code: the probes run in Release only.
+#if defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
+#define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS()     GTEST_SKIP() << "heap-allocation probes need a build without debug iterators"
+#else
+#define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS() (void)0
+#endif
+
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 {
+    SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     allocator.deallocate(allocator.allocate(4096), 4096);  // warm the pool
     int const malloc_before = rt::malloc_calls;
@@ -295,6 +305,7 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 {
+    SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             split_and_merge = [&]
     {
@@ -419,6 +430,7 @@ TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
 // event and allocates nothing.
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
 {
+    SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             cross_stream_pair = [&](size_t streams)
     {
