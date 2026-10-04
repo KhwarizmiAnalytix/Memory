@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "main_suite_cpu_and_gpu_tests",
+    "backend": "cuda",
+    "evidence": "hardware",
+    "git_sha": "49f8a74",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryCxxTests.exe",
+    "recorded": "2026-10-04 14:28:56"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 350,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 350
+  }
+}

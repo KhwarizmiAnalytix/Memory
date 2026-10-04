@@ -16,6 +16,7 @@
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
 #include <atomic>
+#include <cstdio>
 #include <chrono>
 #include <memory>
 #include <thread>
@@ -567,6 +568,134 @@ TEST_F(Phase6Hardware, StagingRingQuarantinesTheSlotOfAFailedTransfer)
     const auto started = clock_type::now();
     EXPECT_THROW((void)ring.acquire(std::chrono::seconds(5)), std::runtime_error);
     EXPECT_LT(clock_type::now() - started, std::chrono::seconds(1));
+}
+
+// 5.8 admission under pressure on a real device: with the stream held and the limit
+// at 2, the third retained copy is refused without submitting anything (try mode) or
+// waits until a completion frees a slot (wait mode); nothing is dropped or leaked.
+TEST_F(Phase4Hardware, AdmissionUnderPressureRefusesOrWaitsAndLeaksNothing)
+{
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    service.set_max_pending(2);
+    test_stream             s;
+    execution_context const ctx{device_enum::CUDA, 0, s.stream};
+    auto                    src = make_retained<float>(kCount, ctx);
+    auto                    dst = make_retained<float>(kCount, ctx);
+    size_t const            baseline = allocator<float>::memory_allocated(0);
+
+    stream_blocker blocker(s.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    (void)allocator<float>::copy_async_retained(src, dst, s.stream);
+    (void)allocator<float>::copy_async_retained(src, dst, s.stream);
+    ASSERT_EQ(service.pending_count(), 2U);
+
+    EXPECT_THROW(
+        (void)allocator<float>::copy_async_retained(src, dst, s.stream, /*wait_for_admission=*/false),
+        std::runtime_error);
+    EXPECT_EQ(service.pending_count(), 2U) << "a refused copy must not have been submitted";
+
+    std::atomic<bool> admitted{false};
+    std::thread       waiter(
+        [&]
+        {
+            (void)allocator<float>::copy_async_retained(src, dst, s.stream, true);
+            admitted = true;
+        });
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    EXPECT_FALSE(admitted.load()) << "the waiter must block while the queue is full";
+    blocker.open();
+    waiter.join();  // polls for its own capacity once the stream drains
+    EXPECT_TRUE(admitted.load());
+    EXPECT_EQ(service.wait_all(std::chrono::seconds(5)), 0U);
+    EXPECT_FALSE(blocker.timed_out());
+    EXPECT_EQ(service.failed_count(), 0U);
+    EXPECT_EQ(allocator<float>::memory_allocated(0), baseline);
+    service.set_max_pending(retained_operation_service::default_max_pending);
+}
+
+// 5.7 on the real runtime: per-thread streams and pre-made buffers, so the only shared
+// state is the retained-operation service and the token event pool. Prints ops/s per
+// thread count; the decision about sharding is recorded in the plan from these numbers.
+TEST_F(Phase4Hardware, ServiceContentionMeasurement)
+{
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    constexpr int kIters = 3000;
+    for (int threads : {1, 2, 8, 32})
+    {
+        std::vector<std::thread> pool;
+        std::atomic<int>         ready{0};
+        std::atomic<bool>        go{false};
+        std::atomic<int>         errors{0};
+        for (int t = 0; t < threads; ++t)
+        {
+            pool.emplace_back(
+                [&]
+                {
+                    test_stream             st;
+                    execution_context const ctx{device_enum::CUDA, 0, st.stream};
+                    auto                    a = make_retained<float>(64, ctx);
+                    auto                    b = make_retained<float>(64, ctx);
+                    ready++;
+                    while (!go.load()) {}
+                    for (int i = 0; i < kIters; ++i)
+                    {
+                        try
+                        {
+                            auto token = allocator<float>::copy_async_retained(a, b, st.stream);
+                            token.wait();
+                            (void)service.poll();
+                        }
+                        catch (...) { errors++; }
+                    }
+                });
+        }
+        while (ready.load() != threads) {}
+        auto const t0 = clock_type::now();
+        go            = true;
+        for (auto& th : pool) { th.join(); }
+        double const sec = std::chrono::duration<double>(clock_type::now() - t0).count();
+        std::printf(
+            "CONTENTION threads=%d ops=%d seconds=%.3f ops_per_sec=%.0f per_thread_us=%.2f errors=%d\n",
+            threads, threads * kIters, sec, threads * kIters / sec, sec * 1e6 / kIters, errors.load());
+        EXPECT_EQ(0, errors.load());
+        EXPECT_EQ(service.wait_all(std::chrono::seconds(10)), 0U);
+
+        // Control: the same shape with the driver only (no token, no service).
+        std::vector<std::thread> raw;
+        std::atomic<int>         rready{0};
+        std::atomic<bool>        rgo{false};
+        for (int t = 0; t < threads; ++t)
+        {
+            raw.emplace_back(
+                [&]
+                {
+                    test_stream st;
+                    float*      a = nullptr;
+                    float*      b = nullptr;
+                    (void)cudaMalloc(&a, 64 * sizeof(float));
+                    (void)cudaMalloc(&b, 64 * sizeof(float));
+                    rready++;
+                    while (!rgo.load()) {}
+                    for (int i = 0; i < kIters; ++i)
+                    {
+                        (void)cudaMemcpyAsync(b, a, 64 * sizeof(float), cudaMemcpyDeviceToDevice, st.stream);
+                        (void)cudaStreamSynchronize(st.stream);
+                    }
+                    (void)cudaFree(a);
+                    (void)cudaFree(b);
+                });
+        }
+        while (rready.load() != threads) {}
+        auto const r0 = clock_type::now();
+        rgo           = true;
+        for (auto& th : raw) { th.join(); }
+        double const rsec = std::chrono::duration<double>(clock_type::now() - r0).count();
+        std::printf(
+            "CONTROL    threads=%d ops=%d seconds=%.3f ops_per_sec=%.0f (raw memcpyAsync+sync)\n",
+            threads, threads * kIters, rsec, threads * kIters / rsec);
+    }
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP

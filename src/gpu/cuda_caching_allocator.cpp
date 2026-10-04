@@ -988,21 +988,67 @@ struct cuda_caching_allocator::Impl
     }
 
 #if MEMORY_HAS_PROFILER
-    void report_event_locked(void* ptr, int64_t nbytes) noexcept
+    // Profiler export never runs under mutex_ (task 7.3): the locked code only
+    // copies the numbers into a per-thread slot (no allocation, cannot fail) and
+    // deferred_failure_flush hands them to the Profiler after the lock is
+    // released. A full slot drops the report and counts it as a failure.
+    struct deferred_report
     {
-        try
-        {
-            report_caching_allocator_event(
-                ptr,
-                nbytes,
-                stats_.bytes_allocated.load(std::memory_order_relaxed),
-                stats_.bytes_reserved.load(std::memory_order_relaxed),
-                device_,
-                kGpuDeviceType);
-        }
-        catch (...)
+        void*   ptr;
+        int64_t nbytes;
+        size_t  allocated;
+        size_t  reserved;
+        bool    oom;
+    };
+    static constexpr size_t kMaxDeferredReports = 4;
+    static inline thread_local deferred_report tl_reports_[kMaxDeferredReports];
+    static inline thread_local size_t          tl_report_count_ = 0;
+
+    void defer_report_locked(void* ptr, int64_t nbytes, bool oom) noexcept
+    {
+        if (tl_report_count_ == kMaxDeferredReports)
         {
             note_failure_locked();
+            return;
+        }
+        tl_reports_[tl_report_count_++] = deferred_report{
+            ptr,
+            nbytes,
+            stats_.bytes_allocated.load(std::memory_order_relaxed),
+            stats_.bytes_reserved.load(std::memory_order_relaxed),
+            oom};
+    }
+
+    void report_event_locked(void* ptr, int64_t nbytes) noexcept
+    {
+        defer_report_locked(ptr, nbytes, false);
+    }
+
+    // Runs with mutex_ released.
+    void flush_reports() noexcept
+    {
+        size_t const n = tl_report_count_;
+        tl_report_count_ = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            deferred_report const r = tl_reports_[i];
+            try
+            {
+                if (r.oom)
+                {
+                    report_caching_allocator_oom(
+                        r.nbytes, r.allocated, r.reserved, device_, kGpuDeviceType);
+                }
+                else
+                {
+                    report_caching_allocator_event(
+                        r.ptr, r.nbytes, r.allocated, r.reserved, device_, kGpuDeviceType);
+                }
+            }
+            catch (...)
+            {
+                deferred_failures_.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     }
 #endif
@@ -1020,12 +1066,7 @@ struct cuda_caching_allocator::Impl
         last_oom_.timestamp_ns    = trace_timestamp_ns();
         record_trace_locked(gpu_memory_trace_action::oom, nullptr, requested, stream);
 #if MEMORY_HAS_PROFILER
-        report_caching_allocator_oom(
-            static_cast<int64_t>(requested),
-            stats_.bytes_allocated.load(std::memory_order_relaxed),
-            stats_.bytes_reserved.load(std::memory_order_relaxed),
-            device_,
-            kGpuDeviceType);
+        defer_report_locked(nullptr, static_cast<int64_t>(requested), true);
 #endif
         throw std::bad_alloc();
     }
@@ -1488,6 +1529,9 @@ private:
         Impl& self;
         ~deferred_failure_flush()
         {
+#if MEMORY_HAS_PROFILER
+            self.flush_reports();
+#endif
             size_t n = self.deferred_failures_.exchange(0, std::memory_order_relaxed);
             while (n-- > 0)
             {

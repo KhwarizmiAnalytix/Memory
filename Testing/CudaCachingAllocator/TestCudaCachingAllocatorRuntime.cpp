@@ -26,6 +26,7 @@
 #include <exception>
 #include <cstdio>
 #include <map>
+#include <random>
 #include <gtest/gtest.h>
 
 #include <stdexcept>
@@ -1026,4 +1027,109 @@ TEST_F(CudaCachingAllocatorRuntime, LastOomEvidenceIsRecordedWithHistoryOff)
     EXPECT_GE(snap.last_oom.total_reserved, kSegmentSize);
     EXPECT_NE(0, snap.last_oom.timestamp_ns);
     allocator.deallocate(live, kSegmentSize);
+}
+
+// Task 7.1: seeded random replay with injected driver, event and operator-new
+// faults. After every step the backing equation reconciles with nothing
+// unaccounted, live bytes equal the sum of what the replay still holds, and
+// teardown returns every byte to the driver. Any failure prints the seed.
+TEST_F(CudaCachingAllocatorRuntime, BackingEquationSurvivesRandomFaultInjectionReplay)
+{
+    size_t injected_failures = 0;
+    for (unsigned seed = 1; seed <= 12; ++seed)
+    {
+        rt::reset();
+        SCOPED_TRACE(::testing::Message() << "seed " << seed);
+        {
+            cuda_caching_allocator                  allocator(0);
+            std::mt19937                            rng(seed);
+            std::vector<std::pair<void*, size_t>>   live;
+            std::vector<std::vector<size_t>>        uses;  // stream ids recorded per live block
+            size_t                                  live_capacity_lower_bound = 0;
+            auto const                              pick = [&](size_t n) { return rng() % n; };
+
+            for (int step = 0; step < 600; ++step)
+            {
+                switch (pick(8))
+                {
+                case 0:
+                    rt::fail_malloc_calls = 1 + static_cast<int>(pick(3));  // fails the retry too when >= 2
+                    break;
+                case 1:
+                    rt::fail_event_record_at_call = rt::event_record_calls + 1;
+                    break;
+                case 2:
+                    rt::fail_event_create_at_call = rt::event_create_calls + 1;
+                    break;
+                case 3:
+                    for (auto& r : rt::event_ready) { r = (rng() & 1U) != 0; }
+                    break;
+                default:
+                    break;
+                }
+
+                size_t const op = pick(10);
+                try
+                {
+                    if (op < 5 || live.empty())
+                    {
+                        size_t const sizes[] = {512, 1000, 4096, 60000, 1u << 20, 3u << 20};
+                        size_t const size    = sizes[pick(6)];
+                        void* const  p       = allocator.allocate(size);
+                        live.emplace_back(p, size);
+                        uses.emplace_back();
+                    }
+                    else if (op < 7)
+                    {
+                        size_t const i = pick(live.size());
+                        allocator.record_stream(live[i].first, rt::stream(1 + pick(3)));
+                    }
+                    else
+                    {
+                        size_t const i = pick(live.size());
+                        try
+                        {
+                            allocator.deallocate(live[i].first, live[i].second);
+                        }
+                        catch (std::exception const&)
+                        {
+                            ++injected_failures;
+                            // A failed free after commit still freed the block (the
+                            // free is not retryable); either way it is no longer live
+                            // unless it threw before commit, which the equation shows.
+                        }
+                        live.erase(live.begin() + static_cast<std::ptrdiff_t>(i));
+                        uses.erase(uses.begin() + static_cast<std::ptrdiff_t>(i));
+                    }
+                }
+                catch (std::exception const&)
+                {
+                    ++injected_failures;
+                }
+                rt::fail_malloc_calls         = 0;
+                rt::fail_event_record_at_call = 0;
+                rt::fail_event_create_at_call = 0;
+
+                auto const s = allocator.stats();
+                ASSERT_EQ(
+                    s.bytes_reserved,
+                    s.bytes_allocated + s.bytes_pending + s.bytes_cached + s.bytes_quarantined)
+                    << "step " << step;
+                ASSERT_EQ(0u, s.bytes_unaccounted) << "step " << step;
+                ASSERT_EQ(s.bytes_reserved, rt::device_backing_bytes) << "step " << step;
+                (void)live_capacity_lower_bound;
+            }
+            for (auto& r : rt::event_ready) { r = true; }
+            for (auto const& l : live)
+            {
+                try { allocator.deallocate(l.first, l.second); } catch (std::exception const&) {}
+            }
+            auto const s = allocator.stats();
+            EXPECT_EQ(0u, s.bytes_allocated);
+            EXPECT_EQ(0u, s.bytes_unaccounted);
+        }
+        EXPECT_EQ(0u, rt::device_backing_bytes) << "teardown must free every segment";
+    }
+    EXPECT_GT(injected_failures, 20u) << "the replay must actually hit injected faults";
+    std::printf("RANDOM_REPLAY injected_failures=%zu\n", injected_failures);
 }

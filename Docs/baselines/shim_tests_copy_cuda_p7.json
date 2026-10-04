@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "copy_runtime_cuda",
+    "backend": "cuda",
+    "evidence": "shim",
+    "git_sha": "49f8a74",
+    "git_tree": "dirty",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryCopyCudaRuntimeTests.exe",
+    "recorded": "2026-10-04 14:29:00"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 58,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 58
+  }
+}
