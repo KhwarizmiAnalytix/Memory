@@ -897,6 +897,7 @@ TEST_F(CopyFailureTest, SetupFailureAfterAdmissionCancelsReservationWithoutWaiti
     EXPECT_NO_THROW(
         (void)allocator<float>::copy_async_retained(pair.source, pair.destination, stream));
     EXPECT_EQ(1U, service().pending_count());  // slot was free: exactly one admission
+    service().reset();  // release pending op while releases is still in scope
 }
 
 TEST_F(CopyFailureTest, EventRecordFailureWithIdleStreamIsProvenSafeAndRolledBack)

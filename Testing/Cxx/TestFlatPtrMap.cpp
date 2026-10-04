@@ -49,8 +49,15 @@ void* operator new(std::size_t n)
     }
     throw std::bad_alloc();
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+// operator new[] is a separate replaceable function; under ASAN its default
+// implementation does not route through operator new, so g_fail_next_new
+// would be silently bypassed.  Forward all array forms here so the counting
+// and injection flags work for both scalar and array allocations.
+void* operator new[](std::size_t n) { return ::operator new(n); }
+void  operator delete(void* p) noexcept { std::free(p); }
+void  operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void  operator delete[](void* p) noexcept { std::free(p); }
+void  operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 extern "C" const char* __asan_default_options()
 {
