@@ -7,6 +7,7 @@
 #include "common/storage_handle.h"
 
 #include <cstddef>
+#include <new>
 #include <stdexcept>
 
 #include "common/cleanup_diagnostic.h"

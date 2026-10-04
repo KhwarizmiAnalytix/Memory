@@ -58,8 +58,25 @@ void* operator new(std::size_t n)
     }
     throw std::bad_alloc();
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+// operator new uses malloc internally; operator delete must match.  ASAN's
+// alloc-dealloc-mismatch check fires when it sees malloc-allocated memory freed
+// via the "operator delete" path it intercepts differently, so suppress it here.
+#if defined(__has_attribute) && __has_attribute(no_sanitize)
+#define MEMORY_TEST_NO_SANITIZE_ADDRESS __attribute__((no_sanitize("address")))
+#else
+#define MEMORY_TEST_NO_SANITIZE_ADDRESS
+#endif
+MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete(void* p) noexcept { std::free(p); }
+MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void* operator new[](std::size_t n) { return ::operator new(n); }
+MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete[](void* p) noexcept { std::free(p); }
+MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
 
 namespace
 {
