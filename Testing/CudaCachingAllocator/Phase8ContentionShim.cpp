@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -118,10 +119,18 @@ enum class workload
     mixed
 };
 
-phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, size_t rep)
+// `arenas` independent allocator instances; thread t uses instance t % arenas. With 1 this is
+// the shared allocator measured since 8.1. With more it is an upper bound for an arena design
+// (task 8.7-C): every free returns to the instance that allocated it, so there is no cross-arena
+// free, no shared budget and no shared stats here, which a real design would have to pay for.
+phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, size_t rep, size_t arenas = 1)
 {
     rt::reset();
-    cuda_caching_allocator a(0);
+    std::vector<std::unique_ptr<cuda_caching_allocator>> instances;
+    for (size_t i = 0; i < arenas; ++i)
+    {
+        instances.push_back(std::make_unique<cuda_caching_allocator>(0));
+    }
 
     std::atomic<bool>        go{false};
     std::vector<worker_out>  outs(threads);
@@ -131,6 +140,7 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
     for (size_t t = 0; t < threads; ++t)
     {
         pool.emplace_back([&, t] {
+            cuda_caching_allocator& a = *instances[t % instances.size()];
             if (w == workload::warm)
             {
                 for (int i = 0; i < 2000; ++i)
@@ -215,17 +225,23 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
     double const wall_s    = (end - start) / 1e9;
     double const total_ops = static_cast<double>(ops_per_thread * threads);
 
-    auto const st = a.stats();  // single-threaded now; the backing equation must hold
-    double const unaccounted = static_cast<double>(st.bytes_unaccounted.load());
-    double const reserved    = static_cast<double>(st.bytes_reserved.load());
-    double const inactive    = static_cast<double>(st.inactive_split_bytes.load());
-    double const hits        = static_cast<double>(st.cache_hits.load());
-    double const misses      = static_cast<double>(st.cache_misses.load());
+    // Single-threaded now; the backing equation must hold in every instance.
+    double unaccounted = 0, reserved = 0, inactive = 0, hits = 0, misses = 0;
+    for (auto const& inst : instances)
+    {
+        auto const st = inst->stats();
+        unaccounted += static_cast<double>(st.bytes_unaccounted.load());
+        reserved += static_cast<double>(st.bytes_reserved.load());
+        inactive += static_cast<double>(st.inactive_split_bytes.load());
+        hits += static_cast<double>(st.cache_hits.load());
+        misses += static_cast<double>(st.cache_misses.load());
+    }
 
     r.name   = w == workload::warm ? "warm_alloc_free" : "mixed_replay";
     r.params = {{"threads", std::to_string(threads)},
                 {"rep", std::to_string(rep)},
                 {"ops_per_thread", std::to_string(ops_per_thread)},
+                {"arenas", std::to_string(arenas)},
                 {"lock_instrumented", LOCK_STATS_ENABLED ? "yes" : "no"}};
     r.batch  = kBatch;
     r.counters = {{"wall_s", wall_s},
@@ -324,16 +340,36 @@ static int run_main(int argc, char** argv)
 #endif
     size_t const warm_ops  = quick ? 20000 : 300000;
     size_t const mixed_ops = quick ? 10000 : 100000;
+    // --arena-sweep: threads 4..32 against 1..threads independent allocator instances (8.7-C upper
+    // bound). Default: 1..32 threads on one shared allocator (the 8.1 baseline).
+    bool const sweep = phase0::has_flag(argc, argv, "--arena-sweep");
+    if (sweep)
+    {
+        rep.note("arena_sweep", "K independent cuda_caching_allocator instances, thread t uses t % K; upper bound for "
+                                "an arena design: no cross-arena free, shared budget or shared stats");
+    }
     for (size_t r = 1; r <= reps; ++r)
     {
         for (size_t threads : {1, 2, 4, 8, 16, 32})
         {
-            for (workload w : {workload::warm, workload::mixed})
+            if (sweep && threads < 4)
             {
-                phase0::result res = run_config(w, threads, w == workload::warm ? warm_ops : mixed_ops, r);
-                std::fprintf(stderr, "%-16s T=%-2zu rep=%zu  %.3g ops/s  %s\n", res.name.c_str(), threads, r,
-                             res.counters[1].second, res.status.c_str());
-                rep.add(std::move(res));
+                continue;
+            }
+            for (size_t arenas : {1, 2, 4, 8, 16, 32})
+            {
+                if ((!sweep && arenas != 1) || arenas > threads)
+                {
+                    continue;
+                }
+                for (workload w : {workload::warm, workload::mixed})
+                {
+                    phase0::result res =
+                        run_config(w, threads, w == workload::warm ? warm_ops : mixed_ops, r, arenas);
+                    std::fprintf(stderr, "%-16s T=%-2zu K=%-2zu rep=%zu  %.3g ops/s  %s\n", res.name.c_str(),
+                                 threads, arenas, r, res.counters[1].second, res.status.c_str());
+                    rep.add(std::move(res));
+                }
             }
         }
     }

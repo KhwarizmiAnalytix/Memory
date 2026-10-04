@@ -21,10 +21,11 @@
 //
 // memory_set / memory_map are the standard-library containers. A flat-hash
 // switch (MEMORY_USE_FLAT_HASH, "util/flat_hash.h") was removed in plan task 3.8:
-// the header never existed in this repository, and the hot GPU live-block map
-// uses a node-recycling std::unordered_map instead (measured 8-10 ns per
-// insert+find+erase against 3-5 ns for open addressing, at most 7 ns of a 77 ns
-// warm alloc/free pair; Testing/tools/live_map_bench.cpp).
+// the header never existed in this repository. The hot GPU live-block map is
+// common/flat_ptr_map.h, an open-addressing table like the flat-hash tables
+// PyTorch's CUDA caching allocator uses (task 8.7-A); the earlier node-recycling
+// std::unordered_map measured 8-10 ns per insert+find+erase against 3-5 ns for
+// open addressing (Testing/tools/live_map_bench.cpp).
 //
 // Usage:
 //   memory_set<void*>                        free_ptrs;

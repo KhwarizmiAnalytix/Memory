@@ -23,6 +23,7 @@
 #include "include/util/exception.h"
 
 #include "common/cleanup_diagnostic.h"
+#include "common/flat_ptr_map.h"
 #include "common/memory_containers.h"
 #include "common/memory_macros.h"
 #include "common/storage_identity.h"
@@ -2060,22 +2061,13 @@ private:
     mutable std::recursive_mutex mutex_;
     // Declared before the containers that allocate from them (destroyed after).
     node_pool                    free_pool_nodes_;
-    node_pool                    live_map_nodes_;
     block_pool                   small_blocks_{true, free_pool_nodes_};
     block_pool                   large_blocks_{false, free_pool_nodes_};
     // Live allocations by pointer; free blocks live in the pool sets and blocks
-    // with outstanding cross-stream events live in the event queues.
-    std::unordered_map<
-        void*,
-        cache_block*,
-        std::hash<void*>,
-        std::equal_to<void*>,
-        pool_allocator<std::pair<void* const, cache_block*>>>
-        allocated_blocks_{
-            0,
-            std::hash<void*>{},
-            std::equal_to<void*>{},
-            pool_allocator<std::pair<void* const, cache_block*>>(&live_map_nodes_)};
+    // with outstanding cross-stream events live in the event queues. An open-addressing
+    // table like the ska::flat_hash tables PyTorch uses for its active blocks (plan 8.7):
+    // churn at a steady live size neither rehashes nor allocates.
+    flat_ptr_map<cache_block*> allocated_blocks_;
     // Outstanding cross-stream events in submission order (per-stream order is
     // completion order); capacity is retained so steady state does not allocate.
     struct pending_event
