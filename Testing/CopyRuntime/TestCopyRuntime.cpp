@@ -58,24 +58,23 @@ void* operator new(std::size_t n)
     }
     throw std::bad_alloc();
 }
-// operator new uses malloc internally; operator delete must match.  ASAN's
-// alloc-dealloc-mismatch check fires when it sees malloc-allocated memory freed
-// via the "operator delete" path it intercepts differently, so suppress it here.
-#if defined(__has_attribute) && __has_attribute(no_sanitize)
-#define MEMORY_TEST_NO_SANITIZE_ADDRESS __attribute__((no_sanitize("address")))
-#else
-#define MEMORY_TEST_NO_SANITIZE_ADDRESS
-#endif
-MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete(void* p) noexcept { std::free(p); }
-MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete(void* p, std::size_t) noexcept
-{
-    std::free(p);
-}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void* operator new[](std::size_t n) { return ::operator new(n); }
-MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete[](void* p) noexcept { std::free(p); }
-MEMORY_TEST_NO_SANITIZE_ADDRESS void operator delete[](void* p, std::size_t) noexcept
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+
+// operator new uses malloc; operator delete calls free. ASAN's runtime interceptor
+// tags new-allocated memory as "operator-new type" and flags a free() call as
+// alloc-dealloc-mismatch. Disable that check process-wide for this binary because
+// the mismatch is intentional: the test explicitly replaces the global allocator.
+// __attribute__((no_sanitize("address"))) suppresses only compile-time shadow
+// instrumentation, not runtime interceptor checks, so it cannot fix this.
+// Called by the ASAN runtime (only) to configure per-binary options. Defining it
+// unconditionally is harmless in non-ASAN builds: no overhead, no link conflict.
+extern "C" const char* __asan_default_options()
 {
-    std::free(p);
+    return "alloc_dealloc_mismatch=0";
 }
 
 namespace
@@ -497,6 +496,10 @@ TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
     EXPECT_EQ(service.pending_count(), 0);
     EXPECT_EQ(service.failed_count(), 1);
     EXPECT_EQ(releases, 0);
+    // Drop the quarantined item while &releases is still in scope; otherwise the
+    // deleter fires after the stack frame is gone and corrupts the next test's setup.
+    service.abandon_quarantined();
+    EXPECT_EQ(releases, 2);
 }
 #endif
 

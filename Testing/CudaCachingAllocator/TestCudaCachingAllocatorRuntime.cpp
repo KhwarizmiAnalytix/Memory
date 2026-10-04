@@ -260,6 +260,11 @@ void* operator new(std::size_t n)
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
+extern "C" const char* __asan_default_options()
+{
+    return "alloc_dealloc_mismatch=0";
+}
+
 namespace
 {
 struct new_probe
