@@ -292,6 +292,12 @@ size_t retained_operation_service::max_quarantined() const noexcept
     return max_quarantined_;
 }
 
+size_t retained_operation_service::max_quarantined_bytes() const noexcept
+{
+    std::lock_guard<std::mutex> const lock(mu_);
+    return max_quarantined_bytes_;
+}
+
 size_t retained_operation_service::failed_count() const noexcept
 {
     std::lock_guard<std::mutex> const lock(mu_);

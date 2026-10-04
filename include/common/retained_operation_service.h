@@ -120,6 +120,7 @@ public:
     // bytes, when non-zero) are at or above the limit. 0 ops = unlimited.
     void   set_max_quarantined(size_t ops, size_t bytes = 0) noexcept;
     size_t max_quarantined() const noexcept;
+    size_t max_quarantined_bytes() const noexcept;
 
     // Operations quarantined after failing (owners retained).
     size_t failed_count() const noexcept;
