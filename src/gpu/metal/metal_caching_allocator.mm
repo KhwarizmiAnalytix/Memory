@@ -456,6 +456,13 @@ struct metal_caching_allocator::Impl
     [[noreturn]] void fail_oom_locked(size_t requested)
     {
         stats_.num_ooms++;
+        last_oom_.count           = stats_.num_ooms.load(std::memory_order_relaxed);
+        last_oom_.requested       = requested;
+        last_oom_.total_allocated = stats_.bytes_allocated.load(std::memory_order_relaxed);
+        last_oom_.total_reserved  = stats_.bytes_reserved.load(std::memory_order_relaxed);
+        last_oom_.total_cached    = bytes_cached_;
+        last_oom_.stream          = 0;
+        last_oom_.timestamp_ns    = trace_timestamp_ns();
         record_trace_locked(gpu_memory_trace_action::oom, nullptr, requested);
 #if MEMORY_HAS_PROFILER
         report_caching_allocator_oom(
@@ -527,7 +534,7 @@ struct metal_caching_allocator::Impl
                 block->allocated,
                 block->allocated);
         }
-        return finish_snapshot(std::move(segments), history_.copy());
+        return finish_snapshot(std::move(segments), history_, last_oom_);
     }
 
     unified_cache_stats stats() const
@@ -971,6 +978,7 @@ private:
     std::atomic<int64_t>                                       registration_counter_global_{0};
     unified_cache_stats                                        stats_;
     gpu_memory_history                                         history_;
+    gpu_memory_oom_evidence                                    last_oom_;
     std::vector<std::pair<id<MTLHeap>, size_t>>                heaps_;  // heap + capacity
     // Command-buffer completion tracking (Order 5): token → deferred blocks.
     std::unordered_map<void*, std::vector<cache_block*>>       pending_completion_;

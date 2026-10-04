@@ -987,3 +987,43 @@ TEST_F(CudaCachingAllocatorRuntime, BackingEquationReconcilesThroughSplitPending
     expect_backing_equation(allocator);
     EXPECT_EQ(0u, allocator.stats().bytes_pending);
 }
+
+// Task 7.3: telemetry cannot fail an allocation, a full ring reports its loss,
+// and the last OOM is explainable with history off.
+TEST_F(CudaCachingAllocatorRuntime, FullTraceRingReportsLossAndNeverFailsAnAllocation)
+{
+    cuda_caching_allocator allocator(0);
+    EXPECT_FALSE(allocator.snapshot().trace_enabled) << "mode is off by default";
+    allocator.record_memory_history(true, 4);
+    for (int i = 0; i < 20; ++i)
+    {
+        void* p = allocator.allocate(1024);
+        ASSERT_NE(nullptr, p);
+        allocator.deallocate(p, 1024);
+    }
+    auto const snap = allocator.snapshot();
+    EXPECT_TRUE(snap.trace_enabled);
+    EXPECT_EQ(4u, snap.device_trace.size());
+    EXPECT_GT(snap.device_trace_entries_lost, 40u) << "20 alloc + 20 free entries and a segment into 4 slots";
+    allocator.record_memory_history(false);
+    EXPECT_FALSE(allocator.snapshot().trace_enabled);
+}
+
+TEST_F(CudaCachingAllocatorRuntime, LastOomEvidenceIsRecordedWithHistoryOff)
+{
+    cuda_caching_allocator allocator(0);
+    EXPECT_EQ(0u, allocator.snapshot().last_oom.count);
+    allocator.set_memory_fraction(
+        1.5 * static_cast<double>(kSegmentSize) / static_cast<double>(rt::device_total_bytes));
+    void* const live = allocator.allocate(kSegmentSize);
+    EXPECT_THROW(allocator.allocate(kSegmentSize), std::bad_alloc);
+    auto const snap = allocator.snapshot();
+    EXPECT_FALSE(snap.trace_enabled);
+    EXPECT_TRUE(snap.device_trace.empty());
+    EXPECT_EQ(1u, snap.last_oom.count);
+    EXPECT_EQ(kSegmentSize, snap.last_oom.requested);
+    EXPECT_GE(snap.last_oom.total_allocated, kSegmentSize);
+    EXPECT_GE(snap.last_oom.total_reserved, kSegmentSize);
+    EXPECT_NE(0, snap.last_oom.timestamp_ns);
+    allocator.deallocate(live, kSegmentSize);
+}

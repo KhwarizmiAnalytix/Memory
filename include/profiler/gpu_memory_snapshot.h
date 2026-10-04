@@ -73,6 +73,24 @@ struct MEMORY_VISIBILITY gpu_memory_trace_entry
     int64_t                 timestamp_ns{0};        // nanoseconds since epoch (best-effort)
 };
 
+/**
+ * @brief Evidence of the most recent out-of-memory failure (task 7.3).
+ *
+ * Plain fields in the allocator, written without allocating and independent
+ * of the trace mode, so the last OOM is explainable even with history off or
+ * a full ring. `count` is the number of OOMs seen (== `num_ooms`).
+ */
+struct MEMORY_VISIBILITY gpu_memory_oom_evidence
+{
+    size_t  count{0};
+    size_t  requested{0};
+    size_t  total_allocated{0};
+    size_t  total_reserved{0};
+    size_t  total_cached{0};
+    int64_t stream{0};
+    int64_t timestamp_ns{0};
+};
+
 struct MEMORY_VISIBILITY gpu_memory_block_info
 {
     void*  address{nullptr};
@@ -106,6 +124,13 @@ struct MEMORY_VISIBILITY gpu_memory_snapshot
 {
     std::vector<gpu_memory_segment_info>  segments;
     std::vector<gpu_memory_trace_entry>   device_trace;
+    // Telemetry state (task 7.3). `device_trace` is empty when `trace_enabled`
+    // is false (mode off). When on, `device_trace_entries_lost` is the number
+    // of entries the bounded ring overwrote (or could not store) since history
+    // was enabled: a non-zero value means the oldest part of the trace is gone.
+    bool                                  trace_enabled{false};
+    size_t                                device_trace_entries_lost{0};
+    gpu_memory_oom_evidence               last_oom;
 };
 
 // Returns nanoseconds since epoch using the steady clock (best-effort; may
@@ -234,10 +259,14 @@ inline void add_snapshot_block(
 
 inline gpu_memory_snapshot finish_snapshot(
     std::map<uintptr_t, gpu_memory_segment_info>&& segments,
-    std::vector<gpu_memory_trace_entry>            trace)
+    gpu_memory_history const&                      history,
+    gpu_memory_oom_evidence const&                 last_oom)
 {
     gpu_memory_snapshot snap;
-    snap.device_trace = std::move(trace);
+    snap.device_trace              = history.copy();
+    snap.trace_enabled             = history.enabled();
+    snap.device_trace_entries_lost = history.entries_lost();
+    snap.last_oom                  = last_oom;
     snap.segments.reserve(segments.size());
     for (auto& kv : segments)
     {
