@@ -24,6 +24,8 @@
 #include "allocator.h"
 #include "common/copy_token.h"
 #include "common/data_ptr.h"
+#include "common/retained_operation_service.h"
+#include "common/retained_ptr.h"
 #include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
 
@@ -347,6 +349,40 @@ TEST_F(Phase4Hardware, DefaultStreamModesAreExplicit)
             64, device_enum::CUDA, 0, static_cast<void*>(cudaStreamPerThread)),
         std::invalid_argument);
 #endif
+}
+
+// 5.6 on the real cache: managed GPU storage behind a retained copy stays allocated
+// (not returned to the cache for reuse) after every user handle is dropped, until the
+// copy behind a held stream completes; then the service releases it.
+TEST_F(Phase4Hardware, RetainedManagedGpuCopySurvivesDroppedHandlesUntilCompletion)
+{
+    auto& service = retained_operation_service::instance();
+    service.reset();
+    test_stream             s;
+    execution_context const ctx{device_enum::CUDA, 0, s.stream};
+    {
+        auto warm = make_retained<float>(kCount, ctx);  // pre-warm: no cudaMalloc while held
+    }
+    size_t const baseline = allocator<float>::memory_allocated(0);
+
+    stream_blocker blocker(s.stream);
+    ASSERT_EQ(blocker.start(), cudaSuccess);
+    {
+        auto source      = make_retained<float>(kCount, ctx);
+        auto destination = make_retained<float>(kCount, ctx);
+        (void)allocator<float>::copy_async_retained(source, destination, s.stream);
+    }  // every user handle is gone; the stream is still held
+    EXPECT_EQ(service.pending_count(), 1U);
+    EXPECT_GT(allocator<float>::memory_allocated(0), baseline)
+        << "the blocks must stay allocated while the copy is in flight";
+    EXPECT_EQ(service.poll().total(), 0U);
+
+    blocker.open();
+    EXPECT_EQ(service.wait_all(std::chrono::seconds(5)), 0U);
+    EXPECT_FALSE(blocker.timed_out());
+    EXPECT_EQ(allocator<float>::memory_allocated(0), baseline)
+        << "after completion the service must have released both blocks";
+    EXPECT_EQ(service.failed_count(), 0U);
 }
 
 #endif  // MEMORY_HAS_CUDA || MEMORY_HAS_HIP

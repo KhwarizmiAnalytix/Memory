@@ -6,11 +6,15 @@
 
 #include "common/retained_operation_service.h"
 
+#include <algorithm>
+#include <array>
 #include <condition_variable>
 #include <exception>
 #include <new>
 #include <stdexcept>
 #include <thread>
+
+#include "common/transfer.h"
 
 namespace memory
 {
@@ -34,60 +38,102 @@ retained_operation_service& retained_operation_service::instance() noexcept
     }
 }
 
-bool retained_operation_service::enqueue(copy_token const& token, size_t priority, bool blocking)
+bool retained_operation_service::quarantine_full_locked() const noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
+    if (max_quarantined_ != 0 && quarantined_n_ >= max_quarantined_)
+    {
+        return true;
+    }
+    return max_quarantined_bytes_ != 0 && quarantined_bytes_ >= max_quarantined_bytes_;
+}
 
+void retained_operation_service::mark_quarantined_locked(op_entry& op) noexcept
+{
+    op.quarantined = true;
+    --pending_n_;
+    pending_bytes_ -= op.bytes;
+    ++quarantined_n_;
+    quarantined_bytes_ += op.bytes;
+}
+
+void retained_operation_service::take_locked(size_t index, copy_token& out) noexcept
+{
+    op_entry& op = ops_[index];
+    if (op.quarantined)
+    {
+        --quarantined_n_;
+        quarantined_bytes_ -= op.bytes;
+    }
+    else
+    {
+        --pending_n_;
+        pending_bytes_ -= op.bytes;
+    }
+    out = std::move(op.token);
+    ops_.erase(ops_.begin() + static_cast<std::ptrdiff_t>(index));
+}
+
+bool retained_operation_service::enqueue(copy_token const& token, size_t bytes, bool blocking)
+{
     if (token.ready())
     {
         return false;
     }
-    if (stopping_)
-    {
-        throw std::runtime_error("retained_operation_service: service is shutting down");
-    }
 
-    while (max_pending_ > 0 && pending_.size() >= max_pending_)
+    std::unique_lock<std::mutex> lock(mu_);
+    while (true)
     {
+        if (stopping_)
+        {
+            throw std::runtime_error("retained_operation_service: service is shutting down");
+        }
+        if (quarantine_full_locked())
+        {
+            throw std::runtime_error(
+                "retained_operation_service: quarantine budget exhausted; "
+                "recover_quarantined() or raise set_max_quarantined()");
+        }
+        if (max_pending_ == 0 || pending_n_ < max_pending_)
+        {
+            break;
+        }
         if (!blocking)
         {
             throw std::runtime_error(
                 "retained_operation_service: max pending operations reached; "
                 "call poll() to drain or set_max_pending(0) for unlimited");
         }
+        // Nothing polls in the background: reap our own capacity, then sleep until
+        // a limit change, shutdown or a short interval.
         lock.unlock();
-        poll();
+        (void)poll();
         lock.lock();
-        if (stopping_)
-        {
-            throw std::runtime_error("retained_operation_service: service is shutting down");
-        }
-        if (max_pending_ > 0 && pending_.size() >= max_pending_)
+        if (!stopping_ && max_pending_ != 0 && pending_n_ >= max_pending_)
         {
             cv_.wait_for(lock, std::chrono::milliseconds(1));
         }
     }
 
-    pending_.push_back({token, priority});
+    ops_.push_back({token, bytes, false});  // may throw bad_alloc: nothing admitted
+    ++pending_n_;
+    pending_bytes_ += bytes;
     return true;
 }
 
 bool retained_operation_service::cancel(copy_token const& token) noexcept
 {
-    // Declared before the lock scope so the entry's token copy, which may hold
-    // the last reference to the retained payload, is destroyed after the mutex
-    // is released.
+    // Declared before the lock scope so the token copy, which may hold the last
+    // reference to the retained payload, is destroyed after the mutex is released.
     copy_token released;
     bool       found = false;
     {
         std::lock_guard<std::mutex> const lock(mu_);
-        for (auto it = pending_.begin(); it != pending_.end(); ++it)
+        for (size_t i = 0; i < ops_.size(); ++i)
         {
-            if (it->token.same_operation(token))
+            if (!ops_[i].quarantined && ops_[i].token.same_operation(token))
             {
-                released = std::move(it->token);
-                pending_.erase(it);
-                cv_.notify_one();
+                take_locked(i, released);
+                cv_.notify_all();
                 found = true;
                 break;
             }
@@ -98,56 +144,80 @@ bool retained_operation_service::cancel(copy_token const& token) noexcept
 
 bool retained_operation_service::quarantine(copy_token const& token) noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
-    for (auto it = pending_.begin(); it != pending_.end(); ++it)
+    std::lock_guard<std::mutex> const lock(mu_);
+    for (auto& op : ops_)
     {
-        if (it->token.same_operation(token))
+        if (!op.quarantined && op.token.same_operation(token))
         {
-            try
-            {
-                failed_.push_back(it->token);
-            }
-            catch (...)
-            {
-                return false;  // stays pending and retained; poll() will quarantine it
-            }
-            pending_.erase(it);
-            cv_.notify_one();
+            mark_quarantined_locked(op);
+            cv_.notify_all();
             return true;
         }
     }
     return false;
 }
-size_t retained_operation_service::poll()
-{
-    std::unique_lock<std::mutex> lock(mu_);
-    size_t                        completed = 0;
 
-    for (auto it = pending_.begin(); it != pending_.end();)
+retained_poll_result retained_operation_service::poll()
+{
+    retained_poll_result result;
+    while (true)
     {
-        completion_state state = it->token.state();
-        if (state == completion_state::complete)
+        // A bounded batch of completed tokens is moved out under the lock and
+        // destroyed after it is dropped: releasing a payload runs user deleters,
+        // which may call back into the service.
+        std::array<copy_token, kReleaseBatch> released;
+        size_t                                taken = 0;
+        bool                                  more  = false;
         {
-            ++completed;
-            it = pending_.erase(it);
-            // Notify waiters that space may be available
-            cv_.notify_one();
+            std::lock_guard<std::mutex> const lock(mu_);
+            size_t                            write   = 0;
+            bool                              changed = false;
+            for (size_t read = 0; read < ops_.size(); ++read)
+            {
+                op_entry& op = ops_[read];
+                if (!op.quarantined)
+                {
+                    if (taken == kReleaseBatch)
+                    {
+                        more = true;
+                    }
+                    else
+                    {
+                        completion_state const state = op.token.state();
+                        if (state == completion_state::complete)
+                        {
+                            released[taken++] = std::move(op.token);
+                            --pending_n_;
+                            pending_bytes_ -= op.bytes;
+                            ++result.completed;
+                            changed = true;
+                            continue;
+                        }
+                        if (state == completion_state::failed)
+                        {
+                            mark_quarantined_locked(op);  // flag only: no allocation
+                            ++result.failed;
+                            changed = true;
+                        }
+                    }
+                }
+                if (write != read)
+                {
+                    ops_[write] = std::move(op);
+                }
+                ++write;
+            }
+            ops_.erase(ops_.begin() + static_cast<std::ptrdiff_t>(write), ops_.end());
+            if (changed)
+            {
+                cv_.notify_all();
+            }
         }
-        else if (state == completion_state::failed)
+        if (!more)
         {
-            ++completed;
-            failed_.push_back(it->token);
-            it = pending_.erase(it);
-            // Notify waiters that space may be available
-            cv_.notify_one();
-        }
-        else
-        {
-            ++it;
+            return result;
         }
     }
-
-    return completed;
 }
 
 size_t retained_operation_service::wait_all(std::chrono::milliseconds timeout)
@@ -156,77 +226,134 @@ size_t retained_operation_service::wait_all(std::chrono::milliseconds timeout)
 
     while (true)
     {
-        poll();  // Poll once to reap any completed operations
+        (void)poll();
 
         std::unique_lock<std::mutex> lock(mu_);
-        if (pending_.empty())
+        if (pending_n_ == 0)
         {
-            return 0;  // All pending operations completed
+            return 0;
         }
 
-        // Calculate remaining time
-        std::chrono::milliseconds wait_timeout;
-        if (timeout.count() == 0)
-        {
-            wait_timeout = std::chrono::milliseconds(10);  // Indefinite: wait with short timeout
-        }
-        else
+        std::chrono::milliseconds wait_timeout(10);
+        if (timeout.count() != 0)
         {
             auto now = std::chrono::steady_clock::now();
             if (now >= deadline)
             {
-                return pending_.size();  // Timeout expired, return remaining count
+                return pending_n_;
             }
             auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-            wait_timeout = std::chrono::milliseconds(
-                std::min(remaining.count(), static_cast<decltype(remaining.count())>(10)));
+            wait_timeout   = std::min(remaining, std::chrono::milliseconds(10));
         }
-
-        // Wait for completion or timeout
-        cv_.wait_for(lock, wait_timeout, [this]() { return pending_.empty(); });
+        cv_.wait_for(lock, wait_timeout, [this]() { return pending_n_ == 0; });
     }
 }
 
 size_t retained_operation_service::pending_count() const noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
-    return pending_.size();
+    std::lock_guard<std::mutex> const lock(mu_);
+    return pending_n_;
+}
+
+retained_service_stats retained_operation_service::stats() const noexcept
+{
+    std::lock_guard<std::mutex> const lock(mu_);
+    return {pending_n_, pending_bytes_, quarantined_n_, quarantined_bytes_};
 }
 
 void retained_operation_service::set_max_pending(size_t limit) noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
-    max_pending_ = limit;
+    {
+        std::lock_guard<std::mutex> const lock(mu_);
+        max_pending_ = limit;
+    }
+    cv_.notify_all();
 }
 
 size_t retained_operation_service::max_pending() const noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
+    std::lock_guard<std::mutex> const lock(mu_);
     return max_pending_;
+}
+
+void retained_operation_service::set_max_quarantined(size_t ops, size_t bytes) noexcept
+{
+    {
+        std::lock_guard<std::mutex> const lock(mu_);
+        max_quarantined_       = ops;
+        max_quarantined_bytes_ = bytes;
+    }
+    cv_.notify_all();
+}
+
+size_t retained_operation_service::max_quarantined() const noexcept
+{
+    std::lock_guard<std::mutex> const lock(mu_);
+    return max_quarantined_;
 }
 
 size_t retained_operation_service::failed_count() const noexcept
 {
-    std::unique_lock<std::mutex> lock(mu_);
-    return failed_.size();
+    std::lock_guard<std::mutex> const lock(mu_);
+    return quarantined_n_;
 }
 
-void retained_operation_service::clear_failed() noexcept
+size_t retained_operation_service::release_quarantined(bool check_idle) noexcept
 {
-    // deque construction allocates a container proxy and may throw.
-    try
+    size_t total = 0;
+    while (true)
     {
-        std::deque<copy_token> to_release;
+        std::array<copy_token, kReleaseBatch> released;
+        size_t                                taken = 0;
+        bool                                  more  = false;
         {
-            std::unique_lock<std::mutex> lock(mu_);
-            to_release.swap(failed_);
+            std::lock_guard<std::mutex> const lock(mu_);
+            size_t                            write = 0;
+            for (size_t read = 0; read < ops_.size(); ++read)
+            {
+                op_entry& op = ops_[read];
+                if (op.quarantined)
+                {
+                    if (taken == kReleaseBatch)
+                    {
+                        more = true;
+                    }
+                    else if (!check_idle || detail::stream_proven_idle(op.token.ctx()))
+                    {
+                        released[taken++] = std::move(op.token);
+                        --quarantined_n_;
+                        quarantined_bytes_ -= op.bytes;
+                        ++total;
+                        continue;
+                    }
+                }
+                if (write != read)
+                {
+                    ops_[write] = std::move(op);
+                }
+                ++write;
+            }
+            ops_.erase(ops_.begin() + static_cast<std::ptrdiff_t>(write), ops_.end());
+            if (taken != 0)
+            {
+                cv_.notify_all();
+            }
         }
-        // Tokens released here outside the lock.
+        if (!more)
+        {
+            return total;
+        }
     }
-    catch (...)
-    {
-        std::terminate();
-    }
+}
+
+size_t retained_operation_service::recover_quarantined() noexcept
+{
+    return release_quarantined(true);
+}
+
+size_t retained_operation_service::abandon_quarantined() noexcept
+{
+    return release_quarantined(false);
 }
 
 size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
@@ -235,11 +362,11 @@ size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
 
     while (true)
     {
-        poll();
+        (void)poll();
 
         {
-            std::unique_lock<std::mutex> lock(mu_);
-            if (pending_.empty())
+            std::lock_guard<std::mutex> const lock(mu_);
+            if (pending_n_ == 0)
             {
                 return 0;
             }
@@ -254,62 +381,83 @@ size_t retained_operation_service::drain(std::chrono::milliseconds timeout)
         auto now = std::chrono::steady_clock::now();
         if (now >= deadline)
         {
-            std::unique_lock<std::mutex> lock(mu_);
-            return pending_.size();
+            std::lock_guard<std::mutex> const lock(mu_);
+            return pending_n_;
         }
 
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-            std::min(remaining.count(), static_cast<decltype(remaining.count())>(10))));
+        std::this_thread::sleep_for(std::min(remaining, std::chrono::milliseconds(10)));
     }
 }
 
 size_t retained_operation_service::shutdown(std::chrono::milliseconds timeout)
 {
     {
-        std::unique_lock<std::mutex> lock(mu_);
+        std::lock_guard<std::mutex> const lock(mu_);
         stopping_ = true;
     }
+    cv_.notify_all();  // blocked enqueuers throw
     return drain(timeout);
 }
 
 void retained_operation_service::reset() noexcept
 {
-    // deque construction allocates a container proxy and may throw.
-    try
+    // Every pending operation is waited for in place: the entry stays in the
+    // service (owners retained) until its wait returns, and a failed wait
+    // quarantines it. Nothing here allocates.
+    while (true)
     {
-        std::vector<pending_op> to_drain;
+        copy_token op_token;
         {
-            std::unique_lock<std::mutex> lock(mu_);
-            to_drain.swap(pending_);
-            max_pending_ = 0;
-            stopping_ = false;
+            std::lock_guard<std::mutex> const lock(mu_);
+            auto const it = std::find_if(
+                ops_.begin(), ops_.end(), [](op_entry const& op) { return !op.quarantined; });
+            if (it == ops_.end())
+            {
+                break;
+            }
+            op_token = it->token;
         }
 
-        for (auto& op : to_drain)
+        bool waited = true;
+        try
         {
-            try
+            op_token.wait();
+        }
+        catch (...)
+        {
+            waited = false;
+        }
+
+        copy_token released;  // destroyed after the lock is dropped
+        {
+            std::lock_guard<std::mutex> const lock(mu_);
+            for (size_t i = 0; i < ops_.size(); ++i)
             {
-                op.token.wait();
-            }
-            catch (...)
-            {
-                try
+                if (!ops_[i].quarantined && ops_[i].token.same_operation(op_token))
                 {
-                    std::unique_lock<std::mutex> lock(mu_);
-                    failed_.push_back(op.token);
-                }
-                catch (...)  // NOLINT(bugprone-empty-catch)
-                {
-                    // Silence exceptions during quarantine push; reset() must not throw
+                    if (waited)
+                    {
+                        take_locked(i, released);
+                    }
+                    else
+                    {
+                        mark_quarantined_locked(ops_[i]);
+                    }
+                    break;
                 }
             }
         }
     }
-    catch (...)
+
     {
-        std::terminate();
+        std::lock_guard<std::mutex> const lock(mu_);
+        max_pending_           = default_max_pending;
+        max_quarantined_       = default_max_quarantined;
+        max_quarantined_bytes_ = 0;
+        stopping_              = false;
     }
+    cv_.notify_all();
 }
 
 }  // namespace memory

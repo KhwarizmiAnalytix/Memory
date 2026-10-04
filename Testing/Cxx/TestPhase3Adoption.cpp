@@ -295,7 +295,7 @@ TEST_F(Phase3RetainedService, service_poll_empty)
 {
     auto& service = retained_operation_service::instance();
 
-    size_t completed = service.poll();
+    size_t completed = service.poll().total();
 
     EXPECT_EQ(completed, 0);
     EXPECT_EQ(service.pending_count(), 0);
@@ -308,11 +308,11 @@ TEST_F(Phase3RetainedService, service_pending_count)
     EXPECT_EQ(service.pending_count(), 0);
 }
 
-TEST_F(Phase3RetainedService, service_max_pending_unlimited)
+TEST_F(Phase3RetainedService, service_max_pending_is_finite_by_default_and_unlimited_when_asked)
 {
     auto& service = retained_operation_service::instance();
 
-    EXPECT_EQ(service.max_pending(), 0);
+    EXPECT_EQ(service.max_pending(), retained_operation_service::default_max_pending);
 
     service.set_max_pending(10);
     EXPECT_EQ(service.max_pending(), 10);
@@ -359,7 +359,7 @@ TEST_F(Phase3RetainedService, service_reset_clears_state)
     service.reset();
 
     EXPECT_EQ(service.pending_count(), 0);
-    EXPECT_EQ(service.max_pending(), 0);
+    EXPECT_EQ(service.max_pending(), retained_operation_service::default_max_pending);
 }
 
 // --- Integration Tests ---

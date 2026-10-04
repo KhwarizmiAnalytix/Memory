@@ -565,7 +565,9 @@ public:
         int           from_index,
         int           to_index,
         std::shared_ptr<void> retained,
-        bool          register_with_service)
+        bool          register_with_service,
+        bool          wait_for_admission = true,
+        size_type     retained_bytes     = 0)
     {
         // Phase 1.
         if (n == 0)
@@ -593,7 +595,8 @@ public:
         bool admitted = false;
         if (register_with_service)
         {
-            admitted = retained_operation_service::instance().enqueue(token);  // throws: not admitted
+            admitted = retained_operation_service::instance().enqueue(
+                token, retained_bytes * sizeof(T), wait_for_admission);  // throws: not admitted
         }
 
         // Phase 3.
@@ -662,10 +665,16 @@ public:
     // Both endpoints are kept alive through operation completion via reference counting.
     // Caller may drop retained_ptr instances; async operation holds references.
     // Returns copy_token for completion monitoring.
+    // Admission (plan 5.1): the service has a finite pending limit. With
+    // @p wait_for_admission true (default) a full queue makes this call wait,
+    // polling for its own capacity; with false it throws std::runtime_error
+    // before anything is submitted. A full quarantine budget or a service that is
+    // shutting down throws in both modes.
     MEMORY_FORCE_INLINE static copy_token copy_async_retained(
         retained_ptr<T> const& from,
         retained_ptr<T> const& to,
-        stream_t               stream = nullptr)
+        stream_t               stream             = nullptr,
+        bool                   wait_for_admission = true)
     {
         if (from.empty() || to.empty())
         {
@@ -690,7 +699,7 @@ public:
             from.data(), from.size(), to.data(), stream,
             from.ctx().device_type(), to.ctx().device_type(),
             from.ctx().device_index(), to.ctx().device_index(),
-            std::static_pointer_cast<void>(holder), true);
+            std::static_pointer_cast<void>(holder), true, wait_for_admission, from.size());
     }
 
     // SIMD loop peeling is not a memory concern; it moves to Vectorization (plan 4.6, task 2.7).

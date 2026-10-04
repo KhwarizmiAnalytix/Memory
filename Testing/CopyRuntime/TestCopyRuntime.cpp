@@ -9,8 +9,10 @@
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
+#include <chrono>
 #include <memory>
 #include <new>
+#include <thread>
 
 // Include fake runtime first
 #include "fake_runtime.h"
@@ -199,7 +201,7 @@ TEST_F(CopyTokenTest, ServiceEnqueueToken)
     service.reset();
 }
 
-// Test: service.poll() completes ready tokens
+// Test: service.poll().total() completes ready tokens
 TEST_F(CopyTokenTest, ServicePollCompletesReady)
 {
     auto& service = retained_operation_service::instance();
@@ -217,7 +219,7 @@ TEST_F(CopyTokenTest, ServicePollCompletesReady)
     EXPECT_EQ(service.pending_count(), 1);
 
     fake_runtime::set_stream_ready(ctx.stream, true);
-    size_t completed = service.poll();
+    size_t completed = service.poll().total();
     EXPECT_EQ(completed, 1);
     EXPECT_EQ(service.pending_count(), 0);
 
@@ -271,7 +273,7 @@ TEST_F(CopyTokenTest, BlockingEnqueuePollsForItsOwnCapacity)
     EXPECT_EQ(service.pending_count(), 1);
 
     fake_runtime::set_stream_ready(second_stream, true);
-    EXPECT_EQ(service.poll(), 1);
+    EXPECT_EQ(service.poll().total(), 1);
     service.reset();
 }
 
@@ -291,7 +293,7 @@ TEST_F(CopyTokenTest, ShutdownRejectsNewWorkAndResetReopensService)
     service.reset();
     EXPECT_NO_THROW(service.enqueue(token, 0, false));
     fake_runtime::set_stream_ready(ctx.stream, true);
-    EXPECT_EQ(service.poll(), 1);
+    EXPECT_EQ(service.poll().total(), 1);
 }
 
 // Test: service.drain() completes all pending
@@ -436,7 +438,7 @@ TEST_F(CopyTokenTest, RetainedCopySurvivesTokenDiscardUntilEventCompletes)
 
     EXPECT_EQ(releases, 0);
     EXPECT_EQ(service.pending_count(), 1);
-    EXPECT_EQ(service.poll(), 0);
+    EXPECT_EQ(service.poll().total(), 0);
     EXPECT_EQ(releases, 0);
     EXPECT_EQ(service.shutdown(std::chrono::milliseconds(1)), 1);
     EXPECT_EQ(releases, 0);
@@ -474,7 +476,7 @@ TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
         (void)allocator<T>::copy_async_retained(source, destination, stream);
     }
 
-    EXPECT_EQ(service.poll(), 1);
+    EXPECT_EQ(service.poll().total(), 1);
     EXPECT_EQ(service.pending_count(), 0);
     EXPECT_EQ(service.failed_count(), 1);
     EXPECT_EQ(releases, 0);
@@ -751,14 +753,14 @@ protected:
     {
         CopyTokenTest::SetUp();
         service().reset();
-        service().clear_failed();
+        service().abandon_quarantined();
         service().set_max_pending(1);
         failed_before_ = service().failed_count();
     }
     void TearDown() override
     {
         service().reset();
-        service().clear_failed();
+        service().abandon_quarantined();
         service().set_max_pending(0);
         CopyTokenTest::TearDown();
     }
@@ -842,7 +844,7 @@ TEST_F(CopyFailureTest, EventCreationFailureSubmitsNothingAndRestoresAdmissionOn
     EXPECT_EQ(1U, service().pending_count());
     fake_runtime::set_stream_ready(stream, true);
     token.wait();
-    EXPECT_EQ(1U, service().poll());
+    EXPECT_EQ(1U, service().poll().total());
     EXPECT_EQ(0, releases);  // caller still owns the endpoints
 }
 
@@ -918,7 +920,7 @@ TEST_F(CopyFailureTest, EventRecordFailureWithUnprovenStreamQuarantinesAndRetain
     }
     EXPECT_EQ(0, releases);  // caller dropped its handles; allocation is NOT recycled
 
-    service().clear_failed();  // explicit recovery releases the retained owners
+    service().abandon_quarantined();  // explicit recovery releases the retained owners
     EXPECT_EQ(2, releases);
 }
 
@@ -952,9 +954,302 @@ TEST_F(CopyFailureTest, SubmissionErrorIsProvenOrQuarantinedNeverInferredFromThe
         EXPECT_GT(pair.source.use_count(), 1);
     }
     int const before_clear = releases;
-    service().clear_failed();
+    service().abandon_quarantined();
     EXPECT_EQ(before_clear + 2, releases);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 (5.1-5.6): admission, accounting, release outside the lock, failure path
+// without allocation, ordered shutdown, endpoint lifetimes.
+// ---------------------------------------------------------------------------
+namespace
+{
+execution_context cuda_ctx_on(void* stream)
+{
+    execution_context ctx;
+    ctx.dev.type = device_enum::CUDA;
+    ctx.stream   = stream;
+    return ctx;
+}
+}  // namespace
+
+TEST_F(CopyFailureTest, AdmissionIsFiniteByDefault)
+{
+    service().reset();
+    EXPECT_EQ(retained_operation_service::default_max_pending, service().max_pending());
+    EXPECT_GT(service().max_pending(), 0U);
+    EXPECT_GT(service().max_quarantined(), 0U);
+}
+
+TEST_F(CopyFailureTest, FullQueueFailsFastWhenAskedAndSubmitsNothing)
+{
+    auto stream = reinterpret_cast<void*>(21);
+    fake_runtime::set_stream_ready(stream, false);
+    int           releases = 0;
+    retained_pair first(&releases, stream);
+    retained_pair second(&releases, stream);
+
+    auto token = allocator<float>::copy_async_retained(first.source, first.destination, stream);
+    EXPECT_EQ(1U, service().pending_count());
+    int const copies = fake_runtime::copies;
+
+    EXPECT_THROW(
+        allocator<float>::copy_async_retained(second.source, second.destination, stream, false),
+        std::runtime_error);
+    EXPECT_EQ(copies, fake_runtime::copies);  // nothing was submitted
+    EXPECT_EQ(1U, service().pending_count());
+    EXPECT_EQ(1, second.source.use_count());  // the refused attempt kept no owner
+    EXPECT_EQ(1, second.destination.use_count());
+    token.wait();
+    // The service's copy of the payload goes now, while `releases` is still alive.
+    EXPECT_EQ(1U, service().poll().completed);
+    EXPECT_EQ(0U, service().pending_count());
+    EXPECT_EQ(0, releases);  // the handles in this scope still own the storage
+}
+
+TEST_F(CopyFailureTest, BlockedAdmissionIsWokenByShutdownAndByALimitChange)
+{
+    auto stream_a = reinterpret_cast<void*>(22);
+    auto stream_b = reinterpret_cast<void*>(23);
+    auto stream_c = reinterpret_cast<void*>(24);
+    fake_runtime::set_stream_ready(stream_a, false);
+    fake_runtime::set_stream_ready(stream_b, false);
+    fake_runtime::set_stream_ready(stream_c, false);
+    copy_token filler(cuda_ctx_on(stream_a));
+    copy_token waiter(cuda_ctx_on(stream_b));
+    copy_token second_waiter(cuda_ctx_on(stream_c));
+    ASSERT_TRUE(service().enqueue(filler, 0, false));  // limit is 1: the queue is full
+
+    // The fake runtime is only read while a waiter polls; the main thread sleeps
+    // and then calls the service.
+    std::atomic<bool> started{false};
+    std::atomic<bool> threw{false};
+    std::atomic<bool> admitted{false};
+    std::thread       thread([&] {
+        started = true;
+        try
+        {
+            admitted = service().enqueue(waiter, 0, true);
+        }
+        catch (std::runtime_error const&)
+        {
+            threw = true;
+        }
+    });
+    while (!started)
+    {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    EXPECT_FALSE(threw);
+    EXPECT_FALSE(admitted);  // still waiting for capacity
+
+    service().set_max_pending(2);  // a limit change wakes it and it is admitted
+    thread.join();
+    EXPECT_TRUE(admitted);
+    EXPECT_EQ(2U, service().pending_count());
+
+    started  = false;
+    threw    = false;
+    admitted = false;
+    std::thread second([&] {
+        started = true;
+        try
+        {
+            admitted = service().enqueue(second_waiter, 0, true);
+        }
+        catch (std::runtime_error const&)
+        {
+            threw = true;
+        }
+    });
+    while (!started)
+    {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    EXPECT_FALSE(threw);
+    (void)service().shutdown(std::chrono::milliseconds(1));  // shutdown wakes it; it throws
+    second.join();
+    EXPECT_TRUE(threw);
+    EXPECT_FALSE(admitted);
+    EXPECT_EQ(2U, service().pending_count());  // nothing was dropped
+}
+
+TEST_F(CopyFailureTest, StatsCountPendingAndQuarantinedOperationsAndBytes)
+{
+    service().set_max_pending(8);
+    auto good = reinterpret_cast<void*>(25);
+    auto bad  = reinterpret_cast<void*>(26);
+    fake_runtime::set_stream_ready(good, false);
+    fake_runtime::set_stream_error(bad);
+    int           releases = 0;
+    retained_pair a(&releases, good);
+    retained_pair b(&releases, bad);
+
+    auto ta = allocator<float>::copy_async_retained(a.source, a.destination, good);
+    auto tb = allocator<float>::copy_async_retained(b.source, b.destination, bad);
+    constexpr size_t kBytes = 4 * sizeof(float);
+    auto             s      = service().stats();
+    EXPECT_EQ(2U, s.pending_ops);
+    EXPECT_EQ(2 * kBytes, s.pending_bytes);
+    EXPECT_EQ(0U, s.quarantined_ops);
+
+    fake_runtime::set_stream_ready(good, true);
+    auto r = service().poll();
+    EXPECT_EQ(1U, r.completed);  // completed and failed are reported apart
+    EXPECT_EQ(1U, r.failed);
+    s = service().stats();
+    EXPECT_EQ(0U, s.pending_ops);
+    EXPECT_EQ(0U, s.pending_bytes);
+    EXPECT_EQ(1U, s.quarantined_ops);
+    EXPECT_EQ(kBytes, s.quarantined_bytes);
+    EXPECT_EQ(1U, service().failed_count());
+    EXPECT_EQ(1U, service().abandon_quarantined());  // the service lets go before `releases` dies
+    EXPECT_EQ(0U, service().failed_count());
+    (void)ta;
+    (void)tb;
+}
+
+TEST_F(CopyFailureTest, QuarantineBudgetRefusesAdmissionButNeverDropsAnOwner)
+{
+    service().set_max_pending(8);
+    auto bad = reinterpret_cast<void*>(27);
+    fake_runtime::set_stream_error(bad);
+    int           releases = 0;
+    retained_pair a(&releases, bad);
+    retained_pair b(&releases, bad);
+    (void)allocator<float>::copy_async_retained(a.source, a.destination, bad);
+    EXPECT_EQ(1U, service().poll().failed);
+
+    service().set_max_quarantined(1);  // at the limit: admission is refused
+    int const copies = fake_runtime::copies;
+    EXPECT_THROW(
+        allocator<float>::copy_async_retained(b.source, b.destination, bad, false),
+        std::runtime_error);
+    EXPECT_EQ(copies, fake_runtime::copies);
+    EXPECT_EQ(1U, service().failed_count());
+    EXPECT_GT(a.source.use_count(), 1);  // lowering and refusing released nothing
+    EXPECT_EQ(0, releases);
+
+    service().set_max_quarantined(0);  // 0 = unlimited again
+    EXPECT_NO_THROW(
+        (void)allocator<float>::copy_async_retained(b.source, b.destination, bad, false));
+    service().poll();
+    service().abandon_quarantined();
+}
+
+TEST_F(CopyFailureTest, PayloadDeleterRunsOutsideTheServiceLock)
+{
+    service().set_max_pending(8);
+    auto stream = reinterpret_cast<void*>(28);
+    fake_runtime::set_stream_ready(stream, false);
+    int  releases = 0;
+    auto deleter  = [&releases](float* p, size_t, execution_context const&) {
+        // Re-enters the service from inside the release. Under the service mutex
+        // this would deadlock.
+        (void)retained_operation_service::instance().poll();
+        (void)retained_operation_service::instance().stats();
+        ++releases;
+        delete[] p;
+    };
+    {
+        auto ctx = cuda_ctx_on(stream);
+        auto src = allocator<float>::allocate_adopted(new float[2]{1, 2}, 2, ctx, deleter);
+        auto dst = allocator<float>::allocate_adopted(new float[2]{}, 2, ctx, deleter);
+        (void)allocator<float>::copy_async_retained(src, dst, stream);
+    }
+    EXPECT_EQ(0, releases);
+    fake_runtime::set_stream_ready(stream, true);
+    EXPECT_EQ(1U, service().poll().completed);
+    EXPECT_EQ(2, releases);
+    EXPECT_EQ(0U, service().pending_count());
+}
+
+TEST_F(CopyFailureTest, FailurePathAllocatesNothingAndKeepsTheOwner)
+{
+    service().set_max_pending(8);
+    auto stream = reinterpret_cast<void*>(29);
+    fake_runtime::set_stream_error(stream);
+    int releases = 0;
+    {
+        retained_pair pair(&releases, stream);
+        (void)allocator<float>::copy_async_retained(pair.source, pair.destination, stream);
+    }
+    g_fail_next_new  = true;  // any allocation on the failure path would throw
+    auto       r     = service().poll();
+    bool const armed = g_fail_next_new.exchange(false);
+    EXPECT_EQ(1U, r.failed);
+    EXPECT_TRUE(armed);  // nothing allocated: the quarantine is a flag on the entry
+    EXPECT_EQ(1U, service().failed_count());
+    EXPECT_EQ(0, releases);
+
+    // Checked recovery releases only what it can prove idle.
+    EXPECT_EQ(0U, service().recover_quarantined());
+    EXPECT_EQ(0, releases);
+    EXPECT_EQ(1U, service().failed_count());
+    fake_runtime::set_stream_ready(stream, true);
+    EXPECT_EQ(1U, service().recover_quarantined());
+    EXPECT_EQ(2, releases);
+    EXPECT_EQ(0U, service().failed_count());
+}
+
+TEST_F(CopyFailureTest, ResetWaitsForPendingWorkAndQuarantinesAFailureInsteadOfDroppingIt)
+{
+    service().set_max_pending(8);
+    auto ok  = reinterpret_cast<void*>(30);
+    auto bad = reinterpret_cast<void*>(31);
+    fake_runtime::set_stream_ready(ok, false);
+    fake_runtime::set_stream_ready(bad, false);
+    int releases = 0;
+    {
+        retained_pair a(&releases, ok);
+        retained_pair b(&releases, bad);
+        (void)allocator<float>::copy_async_retained(a.source, a.destination, ok);
+        (void)allocator<float>::copy_async_retained(b.source, b.destination, bad);
+    }
+    fake_runtime::set_stream_error(bad);  // the wait on this one will fail
+    service().reset();
+    EXPECT_EQ(2, releases);                   // the successful one released its two owners
+    EXPECT_EQ(1U, service().failed_count());  // the failed one is still owned
+    EXPECT_EQ(0U, service().pending_count());
+    EXPECT_EQ(retained_operation_service::default_max_pending, service().max_pending());
+    service().abandon_quarantined();
+    EXPECT_EQ(4, releases);
+}
+
+TEST_F(CopyFailureTest, LifetimeHoldsPageableHostAndAdoptedDeviceEndpointsUntilCompletion)
+{
+    service().set_max_pending(8);
+    auto stream = reinterpret_cast<void*>(32);
+    fake_runtime::set_stream_ready(stream, false);
+    int  host_releases   = 0;
+    int  device_releases = 0;
+    {
+        auto src = allocator<float>::allocate_adopted(
+            new float[3]{4, 5, 6}, 3, execution_context::cpu(),
+            [&](float* p, size_t, execution_context const&) {
+                ++host_releases;
+                delete[] p;
+            });
+        auto dst = allocator<float>::allocate_adopted(
+            new float[3]{}, 3, cuda_ctx_on(stream),
+            [&](float* p, size_t, execution_context const&) {
+                ++device_releases;
+                delete[] p;
+            });
+        (void)allocator<float>::copy_async_retained(src, dst, stream);
+    }  // every user handle is gone while the copy is still in flight
+    EXPECT_EQ(0, host_releases);
+    EXPECT_EQ(0, device_releases);
+    EXPECT_EQ(0U, service().poll().total());
+    EXPECT_EQ(0, host_releases);
+    fake_runtime::set_stream_ready(stream, true);
+    EXPECT_EQ(1U, service().poll().completed);
+    EXPECT_EQ(1, host_releases);  // each foreign deleter ran exactly once, after completion
+    EXPECT_EQ(1, device_releases);
+}
+
 #endif  // MEMORY_HAS_CUDA
 
 // Task 1.8: if adoption itself fails to allocate, the deleter has not run and the
