@@ -82,3 +82,47 @@ target_link_libraries(MemoryGpuShimChurn PRIVATE Logging::Logging)
 if(MSVC)
   target_compile_options(MemoryGpuShimChurn PRIVATE /Zc:__cplusplus)
 endif()
+
+# Task 8.1: host contention (1-32 threads) and seeded mixed-lifetime replay under a
+# thread-safe fake driver (mt/fake_runtime.h shadows the single-threaded one, so mt/
+# must come first in the include path). The Lockwait variant force-includes
+# mt/lock_wait_mutex.h so the allocator's mutex reports acquisitions and wait time.
+# Manual run only.
+find_package(Threads REQUIRED)
+foreach(_variant "" "Lockwait" "Spin")
+  set(_tgt "MemoryGpuShimContentionPhase8${_variant}")
+  add_executable(
+    ${_tgt} Phase8ContentionShim.cpp
+    "${_cca_src}/gpu/cuda_caching_allocator.cpp"
+    "${_cca_src}/profiler/unified_memory_stats.cpp"
+    "${_cca_src}/common/allocation_id.cpp"
+  )
+  target_include_directories(
+    ${_tgt} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/mt" "${CMAKE_CURRENT_SOURCE_DIR}" "${_cca_include}"
+  )
+  target_compile_features(${_tgt} PRIVATE cxx_std_20)
+  target_compile_definitions(
+    ${_tgt} PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_CUDA=0 MEMORY_HAS_HIP=1 MEMORY_HAS_METAL=0
+                    MEMORY_HAS_PROFILER=0
+  )
+  target_link_libraries(${_tgt} PRIVATE Logging::Logging)
+  if(NOT MSVC)
+    target_link_libraries(${_tgt} PRIVATE Threads::Threads)
+  endif()
+  if(_variant STREQUAL "Lockwait")
+    target_compile_definitions(${_tgt} PRIVATE BENCH_LOCK_WAIT=1)
+    if(MSVC)
+      target_compile_options(${_tgt} PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/mt/lock_wait_mutex.h")
+    else()
+      target_compile_options(${_tgt} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/mt/lock_wait_mutex.h")
+    endif()
+  elseif(_variant STREQUAL "Spin")
+    # Task 8.7 experiment: spin-then-yield lock in place of std::recursive_mutex.
+    target_compile_definitions(${_tgt} PRIVATE BENCH_LOCK_KIND="spin_then_yield")
+    if(MSVC)
+      target_compile_options(${_tgt} PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/mt/spin_mutex.h")
+    else()
+      target_compile_options(${_tgt} PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/mt/spin_mutex.h")
+    endif()
+  endif()
+endforeach()
