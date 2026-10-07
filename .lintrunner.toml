@@ -92,6 +92,7 @@ command = [
     'python3',
     '-m',
     'lint_tool.adapters.cmake_linter',
+    '--config=.cmakelintrc',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -117,6 +118,7 @@ command = [
     'python3',
     '-m',
     'lint_tool.adapters.cmake_format_linter',
+    '--config=.cmake-format.yaml',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -176,6 +178,7 @@ exclude_patterns = [
     'build/**',
     'build_*/**',
     '__pycache__/**',
+    'Scripts/setup.py',
 ]
 init_command = [
     'python3',
@@ -188,8 +191,8 @@ command = [
     'python3',
     '-m',
     'lint_tool.adapters.mypy_linter',
-    '--config',
-    'pyproject.toml',
+    '--config=mypy-strict.ini',
+    '--code=MYPYSTRICT',
     '--',
     '@{{PATHSFILE}}',
 ]
@@ -203,6 +206,7 @@ exclude_patterns = [
     'build/**',
     'build_*/**',
     '__pycache__/**',
+    'Scripts/setup.py',
 ]
 init_command = [
     'python3',
@@ -745,22 +749,15 @@ command = [
 
 [[linter]]
 code = 'TYPENOSKIP'
-include_patterns = ['**/*.py']
-exclude_patterns = [
-    'ThirdParty/**',
-    '.git/**',
-    'build/**',
-    '__pycache__/**',
-]
+include_patterns = ['mypy.ini']
 command = [
     'python3',
     '-m',
     'lint_tool.adapters.grep_linter',
-    '--pattern=no_skip_libs|no_skip_check',
-    '--match-first-only',
+    '--pattern=follow_imports\s*=\s*skip',
     '--linter-name=TYPENOSKIP',
-    '--error-name=has type skip config',
-    '--error-description=Found skip settings in mypy config.',
+    '--error-name=use of follow_imports = skip',
+    '--error-description=follow_imports = skip is forbidden from mypy.ini; it is too easy to accidentally turn off type checking. Use a top level # mypy: ignore-errors or per-site # type: ignore instead.',
     '--',
     '@{{PATHSFILE}}',
 ]

@@ -39,3 +39,4 @@ __pycache__/
 
 # crash dumps (hundreds of MB; keep local)
 *.dmp
+.dmypy.json
