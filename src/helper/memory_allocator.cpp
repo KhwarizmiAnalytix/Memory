@@ -144,8 +144,10 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
         return malloc(nbytes);  // malloc is aligned for max_align_t (16 bytes on 64-bit)
     }
     void* ptr = nullptr;
-    // cppcheck-suppress memleak ; ptr is returned to the caller
+    // ptr is returned to the caller on success; posix_memalign leaves it
+    // untouched on failure, so there is no leak on either path.
     int status = posix_memalign(&ptr, alignment, nbytes);
+    // cppcheck-suppress memleak
     return MEMORY_UNLIKELY(status != 0) ? nullptr : ptr;
 #endif
 }

@@ -584,7 +584,7 @@ public:
         int         gpu_idx = (is_gpu_device(to_type) ? to_index : from_index);
         execution_context ctx;
         ctx.dev.type  = gpu_dev;
-        ctx.dev.index = gpu_idx;
+        ctx.dev.index = static_cast<std::int16_t>(gpu_idx);
         ctx.stream       = stream;
         copy_token token(ctx);
         if (retained)

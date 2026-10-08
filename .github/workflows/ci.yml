@@ -63,6 +63,68 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
+  # External Profiler: builds Profiler from the ThirdParty/Profiler submodule
+  # into its own install prefix, then configures Memory against it via
+  # CMAKE_PREFIX_PATH. Exercises the find_package(Profiler) path added to
+  # memory_setup_profiler() (Cmake/MemoryDependencies.cmake) — the other CI
+  # jobs only ever build Profiler as a bundled submodule and would not catch
+  # a regression in that path.
+  # ---------------------------------------------------------------------------
+  external-profiler:
+    name: External Profiler / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Build and install Profiler
+        run: >
+          cmake -S ThirdParty/Profiler -B profiler_build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/profiler_install
+          -DPROFILER_ENABLE_TESTING=OFF
+          -DPROFILER_ENABLE_EXAMPLES=OFF
+          -DPROFILER_ENABLE_BENCHMARKS=OFF
+          -DPROFILER_ENABLE_INSTALL=ON
+          -DBUILD_SHARED_LIBS=OFF
+
+          && cmake --build profiler_build
+          && cmake --install profiler_build
+
+      - name: Configure Memory against the installed Profiler
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/profiler_install
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=ON
+          | tee configure.log
+
+      - name: Verify the external Profiler was actually used
+        run: grep -q "using external Profiler::Profiler" configure.log
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
   # Linux CUDA: builds and runs the Memory test suite against a real CUDA
   # device. Requires a self-hosted runner with the CUDA toolkit and an
   # NVIDIA GPU (labels: self-hosted, linux, gpu, cuda).

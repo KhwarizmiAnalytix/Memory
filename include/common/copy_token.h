@@ -397,7 +397,7 @@ private:
 #endif
         }
 
-        execution_context     ctx{};
+        execution_context     ctx;
         std::shared_ptr<void> retained;
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
         void* event{nullptr};  // cudaEvent_t / hipEvent_t, opaque in this header

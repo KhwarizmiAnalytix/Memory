@@ -10,6 +10,3 @@
 [submodule "ThirdParty/Logging"]
 	path = ThirdParty/Logging
 	url = https://github.com/KhwarizmiAnalytix/Logging.git
-[submodule "ThirdParty/Profiler"]
-	path = ThirdParty/Profiler
-	url = https://github.com/KhwarizmiAnalytix/Profiler.git

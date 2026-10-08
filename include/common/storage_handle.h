@@ -130,7 +130,7 @@ private:
     deleter_fn    deleter_{nullptr};
     void*         ctx_{nullptr};
     device        dev_{};
-    allocation_id id_{};
+    allocation_id id_;
 };
 
 static_assert(sizeof(storage_handle) == 48,

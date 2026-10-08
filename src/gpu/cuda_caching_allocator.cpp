@@ -2103,6 +2103,7 @@ struct cuda_caching_allocator::Impl
         throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip");
     }
     void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
+    void                deallocate_with_stream_lookup(void*, size_t) noexcept {}
     void                record_stream(void*, cuda_caching_allocator::stream_type) {}
     bool                owns_live_allocation(void const*) const { return false; }
     void                add_free_memory_callback(const cuda_caching_allocator::free_memory_callback&) {}
@@ -2121,6 +2122,8 @@ struct cuda_caching_allocator::Impl
     size_t              peak_bytes_allocated_now() const noexcept { return 0; }
     size_t              bytes_reserved_now()       const noexcept { return 0; }
     size_t              peak_bytes_reserved_now()  const noexcept { return 0; }
+    size_t              bytes_cached_now()         const noexcept { return 0; }
+    size_t              peak_bytes_cached_now()    const noexcept { return 0; }
     void                record_memory_history(bool, size_t) {}
     gpu_memory_snapshot snapshot() { return gpu_memory_snapshot{}; }
     int                 device() const { return device_; }

@@ -12,25 +12,19 @@
 # syntax error.  The guarded paths (C++20 [[likely]]/[[unlikely]] attributes
 # and thread-safety annotations) are correct; suppress the false parse failure.
 syntaxError:*memory_macros.h
-syntaxError:include/common/memory_macros.h
-syntaxError:include\common\memory_macros.h
 
 # memory_allocator.cpp uses the MEMORY_UNLIKELY macro as `if MEMORY_UNLIKELY
 # (cond)` — valid after expansion to `if (__builtin_expect(...))` or the C++20
 # attribute form, but cppcheck sees the unexpanded token and rejects it.
 syntaxError:*memory_allocator.cpp
-syntaxError:src/memory_allocator.cpp
 
 # gpu/cuda_caching_allocator.cpp has the same MEMORY_UNLIKELY pattern.
 syntaxError:*cuda_caching_allocator.cpp
-syntaxError:src/gpu/cuda_caching_allocator.cpp
 
 # copy_token.h triggers a spurious "namespacememory{" parse error only when
 # certain include combinations are analysed together — cppcheck token-merging
 # artifact, not a real issue.
 syntaxError:*copy_token.h
-syntaxError:include/common/copy_token.h
-syntaxError:include\common\copy_token.h
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------

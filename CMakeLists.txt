@@ -490,6 +490,22 @@ endif()
 # --- Target definition ---
 add_library(Memory ${memory_sources} ${memory_headers})
 
+# When Profiler::Profiler is the IMPORTED target created by find_package(Profiler)
+# (memory_setup_profiler()'s external path), CMake's default
+# CMAKE_NO_SYSTEM_FROM_IMPORTED=OFF behavior auto-promotes its INTERFACE_INCLUDE_DIRECTORIES to
+# -isystem for every consumer, including this target. Clang/GCC search -isystem strictly after
+# every -I, regardless of command-line order, which defeats the per-source "pin Profiler's own
+# include root ahead of Memory's" override just below (both entries end up marked -isystem and
+# Memory's own -I.../include wins regardless). The bundled (add_subdirectory) Profiler target is
+# not IMPORTED and isn't affected. Opt Memory out of the auto-promotion so the override below
+# resolves the right "common/device.h" for either case.
+if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
+  get_target_property(_profiler_is_imported Profiler::Profiler IMPORTED)
+  if(_profiler_is_imported)
+    set_target_properties(Memory PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
+  endif()
+endif()
+
 # Profiler and Memory both publish a "common/device.h" at their include root (unrelated types:
 # profiler::device_enum vs memory::device_enum). Whichever root sits earlier on the -I list wins
 # that quote-include for the *whole* translation unit, including nested includes reached through
@@ -501,9 +517,28 @@ add_library(Memory ${memory_sources} ${memory_headers})
 # case-insensitive filesystem — shadows Logging's "logger.h" the same way once it outranks
 # Logging's own include dir. Only Profiler's own repository include root is needed to resolve
 # "common/device.h"; pull just that one directory instead of the whole transitive set.
+#
+# SOURCE_DIR doesn't identify that root when Profiler::Profiler is the IMPORTED target created
+# by find_package(Profiler) (memory_setup_profiler()'s external path): CMake returns the
+# *consuming* directory's source dir for an IMPORTED target's SOURCE_DIR, not Profiler's, so the
+# EXISTS check below would silently miss and leave the shadowed TUs unpinned. Scan
+# INTERFACE_INCLUDE_DIRECTORIES instead (stripping any $<BUILD_INTERFACE:...> wrapper) and pick
+# whichever entry actually contains "common/device.h" — this resolves correctly for both the
+# bundled target (several entries incl. Kineto/fmt) and the installed one (a single entry).
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
-  get_target_property(_profiler_src_dir Profiler::Profiler SOURCE_DIR)
-  if(_profiler_src_dir AND EXISTS "${_profiler_src_dir}/include/common/device.h")
+  get_target_property(_profiler_include_dirs Profiler::Profiler INTERFACE_INCLUDE_DIRECTORIES)
+  set(_profiler_device_dir "")
+  foreach(_profiler_inc_entry IN LISTS _profiler_include_dirs)
+    string(REGEX REPLACE "^\\$<BUILD_INTERFACE:(.*)>$" "\\1" _profiler_inc_dir "${_profiler_inc_entry}")
+    if(_profiler_inc_dir MATCHES "^\\$<")
+      continue() # unresolved genex (e.g. $<INSTALL_INTERFACE:...>) at configure time — skip
+    endif()
+    if(EXISTS "${_profiler_inc_dir}/common/device.h")
+      set(_profiler_device_dir "${_profiler_inc_dir}")
+      break()
+    endif()
+  endforeach()
+  if(_profiler_device_dir)
     set(_memory_profiler_shadowed_sources
         "${CMAKE_CURRENT_SOURCE_DIR}/src/helper/memory_allocator.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/helper/pinned_memory_allocator.cpp"
@@ -511,7 +546,7 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
     )
     set_source_files_properties(
       ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES
-                                                      "${_profiler_src_dir}/include"
+                                                      "${_profiler_device_dir}"
     )
   endif()
 endif()

@@ -141,8 +141,13 @@ function(memory_setup_logging)
 endfunction()
 
 # -----------------------------------------------------------------------------
-# memory_setup_profiler: optional sibling dependency
-# (https://github.com/KhwarizmiAnalytix/Profiler), submodule-or-FetchContent.
+# memory_setup_profiler: optional sibling XSigma repo
+# (https://github.com/KhwarizmiAnalytix/Profiler). Not a vendored third-party
+# library — resolved exclusively via find_package(Profiler), independent of
+# XSIGMA_ENABLE_EXTERNAL (that flag governs vendored ThirdParty/ copies).
+# Install it first (cmake --install) and point CMAKE_PREFIX_PATH at it.
+# Optional: callers gate on TARGET Profiler::Profiler, so a missing install
+# just disables MEMORY_HAS_PROFILER rather than failing the configure.
 # -----------------------------------------------------------------------------
 function(memory_setup_profiler)
   if(TARGET Profiler::Profiler)
@@ -155,27 +160,11 @@ function(memory_setup_profiler)
   if(NOT MEMORY_ENABLE_PROFILER)
     return()
   endif()
-  set(PROFILER_ENABLE_TESTING OFF CACHE BOOL "Profiler tests build only standalone" FORCE)
-  set(PROFILER_ENABLE_EXAMPLES OFF CACHE BOOL "Profiler examples build only standalone" FORCE)
-  if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Profiler/CMakeLists.txt")
-    add_subdirectory(
-      "${MEMORY_THIRD_PARTY_DIR}/Profiler" "${CMAKE_BINARY_DIR}/ThirdParty/Profiler_build"
-      EXCLUDE_FROM_ALL
-    )
+  find_package(Profiler CONFIG QUIET)
+  if(TARGET Profiler::Profiler)
+    message(STATUS "Memory: using Profiler::Profiler (find_package)")
   else()
-    include(FetchContent)
-    FetchContent_Declare(
-      Profiler GIT_REPOSITORY https://github.com/KhwarizmiAnalytix/Profiler.git GIT_TAG main
-    )
-    FetchContent_MakeAvailable(Profiler)
+    message(STATUS "Memory: Profiler not found via find_package; MEMORY_HAS_PROFILER "
+                    "will be 0. Install it and set CMAKE_PREFIX_PATH to enable it.")
   endif()
-  # Profiler's xplane_utils.cpp / bespoke/common/util.cpp / memory_tracker.cpp use
-  # std::back_inserter without including <iterator>, relying on a transitive include
-  # that newer libc++ (Homebrew LLVM, used by the macOS coverage job) no longer
-  # provides. Force-include it until the submodule includes it itself.
-  if(TARGET Profiler AND NOT MSVC)
-    target_compile_options(Profiler PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include iterator>")
-  endif()
-  # Optional: do not FATAL_ERROR if unavailable, matching MEMORY_ENABLE_PROFILER's
-  # "link when available" semantics in the host overlay (ThirdParty/memory.cmake).
 endfunction()
