@@ -399,9 +399,9 @@ list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS
      "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>"
 )
 
-# Optional Profiler sibling — submodule-or-FetchContent when standalone; reuses the
-# host's Profiler host-overlay wiring when embedded in XSigma. Only wire link when
-# MEMORY_ENABLE_PROFILER and target exists.
+# Optional Profiler sibling — find_package(Profiler) when standalone (not a
+# ThirdParty submodule); reuses the host's Profiler wiring when embedded in
+# XSigma. Only wire link when MEMORY_ENABLE_PROFILER and the target exists.
 memory_setup_profiler()
 set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)

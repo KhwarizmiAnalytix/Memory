@@ -63,12 +63,11 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # External Profiler: builds Profiler from the ThirdParty/Profiler submodule
-  # into its own install prefix, then configures Memory against it via
-  # CMAKE_PREFIX_PATH. Exercises the find_package(Profiler) path added to
-  # memory_setup_profiler() (Cmake/MemoryDependencies.cmake) — the other CI
-  # jobs only ever build Profiler as a bundled submodule and would not catch
-  # a regression in that path.
+  # External Profiler: Profiler is a sibling repository, not a ThirdParty
+  # submodule. Check it out on its own, install it, then configure Memory
+  # against that prefix. Exercises find_package(Profiler) in
+  # memory_setup_profiler() (Cmake/MemoryDependencies.cmake). The other jobs
+  # leave Profiler uninstalled, so MEMORY_HAS_PROFILER stays 0 there.
   # ---------------------------------------------------------------------------
   external-profiler:
     name: External Profiler / ${{ matrix.os }}
@@ -83,6 +82,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout Profiler
+        uses: actions/checkout@v4
+        with:
+          repository: KhwarizmiAnalytix/Profiler
+          path: profiler
+          submodules: recursive
+
       - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -93,9 +99,10 @@ jobs:
 
       - name: Build and install Profiler
         run: >
-          cmake -S ThirdParty/Profiler -B profiler_build -G Ninja
+          cmake -S profiler -B profiler_build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/profiler_install
+          -DPROFILER_GPU_BACKEND=none
           -DPROFILER_ENABLE_TESTING=OFF
           -DPROFILER_ENABLE_EXAMPLES=OFF
           -DPROFILER_ENABLE_BENCHMARKS=OFF
@@ -115,7 +122,8 @@ jobs:
           | tee configure.log
 
       - name: Verify the external Profiler was actually used
-        run: grep -q "using external Profiler::Profiler" configure.log
+        run: |
+          grep -q 'Memory: using Profiler::Profiler (find_package)' configure.log
 
       - name: Build
         run: cmake --build build
