@@ -1,0 +1,69 @@
+@PACKAGE_INIT@
+
+# Memory CMake configuration file
+# Enables: find_package(Memory REQUIRED)
+
+include(CMakeFindDependencyMacro)
+
+# Logging is a required sibling dependency -- Memory's public headers call
+# Logging's LOGGING_CHECK/LOGGING_THROW/LOGGING_LOG_* macros directly
+# (<logging.h>), so Logging::Logging must be resolvable before
+# MemoryTargets.cmake is loaded.
+if(NOT TARGET Logging::Logging)
+  find_dependency(Logging)
+endif()
+
+# Profiler is an optional sibling dependency: only part of Memory's link
+# interface when this package was built with MEMORY_ENABLE_PROFILER=ON and a
+# Profiler::Profiler target was actually available at that time.
+set(Memory_HAS_PROFILER @MEMORY_HAS_PROFILER_BUILD@)
+if(Memory_HAS_PROFILER AND NOT TARGET Profiler::Profiler)
+  find_dependency(Profiler)
+endif()
+
+if(NOT TARGET Memory::Memory)
+  include("${CMAKE_CURRENT_LIST_DIR}/MemoryTargets.cmake")
+endif()
+
+# MemoryTargets.cmake's INTERFACE_LINK_LIBRARIES does not list Logging::Logging /
+# Profiler::Profiler: Memory/CMakeLists.txt links them through
+# $<BUILD_INTERFACE:...> because both are normally built in-tree
+# (submodule/FetchContent, not find_package()), and a non-IMPORTED, non-exported
+# target in a dependent's link interface makes install(EXPORT MemoryTargets)
+# fail outright ("which requires target Logging that is not in any export
+# set"). Re-attach them here now that find_dependency() above has guaranteed
+# real (IMPORTED) targets exist, so consumers of installed Memory::Memory still
+# get the transitive link Memory's public headers require.
+set_property(TARGET Memory::Memory APPEND PROPERTY INTERFACE_LINK_LIBRARIES Logging::Logging)
+if(Memory_HAS_PROFILER)
+  set_property(TARGET Memory::Memory APPEND PROPERTY INTERFACE_LINK_LIBRARIES Profiler::Profiler)
+endif()
+
+# Report optional backend/allocator selection to downstream packages.
+set(Memory_HAS_TBB @MEMORY_ENABLE_TBB@)
+set(Memory_HAS_MIMALLOC @MEMORY_ENABLE_MIMALLOC@)
+set(Memory_HAS_NUMA @MEMORY_ENABLE_NUMA@)
+set(Memory_HAS_MEMKIND @MEMORY_ENABLE_MEMKIND@)
+set(Memory_GPU_BACKEND @MEMORY_GPU_BACKEND@)
+
+if(NOT Memory_FIND_QUIETLY)
+  message(STATUS "Found Memory: ${PACKAGE_PREFIX_DIR}")
+  message(STATUS "  GPU backend: ${Memory_GPU_BACKEND}")
+  if(Memory_HAS_PROFILER)
+    message(STATUS "  Profiler support: enabled")
+  endif()
+  if(Memory_HAS_TBB)
+    message(STATUS "  TBB support: enabled")
+  endif()
+  if(Memory_HAS_MIMALLOC)
+    message(STATUS "  mimalloc support: enabled")
+  endif()
+  if(Memory_HAS_NUMA)
+    message(STATUS "  NUMA support: enabled")
+  endif()
+  if(Memory_HAS_MEMKIND)
+    message(STATUS "  memkind support: enabled")
+  endif()
+endif()
+
+check_required_components(Memory)

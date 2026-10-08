@@ -380,7 +380,19 @@ if(NOT TARGET Logging::Logging)
     FATAL_ERROR "Memory requires Logging::Logging. memory_setup_logging() should have provided it."
   )
 endif()
-list(APPEND MEMORY_DEPENDENCY_LIBS Logging::Logging)
+# Wrapped in $<BUILD_INTERFACE:...>: Logging is built in-tree (submodule/FetchContent)
+# or via the host's own wiring when embedded, not via find_package(), so it is not
+# itself part of MemoryTargets' export set. Without this wrapper, install(EXPORT
+# MemoryTargets) refuses to export Memory with
+# "which requires target Logging that is not in any export set" (same failure mode
+# Profiler::Profiler hits below; see Profiler/CMakeLists.txt's own
+# $<BUILD_INTERFACE:...>-wrapped PROFILER_DEPENDENCY_LIBS for the identical pattern).
+# BUILD_INTERFACE keeps Logging linked for Memory's own build and for in-tree
+# consumers (tests/benchmarks, or a parent project's add_subdirectory(Memory));
+# MemoryConfig.cmake.in re-attaches Logging::Logging to the installed
+# Memory::Memory target's INTERFACE_LINK_LIBRARIES after resolving it via
+# find_dependency(Logging), so installed consumers still get it transitively.
+list(APPEND MEMORY_DEPENDENCY_LIBS "$<BUILD_INTERFACE:Logging::Logging>")
 list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS
      "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>"
 )
@@ -392,7 +404,11 @@ memory_setup_profiler()
 set(MEMORY_HAS_PROFILER_BUILD 0)
 if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   set(MEMORY_HAS_PROFILER_BUILD 1)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Profiler::Profiler)
+  # Same $<BUILD_INTERFACE:...> wrapper and rationale as Logging::Logging above --
+  # Profiler is also built in-tree (not find_package()-found) in the common
+  # standalone case, and MemoryConfig.cmake.in re-attaches it for installed
+  # consumers via a conditional find_dependency(Profiler).
+  list(APPEND MEMORY_DEPENDENCY_LIBS "$<BUILD_INTERFACE:Profiler::Profiler>")
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS
        "$<TARGET_PROPERTY:Profiler::Profiler,INTERFACE_INCLUDE_DIRECTORIES>"
   )
@@ -400,20 +416,35 @@ endif()
 list(APPEND MEMORY_DEPENDENCY_COMPILE_DEFINITIONS MEMORY_HAS_PROFILER=${MEMORY_HAS_PROFILER_BUILD})
 
 # --- Runtime library wiring ---
+# PRIVATE, not part of MEMORY_DEPENDENCY_LIBS: none of CUDA/HIP runtime libs, TBB's
+# tbbmalloc, NUMA, or mimalloc appear in Memory's public headers (CLAUDE.md: CPU
+# allocation calls cpu::memory_allocator, a thin .cpp-only wrapper over
+# mimalloc/TBB/platform malloc -- there is no public allocator interface exposing
+# these types). They are also vendored/build-from-source targets with no installed
+# find_package() identity of their own (mirrors Numa::numa/Tbb::tbbmalloc/
+# Mimalloc::mimalloc being local INTERFACE IMPORTED wrappers, not real packages).
+# Linking them PUBLIC would record bare, unresolvable target names in
+# MemoryTargets.cmake's INTERFACE_LINK_LIBRARIES -- the installed Memory::Memory
+# target would fail to load in a consumer's find_package(Memory) at all ("the
+# target was not found"). Same reasoning as Logging's own PRIVATE treatment of
+# fmt/loguru/glog/spdlog (CMakeLists.txt comment there). Keeping these PRIVATE
+# means their object code is simply absorbed into libMemory, exactly like a
+# consumer wants.
+set(MEMORY_DEPENDENCY_LIBS_PRIVATE "")
 if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND DEFINED PROJECT_CUDA_LIBRARIES)
-  list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_CUDA_LIBRARIES})
+  list(APPEND MEMORY_DEPENDENCY_LIBS_PRIVATE ${PROJECT_CUDA_LIBRARIES})
 endif()
 if(MEMORY_GPU_BACKEND STREQUAL "hip" AND DEFINED PROJECT_HIP_LIBRARIES)
-  list(APPEND MEMORY_DEPENDENCY_LIBS ${PROJECT_HIP_LIBRARIES})
+  list(APPEND MEMORY_DEPENDENCY_LIBS_PRIVATE ${PROJECT_HIP_LIBRARIES})
 endif()
 if(MEMORY_ENABLE_TBB AND TARGET Tbb::tbbmalloc)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Tbb::tbbmalloc)
+  list(APPEND MEMORY_DEPENDENCY_LIBS_PRIVATE Tbb::tbbmalloc)
 endif()
 if(MEMORY_ENABLE_NUMA AND TARGET Numa::numa)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Numa::numa)
+  list(APPEND MEMORY_DEPENDENCY_LIBS_PRIVATE Numa::numa)
 endif()
 if(MEMORY_ENABLE_MIMALLOC AND TARGET Mimalloc::mimalloc)
-  list(APPEND MEMORY_DEPENDENCY_LIBS Mimalloc::mimalloc)
+  list(APPEND MEMORY_DEPENDENCY_LIBS_PRIVATE Mimalloc::mimalloc)
 endif()
 
 # --- Source discovery ---
@@ -568,6 +599,10 @@ if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(Memory PUBLIC ${MEMORY_DEPENDENCY_LIBS})
 endif()
 
+if(MEMORY_DEPENDENCY_LIBS_PRIVATE)
+  target_link_libraries(Memory PRIVATE ${MEMORY_DEPENDENCY_LIBS_PRIVATE})
+endif()
+
 if(MEMORY_DEPENDENCY_COMPILE_DEFINITIONS)
   target_compile_definitions(Memory PUBLIC ${MEMORY_DEPENDENCY_COMPILE_DEFINITIONS})
 endif()
@@ -591,11 +626,51 @@ install(
   DESTINATION include
 )
 install(
+  # Flat "include" destination, matching the $<INSTALL_INTERFACE:include> above and
+  # the documented consumer contract (CLAUDE.md: bare filenames like "allocator.h",
+  # "common/data_ptr.h" -- never "Memory/allocator.h"), and mirroring Logging's own
+  # flat install(DIRECTORY ... DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}) convention.
+  # A nested "include/Memory" destination here would silently break every installed
+  # consumer: find_package(Memory) would still succeed, but #include "allocator.h"
+  # would not resolve, because Memory::Memory's exported include dir is "include",
+  # not "include/Memory".
   DIRECTORY "${_memory_include_root}/"
-  DESTINATION include/Memory
+  DESTINATION include
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "experimental" EXCLUDE
+)
+
+# --- CMake Package Configuration Files ---
+# Generates MemoryConfig.cmake / MemoryConfigVersion.cmake and installs the
+# MemoryTargets.cmake export set so downstream projects can do
+# find_package(Memory CONFIG REQUIRED) and link Memory::Memory.
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/Cmake/MemoryConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
+  INSTALL_DESTINATION lib/cmake/Memory
+  PATH_VARS CMAKE_INSTALL_PREFIX
+)
+
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion
+)
+
+install(
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake"
+  DESTINATION lib/cmake/Memory
+)
+
+install(
+  EXPORT MemoryTargets
+  NAMESPACE Memory::
+  FILE MemoryTargets.cmake
+  DESTINATION lib/cmake/Memory
 )
 
 # --- Testing ---

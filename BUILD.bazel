@@ -1,6 +1,9 @@
 # Standalone Memory library (KhwarizmiAnalytix/Memory). Public headers live under
 # include/, implementation files under src/. Include root is include/ (e.g. "allocator.h", "common/data_ptr.h").
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_pkg//pkg:install.bzl", "pkg_install")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
 
 package(default_visibility = ["//visibility:public"])
@@ -153,4 +156,45 @@ cc_library(
     name = "Memory",
     deps = [":memory_lib"],
     visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# Install / export (bazel-side analogue of CMake's `install(TARGETS Memory ...)` /
+# `install(DIRECTORY include/ DESTINATION include ...)`). `bazel build
+# //:memory_pkg_tar` produces a relocatable tarball; `bazel run //:install --
+# --destdir=/some/prefix` stages the same tree directly on disk. Headers land
+# at a flat "include" prefix, matching CMakeLists.txt's own flat `DESTINATION
+# include` (not "include/Memory") so `#include "allocator.h"` resolves the
+# same way for both build systems.
+# =============================================================================
+
+pkg_files(
+    name = "memory_installed_hdrs",
+    srcs = [":memory_hdrs"],
+    prefix = "include",
+    strip_prefix = strip_prefix.from_pkg("include"),
+)
+
+pkg_files(
+    name = "memory_installed_libs",
+    # The real implementation target (has an actual compiled output file),
+    # not the thin public alias ":Memory", which has no output of its own.
+    srcs = [":memory_lib"],
+    prefix = "lib",
+)
+
+pkg_tar(
+    name = "memory_pkg_tar",
+    srcs = [
+        ":memory_installed_hdrs",
+        ":memory_installed_libs",
+    ],
+)
+
+pkg_install(
+    name = "install",
+    srcs = [
+        ":memory_installed_hdrs",
+        ":memory_installed_libs",
+    ],
 )
