@@ -34,6 +34,7 @@
 #include "gpu/gpu_runtime.h"
 #endif
 #if MEMORY_HAS_CUDA
+#include <bit>
 #include <cuda.h>
 #endif
 
@@ -123,7 +124,8 @@ inline bool try_cu_vm_alloc(int device, size_t size, raw_segment& out)
         (void)cuMemAddressFree(addr, padded);
         return false;
     }
-    out.ptr       = reinterpret_cast<void*>(addr);  // NOLINT(performance-no-int-to-ptr): CUDA VM API
+    static_assert(sizeof(addr) == sizeof(void*));
+    out.ptr       = std::bit_cast<void*>(addr);
     out.size      = padded;
     out.vm        = true;
     out.cu_handle = handle;
@@ -266,7 +268,7 @@ struct block_pool;
 class node_pool
 {
 public:
-    node_pool() = default;
+    node_pool()                            = default;
     node_pool(node_pool const&)            = delete;
     node_pool& operator=(node_pool const&) = delete;
 
@@ -326,7 +328,7 @@ struct pool_allocator
 
     explicit pool_allocator(node_pool* pool) noexcept : pool_(pool) {}
     template <typename U>
-    pool_allocator(pool_allocator<U> const& other) noexcept : pool_(other.pool_)  // NOLINT
+    pool_allocator(pool_allocator<U> const& other) noexcept : pool_(other.pool_)
     {
     }
 
@@ -362,7 +364,6 @@ struct pool_allocator
 
     node_pool* pool_;
 };
-
 
 // Inline set for recording cross-stream uses (plan §6.1, P3.2, H2).
 // Holds up to kInline streams without heap allocation; a heap-allocated
@@ -417,8 +418,8 @@ struct inline_stream_set
     }
 
 private:
-    int          size_{0};
-    cudaStream_t slots_[kInline]{};
+    int                                     size_{0};
+    cudaStream_t                            slots_[kInline]{};
     std::unique_ptr<std::set<cudaStream_t>> overflow_;
 };
 
@@ -435,23 +436,23 @@ struct cache_block
 
     bool is_split() const { return prev != nullptr || next != nullptr; }
 
-    void*              ptr;
-    size_t             size;
-    size_t             requested_size{0};
-    cudaStream_t       stream;
-    block_pool*        pool;
-    bool               allocated{false};
-    cache_block*       prev{nullptr};
-    cache_block*       next{nullptr};
-    int                event_count{0};
-    inline_stream_set  stream_uses;
-    void*              segment_base{nullptr};
+    void*             ptr;
+    size_t            size;
+    size_t            requested_size{0};
+    cudaStream_t      stream;
+    block_pool*       pool;
+    bool              allocated{false};
+    cache_block*      prev{nullptr};
+    cache_block*      next{nullptr};
+    int               event_count{0};
+    inline_stream_set stream_uses;
+    void*             segment_base{nullptr};
     // Identity of the allocation that last occupied this block (task 7.2).
     // Assigned when the block is handed out, kept through free, deferred
     // completion and quarantine, and replaced (never reused) by the next
     // allocation. A free tail created by a split carries 0.
-    uint64_t           alloc_id{0};
-    bool                   vm_backed{false};
+    uint64_t alloc_id{0};
+    bool     vm_backed{false};
     // Set when cudaEventRecord fails for one of this block's recorded
     // cross-stream uses partway through insert_events_locked(): the streams
     // after the failure never got an event, so their pending work cannot be
@@ -486,29 +487,60 @@ struct cache_block_comparator
 
     bool operator()(const cache_block* a, const cache_block* b) const
     {
-        return less(a->stream, a->size, a->registration_counter, a->ptr,
-                    b->stream, b->size, b->registration_counter, b->ptr);
+        return less(
+            a->stream,
+            a->size,
+            a->registration_counter,
+            a->ptr,
+            b->stream,
+            b->size,
+            b->registration_counter,
+            b->ptr);
     }
     bool operator()(const block_search_key& a, const cache_block* b) const
     {
-        return less(a.stream, a.size, a.registration_counter, a.ptr,
-                    b->stream, b->size, b->registration_counter, b->ptr);
+        return less(
+            a.stream,
+            a.size,
+            a.registration_counter,
+            a.ptr,
+            b->stream,
+            b->size,
+            b->registration_counter,
+            b->ptr);
     }
     bool operator()(const cache_block* a, const block_search_key& b) const
     {
-        return less(a->stream, a->size, a->registration_counter, a->ptr,
-                    b.stream, b.size, b.registration_counter, b.ptr);
+        return less(
+            a->stream,
+            a->size,
+            a->registration_counter,
+            a->ptr,
+            b.stream,
+            b.size,
+            b.registration_counter,
+            b.ptr);
     }
 
 private:
-    static bool less(cudaStream_t sa, size_t za, int64_t ra, void* pa,
-                     cudaStream_t sb, size_t zb, int64_t rb, void* pb)
+    static bool less(
+        cudaStream_t sa,
+        size_t       za,
+        int64_t      ra,
+        void*        pa,
+        cudaStream_t sb,
+        size_t       zb,
+        int64_t      rb,
+        void*        pb)
     {
         auto sv = [](cudaStream_t s) { return reinterpret_cast<uintptr_t>(s); };
         auto pv = [](void* p) { return reinterpret_cast<uintptr_t>(p); };
-        if (sa != sb) return sv(sa) < sv(sb);
-        if (za != zb) return za < zb;
-        if (ra != rb) return ra < rb;
+        if (sa != sb)
+            return sv(sa) < sv(sb);
+        if (za != zb)
+            return za < zb;
+        if (ra != rb)
+            return ra < rb;
         return pv(pa) < pv(pb);
     }
 };
@@ -536,11 +568,16 @@ struct block_pool
 //             placement-news a fresh cache_block there.
 struct block_freelist
 {
-    struct free_entry { free_entry* next; };
-    static_assert(sizeof(cache_block) >= sizeof(free_entry),
-                  "cache_block too small for block_freelist chain");
-    static_assert(alignof(cache_block) >= alignof(free_entry),
-                  "cache_block alignment insufficient for block_freelist");
+    struct free_entry
+    {
+        free_entry* next;
+    };
+    static_assert(
+        sizeof(cache_block) >= sizeof(free_entry),
+        "cache_block too small for block_freelist chain");
+    static_assert(
+        alignof(cache_block) >= alignof(free_entry),
+        "cache_block alignment insufficient for block_freelist");
 
     cache_block* acquire(void* ptr, size_t sz, cudaStream_t stream, block_pool* pool)
     {
@@ -589,7 +626,7 @@ struct cuda_caching_allocator::Impl
         // Validate device
         int device_count = 0;
         throw_on_cuda_error(cudaGetDeviceCount(&device_count), "cudaGetDeviceCount");
-        LOGGING_CHECK(  // NOLINT
+        LOGGING_CHECK(
             device >= 0 && device < device_count,
             "Invalid CUDA device index: {} (available: 0-{})",
             device,
@@ -598,7 +635,10 @@ struct cuda_caching_allocator::Impl
 
     ~Impl()
     {
-        std::scoped_lock const lock(mutex_);
+        // Flush after the lock drops: the diagnostic handler must not run
+        // while mutex_ is held.
+        deferred_failure_flush const flush{*this};
+        std::scoped_lock const       lock(mutex_);
         release_all_blocks_noexcept();
     }
 
@@ -833,7 +873,7 @@ struct cuda_caching_allocator::Impl
         free_memory_callbacks_.clear();
     }
 
-    void record_stream(void* ptr, cudaStream_t stream)
+    void record_stream(const void* ptr, cudaStream_t stream)
     {
         // stream == nullptr denotes the default stream (a valid, distinct
         // stream identity), not "no stream to record" — only a null ptr
@@ -862,7 +902,7 @@ struct cuda_caching_allocator::Impl
     bool owns_live_allocation(void const* ptr) const
     {
         std::scoped_lock const lock(mutex_);
-        auto const             it = allocated_blocks_.find(const_cast<void*>(ptr));
+        auto const             it = allocated_blocks_.find(ptr);
         return it != allocated_blocks_.end() && it->second->allocated;
     }
 
@@ -1001,7 +1041,7 @@ struct cuda_caching_allocator::Impl
         size_t  reserved;
         bool    oom;
     };
-    static constexpr size_t kMaxDeferredReports = 4;
+    static constexpr size_t                    kMaxDeferredReports = 4;
     static inline thread_local deferred_report tl_reports_[kMaxDeferredReports];
     static inline thread_local size_t          tl_report_count_ = 0;
 
@@ -1028,7 +1068,7 @@ struct cuda_caching_allocator::Impl
     // Runs with mutex_ released.
     void flush_reports() noexcept
     {
-        size_t const n = tl_report_count_;
+        size_t const n   = tl_report_count_;
         tl_report_count_ = 0;
         for (size_t i = 0; i < n; ++i)
         {
@@ -1108,7 +1148,7 @@ struct cuda_caching_allocator::Impl
         {
             consider(queued.block);
         }
-        for (auto& entry : unique)
+        for (auto const& entry : unique)
         {
             cache_block* block = entry.second;
             void* const  base  = block->segment_base != nullptr ? block->segment_base : block->ptr;
@@ -1160,7 +1200,7 @@ struct cuda_caching_allocator::Impl
         // Backing equation scan (tasks 7.1, 7.4): classify every block the
         // allocator can reach exactly once.
         std::set<cache_block const*> seen;
-        size_t live = 0, requested = 0, pending = 0, cached = 0, quarantined = 0, largest = 0;
+        size_t     live = 0, requested = 0, pending = 0, cached = 0, quarantined = 0, largest = 0;
         auto const classify = [&](cache_block const* block, bool in_pool)
         {
             if (block == nullptr || !seen.insert(block).second)
@@ -1219,12 +1259,30 @@ struct cuda_caching_allocator::Impl
     // O(1) lock-free reads for the four basic stats (plan §6.1, P3.5).
     // Single relaxed atomic load — no mutex.  For a consistent full snapshot
     // (including bytes_cached and cache_blocks), use stats().
-    size_t bytes_allocated_now()      const noexcept { return stats_.bytes_allocated.load(std::memory_order_relaxed); }
-    size_t peak_bytes_allocated_now() const noexcept { return stats_.peak_bytes_allocated.load(std::memory_order_relaxed); }
-    size_t bytes_reserved_now()       const noexcept { return stats_.bytes_reserved.load(std::memory_order_relaxed); }
-    size_t peak_bytes_reserved_now()  const noexcept { return stats_.peak_bytes_reserved.load(std::memory_order_relaxed); }
-    size_t bytes_cached_now()         const noexcept { return bytes_cached_.load(std::memory_order_relaxed); }
-    size_t peak_bytes_cached_now()    const noexcept { return peak_bytes_cached_.load(std::memory_order_relaxed); }
+    size_t bytes_allocated_now() const noexcept
+    {
+        return stats_.bytes_allocated.load(std::memory_order_relaxed);
+    }
+    size_t peak_bytes_allocated_now() const noexcept
+    {
+        return stats_.peak_bytes_allocated.load(std::memory_order_relaxed);
+    }
+    size_t bytes_reserved_now() const noexcept
+    {
+        return stats_.bytes_reserved.load(std::memory_order_relaxed);
+    }
+    size_t peak_bytes_reserved_now() const noexcept
+    {
+        return stats_.peak_bytes_reserved.load(std::memory_order_relaxed);
+    }
+    size_t bytes_cached_now() const noexcept
+    {
+        return bytes_cached_.load(std::memory_order_relaxed);
+    }
+    size_t peak_bytes_cached_now() const noexcept
+    {
+        return peak_bytes_cached_.load(std::memory_order_relaxed);
+    }
 
     int device() const { return device_; }
 
@@ -1233,7 +1291,8 @@ private:
     // Publishes the new value (and its peak) for lock-free readers.
     void add_cached_locked(std::ptrdiff_t delta) noexcept
     {
-        size_t const now = bytes_cached_.load(std::memory_order_relaxed) + static_cast<size_t>(delta);
+        size_t const now =
+            bytes_cached_.load(std::memory_order_relaxed) + static_cast<size_t>(delta);
         bytes_cached_.store(now, std::memory_order_relaxed);
         if (now > peak_bytes_cached_.load(std::memory_order_relaxed))
         {
@@ -1309,12 +1368,10 @@ private:
             {
                 Impl&                                   self;
                 std::unique_lock<std::recursive_mutex>& lock;
-                size_t                                   amount;
+                size_t                                  amount;
 
                 pending_reservation_guard(
-                    Impl& s,
-                    std::unique_lock<std::recursive_mutex>& l,
-                    size_t a) noexcept
+                    Impl& s, std::unique_lock<std::recursive_mutex>& l, size_t a) noexcept
                     : self(s), lock(l), amount(a)
                 {
                 }
@@ -1327,10 +1384,11 @@ private:
                         {
                             lock.lock();
                         }
-                        catch (...)  // NOLINT(bugprone-empty-catch)
+                        catch (...)
                         {
-                            // Suppress lock failure during cleanup; the only path
-                            // here is exception unwinding, and we cannot propagate.
+                            // Lock failure during unwind cannot propagate. The
+                            // reservation is still released below; count the miss.
+                            self.note_failure_locked();
                         }
                     }
                     self.pending_reserved_bytes_ -= amount;
@@ -1430,10 +1488,10 @@ private:
 
         if (split)
         {
-            void* const    old_ptr  = remaining->ptr;
-            uint64_t const old_id   = remaining->alloc_id;
-            size_t const   old_req  = remaining->requested_size;
-            cache_block* old_prev = remaining->prev;
+            void* const    old_ptr     = remaining->ptr;
+            uint64_t const old_id      = remaining->alloc_id;
+            size_t const   old_req     = remaining->requested_size;
+            cache_block*   old_prev    = remaining->prev;
             head->registration_counter = remaining->registration_counter;
             head->segment_base         = remaining->segment_base;
             head->vm_backed            = remaining->vm_backed;
@@ -1457,8 +1515,8 @@ private:
                 remaining->size += rounded;
                 remaining->alloc_id       = old_id;
                 remaining->requested_size = old_req;
-                remaining->ptr  = old_ptr;
-                remaining->prev = old_prev;
+                remaining->ptr            = old_ptr;
+                remaining->prev           = old_prev;
                 if (old_prev != nullptr)
                 {
                     old_prev->next = remaining;
@@ -1501,7 +1559,6 @@ private:
         {
             block->pool->blocks.insert(block);
             add_cached_locked(static_cast<std::ptrdiff_t>(block->size));
-            
         }
         catch (...)
         {
@@ -1523,7 +1580,10 @@ private:
 
     // Failures noticed while mutex_ is held are only counted here and reported to
     // cleanup_diagnostic by deferred_failure_flush once the lock is released.
-    void note_failure_locked() noexcept { deferred_failures_.fetch_add(1, std::memory_order_relaxed); }
+    void note_failure_locked() noexcept
+    {
+        deferred_failures_.fetch_add(1, std::memory_order_relaxed);
+    }
 
     struct deferred_failure_flush
     {
@@ -1587,7 +1647,7 @@ private:
             return;
         }
         add_cached_locked(static_cast<std::ptrdiff_t>(freed_size));
-        
+
         record_trace_locked(
             gpu_memory_trace_action::free_completed,
             freed_ptr,
@@ -1959,7 +2019,19 @@ private:
         }
     }
 
-    void release_all_blocks_noexcept() noexcept  // NOLINT(bugprone-exception-escape)
+    void release_all_blocks_noexcept() noexcept
+    {
+        try
+        {
+            release_all_blocks();
+        }
+        catch (...)
+        {
+            note_failure_locked();
+        }
+    }
+
+    void release_all_blocks()
     {
         device_guard const guard(device_, std::nothrow);
 
@@ -2008,9 +2080,10 @@ private:
             }
             quarantine_metadata_.clear();
         }
-        catch (...)  // NOLINT(bugprone-empty-catch)
+        catch (...)
         {
-            // Allocation failure during set ops; continue anyway to clean up.
+            // Set construction can throw; keep tearing down whatever was collected.
+            note_failure_locked();
         }
 
         pending_events_.clear();
@@ -2060,9 +2133,9 @@ private:
     // may re-enter this allocator to free memory.
     mutable std::recursive_mutex mutex_;
     // Declared before the containers that allocate from them (destroyed after).
-    node_pool                    free_pool_nodes_;
-    block_pool                   small_blocks_{true, free_pool_nodes_};
-    block_pool                   large_blocks_{false, free_pool_nodes_};
+    node_pool  free_pool_nodes_;
+    block_pool small_blocks_{true, free_pool_nodes_};
+    block_pool large_blocks_{false, free_pool_nodes_};
     // Live allocations by pointer; free blocks live in the pool sets and blocks
     // with outstanding cross-stream events live in the event queues. An open-addressing
     // table like the ska::flat_hash tables PyTorch uses for its active blocks (plan 8.7):
@@ -2081,7 +2154,7 @@ private:
     // Quarantined blocks whose last event has already completed (or whose event
     // recording failed entirely): the GPU memory is permanently withheld, but
     // the cache_block metadata must be freed at teardown to satisfy LSan.
-    std::vector<cache_block*> quarantine_metadata_;
+    std::vector<cache_block*>                                 quarantine_metadata_;
     std::vector<cuda_caching_allocator::free_memory_callback> free_memory_callbacks_;
     memory_map<void*, raw_segment>                            driver_segments_;
     std::atomic<int64_t>                                      registration_counter_global_{0};
@@ -2102,28 +2175,28 @@ struct cuda_caching_allocator::Impl
     {
         throw std::runtime_error("cuda_caching_allocator requires MEMORY_GPU_BACKEND=cuda or hip");
     }
-    void                deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
-    void                deallocate_with_stream_lookup(void*, size_t) noexcept {}
-    void                record_stream(void*, cuda_caching_allocator::stream_type) {}
-    bool                owns_live_allocation(void const*) const { return false; }
-    void                add_free_memory_callback(const cuda_caching_allocator::free_memory_callback&) {}
-    void                clear_free_memory_callbacks() {}
-    void                empty_cache() {}
-    void                set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }
-    size_t              max_cached_bytes() const { return max_cached_bytes_; }
-    void                set_expandable_segments(bool enabled) { expandable_segments_ = enabled; }
-    bool                expandable_segments() const { return expandable_segments_; }
-    void                set_memory_fraction(double fraction) { memory_fraction_ = fraction; }
-    double              memory_fraction() const { return memory_fraction_; }
-    void                reset_peak_stats() {}
-    size_t              device_total_memory() const { return 0; }
+    void   deallocate(void*, size_t, cuda_caching_allocator::stream_type) {}
+    void   deallocate_with_stream_lookup(void*, size_t) noexcept {}
+    void   record_stream(void const*, cuda_caching_allocator::stream_type) {}
+    bool   owns_live_allocation(void const*) const { return false; }
+    void   add_free_memory_callback(const cuda_caching_allocator::free_memory_callback&) {}
+    void   clear_free_memory_callbacks() {}
+    void   empty_cache() {}
+    void   set_max_cached_bytes(size_t bytes) { max_cached_bytes_ = bytes; }
+    size_t max_cached_bytes() const { return max_cached_bytes_; }
+    void   set_expandable_segments(bool enabled) { expandable_segments_ = enabled; }
+    bool   expandable_segments() const { return expandable_segments_; }
+    void   set_memory_fraction(double fraction) { memory_fraction_ = fraction; }
+    double memory_fraction() const { return memory_fraction_; }
+    void   reset_peak_stats() {}
+    size_t device_total_memory() const { return 0; }
     unified_cache_stats stats() const { return unified_cache_stats{}; }
-    size_t              bytes_allocated_now()      const noexcept { return 0; }
+    size_t              bytes_allocated_now() const noexcept { return 0; }
     size_t              peak_bytes_allocated_now() const noexcept { return 0; }
-    size_t              bytes_reserved_now()       const noexcept { return 0; }
-    size_t              peak_bytes_reserved_now()  const noexcept { return 0; }
-    size_t              bytes_cached_now()         const noexcept { return 0; }
-    size_t              peak_bytes_cached_now()    const noexcept { return 0; }
+    size_t              bytes_reserved_now() const noexcept { return 0; }
+    size_t              peak_bytes_reserved_now() const noexcept { return 0; }
+    size_t              bytes_cached_now() const noexcept { return 0; }
+    size_t              peak_bytes_cached_now() const noexcept { return 0; }
     void                record_memory_history(bool, size_t) {}
     gpu_memory_snapshot snapshot() { return gpu_memory_snapshot{}; }
     int                 device() const { return device_; }
@@ -2187,7 +2260,7 @@ bool cuda_caching_allocator::owns_live_allocation(void const* ptr) const
     return impl_->owns_live_allocation(ptr);
 }
 
-void cuda_caching_allocator::record_stream(void* ptr, stream_type stream)
+void cuda_caching_allocator::record_stream(const void* ptr, stream_type stream)
 {
     impl_->record_stream(ptr, native_stream(stream));
 }
@@ -2252,12 +2325,30 @@ unified_cache_stats cuda_caching_allocator::stats() const
     return impl_->stats();
 }
 
-size_t cuda_caching_allocator::bytes_allocated_now()      const noexcept { return impl_->bytes_allocated_now(); }
-size_t cuda_caching_allocator::peak_bytes_allocated_now() const noexcept { return impl_->peak_bytes_allocated_now(); }
-size_t cuda_caching_allocator::bytes_reserved_now()       const noexcept { return impl_->bytes_reserved_now(); }
-size_t cuda_caching_allocator::peak_bytes_reserved_now()  const noexcept { return impl_->peak_bytes_reserved_now(); }
-size_t cuda_caching_allocator::bytes_cached_now()         const noexcept { return impl_->bytes_cached_now(); }
-size_t cuda_caching_allocator::peak_bytes_cached_now()    const noexcept { return impl_->peak_bytes_cached_now(); }
+size_t cuda_caching_allocator::bytes_allocated_now() const noexcept
+{
+    return impl_->bytes_allocated_now();
+}
+size_t cuda_caching_allocator::peak_bytes_allocated_now() const noexcept
+{
+    return impl_->peak_bytes_allocated_now();
+}
+size_t cuda_caching_allocator::bytes_reserved_now() const noexcept
+{
+    return impl_->bytes_reserved_now();
+}
+size_t cuda_caching_allocator::peak_bytes_reserved_now() const noexcept
+{
+    return impl_->peak_bytes_reserved_now();
+}
+size_t cuda_caching_allocator::bytes_cached_now() const noexcept
+{
+    return impl_->bytes_cached_now();
+}
+size_t cuda_caching_allocator::peak_bytes_cached_now() const noexcept
+{
+    return impl_->peak_bytes_cached_now();
+}
 
 void cuda_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
 {
@@ -2283,8 +2374,8 @@ namespace
 // constructed object without holding a mutex.  The allocators themselves are
 // intentional leaks — destroying them at process exit would race with
 // static-storage destructors that may still be using them.
-std::once_flag                          s_device_once[kMaxDevices];
-std::atomic<cuda_caching_allocator*>    s_device_cache[kMaxDevices]{};
+std::once_flag                       s_device_once[kMaxDevices];
+std::atomic<cuda_caching_allocator*> s_device_cache[kMaxDevices]{};
 }  // namespace
 
 cuda_caching_allocator& caching_allocator_for_device(int device_index)
@@ -2292,9 +2383,8 @@ cuda_caching_allocator& caching_allocator_for_device(int device_index)
     if (device_index < 0 || device_index >= kMaxDevices)
     {
         throw std::out_of_range(
-            "caching_allocator_for_device: device_index " +
-            std::to_string(device_index) + " out of range [0, " +
-            std::to_string(kMaxDevices) + ")");
+            "caching_allocator_for_device: device_index " + std::to_string(device_index) +
+            " out of range [0, " + std::to_string(kMaxDevices) + ")");
     }
     // Fast path: no lock on the warm path — every call after the first for
     // this device returns here (0 registry locks, plan §6.1).
@@ -2304,11 +2394,14 @@ cuda_caching_allocator& caching_allocator_for_device(int device_index)
         return *p;
     }
     // Slow path (first call for this device): initialize exactly once.
-    std::call_once(s_device_once[device_index], [device_index]() {
-        // new is intentional: see comment above.
-        auto* a = new cuda_caching_allocator(device_index);
-        s_device_cache[device_index].store(a, std::memory_order_release);
-    });
+    std::call_once(
+        s_device_once[device_index],
+        [device_index]()
+        {
+            // new is intentional: see comment above.
+            auto* a = new cuda_caching_allocator(device_index);
+            s_device_cache[device_index].store(a, std::memory_order_release);
+        });
     return *s_device_cache[device_index].load(std::memory_order_acquire);
 }
 

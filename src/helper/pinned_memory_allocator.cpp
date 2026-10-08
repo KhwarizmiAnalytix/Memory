@@ -29,6 +29,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "common/cleanup_diagnostic.h"
+
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 #include "gpu/device_guard.h"
 #endif
@@ -55,7 +57,7 @@ struct pinned_memory_allocator::Impl
     }
 
     int                 device_;
-    std::size_t         limit_;          // reusable-cache cap
+    std::size_t         limit_;             // reusable-cache cap
     std::size_t         backing_limit_{0};  // total driver-committed cap (0 = unlimited)
     mutable std::mutex  mutex_;
     pinned_memory_stats stats_;
@@ -111,10 +113,11 @@ struct pinned_memory_allocator::Impl
                     (void)cudaEventDestroy(use.event);
             }
         }
-        catch (...)  // NOLINT(bugprone-empty-catch)
+        catch (...)
         {
             // Runtime shutdown/device failure: retain unsafe backing rather than
             // risk freeing memory whose completion could not be established.
+            cleanup_diagnostic::record_failure(cleanup_source::pinned_buffer);
         }
     }
 
@@ -150,7 +153,7 @@ struct pinned_memory_allocator::Impl
 
     void use_stream(block& b, cudaStream_t stream)
     {
-        for (auto& use : b.streams)
+        for (auto const& use : b.streams)
             if (use.used && use.stream == stream)
                 return;
         for (auto& use : b.streams)
@@ -251,9 +254,8 @@ struct pinned_memory_allocator::Impl
         std::size_t limit,
         std::size_t reserved_target = std::numeric_limits<std::size_t>::max()) noexcept
     {
-        auto const over = [&] {
-            return stats_.bytes_cached > limit || stats_.bytes_reserved > reserved_target;
-        };
+        auto const over = [&]
+        { return stats_.bytes_cached > limit || stats_.bytes_reserved > reserved_target; };
         for (std::size_t i = cached_.size(); i-- > 0 && over();)
         {
             while (cached_[i] && over())
@@ -304,8 +306,9 @@ struct pinned_memory_allocator::Impl
             // Compute needed = capacity + alignment - 1 with overflow protection.
             // Use subtraction-side guard: if needed_extra > backing_limit_ we
             // already exceed, so skip the subtraction (which would underflow).
-            size_t const needed_extra = capacity + (alignment > 1 ? alignment - 1 : 0);
-            auto exceeds_budget = [&]() -> bool {
+            size_t const needed_extra   = capacity + (alignment > 1 ? alignment - 1 : 0);
+            auto         exceeds_budget = [&]() -> bool
+            {
                 return backing_limit_ != 0 &&
                        (needed_extra > backing_limit_ ||
                         stats_.bytes_reserved > backing_limit_ - needed_extra);
@@ -352,6 +355,7 @@ struct pinned_memory_allocator::Impl
             b = owned.get();
             // Allocate the map node before transferring ownership, so cleanup is
             // well-defined if the host metadata allocation itself fails.
+            void* const raw = owned->raw;
             try
             {
                 auto inserted = blocks_.try_emplace(reinterpret_cast<std::uintptr_t>(b->ptr));
@@ -359,7 +363,7 @@ struct pinned_memory_allocator::Impl
             }
             catch (...)
             {
-                (void)cudaFreeHost(owned->raw);
+                (void)cudaFreeHost(raw);
                 throw;
             }
             ++stats_.driver_allocations;
@@ -444,8 +448,10 @@ struct pinned_memory_allocator::Impl
         std::scoped_lock  lock(mutex_);
         gpu::device_guard guard(device_);
         auto&             b = live_block(to_device ? source : destination, bytes);
-        use_stream(b,
-                   static_cast<cudaStream_t>(stream));  // No untracked transfer if metadata allocation fails.
+        use_stream(
+            b,
+            static_cast<cudaStream_t>(
+                stream));  // No untracked transfer if metadata allocation fails.
         gpu::throw_on_cuda_error(
             cudaMemcpyAsync(
                 destination,
@@ -499,9 +505,9 @@ struct pinned_memory_allocator::Impl
         if (bytes)
             throw std::runtime_error("Pinned host transfers require CUDA or HIP");
     }
-    static void collect(bool, std::size_t) {}
+    static void        collect(bool, std::size_t) {}
     static std::size_t shrink(std::size_t) { return 0; }
-    static void fill_scan_stats(pinned_memory_stats&) noexcept {}
+    static void        fill_scan_stats(pinned_memory_stats&) noexcept {}
 #endif
 };
 
@@ -570,7 +576,7 @@ std::size_t pinned_memory_allocator::shrink(std::size_t target_backing_bytes)
 }
 pinned_memory_stats pinned_memory_allocator::stats() const
 {
-    std::scoped_lock lock(impl_->mutex_);
+    std::scoped_lock    lock(impl_->mutex_);
     pinned_memory_stats out = impl_->stats_;
     impl_->fill_scan_stats(out);
     return out;

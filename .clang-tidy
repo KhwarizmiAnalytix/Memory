@@ -22,3 +22,7 @@ Checks: >
   -bugprone-implicit-widening-of-multiplication-result,
 HeaderFilterRegex: '^(include|src)/'
 FormatStyle: file
+CheckOptions:
+  # TBB requires this macro name to disable implicit MSVC linkage. The
+  # identifier is reserved, and renaming it would not be honored.
+  bugprone-reserved-identifier.AllowedIdentifiers: '^__TBB_NO_IMPLICIT_LINKAGE$'

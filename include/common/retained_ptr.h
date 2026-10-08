@@ -10,8 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -81,11 +81,7 @@ public:
     // deleter is discarded unused. The capacity is asserted by the caller, not
     // verified.
     static retained_ptr adopt(
-        T*                data,
-        size_t            capacity,
-        execution_context ctx,
-        deleter_fn        deleter,
-        void*             deleter_ctx)
+        T* data, size_t capacity, execution_context ctx, deleter_fn deleter, void* deleter_ctx)
     {
         if (deleter == nullptr)
         {
@@ -102,7 +98,12 @@ public:
             shared_storage::construct(
                 block,
                 storage_handle(
-                    data, capacity * sizeof(T), deleter, deleter_ctx, ctx.dev, next_allocation_id()),
+                    data,
+                    capacity * sizeof(T),
+                    deleter,
+                    deleter_ctx,
+                    ctx.dev,
+                    next_allocation_id()),
                 ctx),
             data,
             capacity);
@@ -113,9 +114,9 @@ public:
     // pointer overload above on hot paths (no allocation beyond the block). A
     // callable that throws is counted in cleanup_diagnostic, not propagated.
     static retained_ptr adopt(
-        T*                data,
-        size_t            capacity,
-        execution_context ctx,
+        T*                                                        data,
+        size_t                                                    capacity,
+        execution_context                                         ctx,
         std::function<void(T*, size_t, execution_context const&)> deleter)
     {
         if (!deleter)
@@ -187,8 +188,7 @@ public:
         return *this;
     }
 
-    retained_ptr(retained_ptr&& rhs) noexcept
-        : cb_(rhs.cb_), data_(rhs.data_), size_(rhs.size_)
+    retained_ptr(retained_ptr&& rhs) noexcept : cb_(rhs.cb_), data_(rhs.data_), size_(rhs.size_)
     {
         rhs.cb_   = nullptr;
         rhs.data_ = nullptr;
@@ -202,12 +202,12 @@ public:
             return *this;
         }
         release();
-        cb_         = rhs.cb_;
-        data_       = rhs.data_;
-        size_       = rhs.size_;
-        rhs.cb_     = nullptr;
-        rhs.data_   = nullptr;
-        rhs.size_   = 0;
+        cb_       = rhs.cb_;
+        data_     = rhs.data_;
+        size_     = rhs.size_;
+        rhs.cb_   = nullptr;
+        rhs.data_ = nullptr;
+        rhs.size_ = 0;
         return *this;
     }
 
@@ -234,12 +234,12 @@ public:
 
     // --- Accessors ---
 
-    T*     data()  const noexcept { return data_; }
-    T*     get()   const noexcept { return data_; }
-    T*     begin() const noexcept { return data_; }
-    T*     end()   const noexcept { return data_ ? data_ + size_ : nullptr; }
-    size_t size()  const noexcept { return size_; }
-    bool   empty() const noexcept { return data_ == nullptr || size_ == 0; }
+    T*       data() const noexcept { return data_; }
+    T*       get() const noexcept { return data_; }
+    T*       begin() const noexcept { return data_; }
+    T*       end() const noexcept { return data_ ? data_ + size_ : nullptr; }
+    size_t   size() const noexcept { return size_; }
+    bool     empty() const noexcept { return data_ == nullptr || size_ == 0; }
     explicit operator bool() const noexcept { return data_ != nullptr; }
 
     // Allocation base (always cb_->base, independent of slice offset).
@@ -258,10 +258,7 @@ public:
     }
 
     // Shared reference count (0 for null/empty).
-    int32_t use_count() const noexcept
-    {
-        return cb_ ? cb_->use_count() : 0;
-    }
+    int32_t use_count() const noexcept { return cb_ ? cb_->use_count() : 0; }
 
 private:
     // State for the callable overload of adopt().
@@ -287,7 +284,7 @@ private:
 
     // Shared argument checks for both adopt() overloads. Returns false for the one
     // empty adoption (null base, zero capacity); throws for every invalid pairing.
-    static bool validate_adoption(T* data, size_t capacity)
+    static bool validate_adoption(const T* data, size_t capacity)
     {
         if (data == nullptr)
         {
@@ -326,8 +323,8 @@ private:
     }
 
     shared_storage* cb_{nullptr};
-    T*             data_{nullptr};  // view start (may be offset from cb_->base)
-    size_t         size_{0};        // view element count
+    T*              data_{nullptr};  // view start (may be offset from cb_->base)
+    size_t          size_{0};        // view element count
 };
 
 /// Allocate count uninitialized elements and return them under shared ownership

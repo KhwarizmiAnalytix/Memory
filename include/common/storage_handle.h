@@ -41,14 +41,16 @@ class MEMORY_VISIBILITY storage_handle
 public:
     storage_handle() noexcept = default;
 
-    storage_handle(void*         ptr,
-                   std::size_t   nbytes,
-                   deleter_fn    del,
-                   void*         ctx,
-                   device        dev,
-                   allocation_id id) noexcept
+    storage_handle(
+        void*         ptr,
+        std::size_t   nbytes,
+        deleter_fn    del,
+        void*         ctx,
+        device        dev,
+        allocation_id id) noexcept
         : ptr_(ptr), nbytes_(nbytes), deleter_(del), ctx_(ctx), dev_(dev), id_(id)
-    {}
+    {
+    }
 
     ~storage_handle() noexcept
     {
@@ -59,11 +61,7 @@ public:
     }
 
     storage_handle(storage_handle&& o) noexcept
-        : ptr_(o.ptr_),
-          nbytes_(o.nbytes_),
-          deleter_(o.deleter_),
-          ctx_(o.ctx_),
-          dev_(o.dev_),
+        : ptr_(o.ptr_), nbytes_(o.nbytes_), deleter_(o.deleter_), ctx_(o.ctx_), dev_(o.dev_),
           id_(o.id_)
     {
         o.zero_out();
@@ -91,11 +89,11 @@ public:
     storage_handle(storage_handle const&)            = delete;
     storage_handle& operator=(storage_handle const&) = delete;
 
-    void*         get()     const noexcept { return ptr_;     }
-    std::size_t   nbytes()  const noexcept { return nbytes_;  }
-    device        dev()     const noexcept { return dev_;     }
-    allocation_id id()      const noexcept { return id_;      }
-    bool          empty()   const noexcept { return ptr_ == nullptr; }
+    void*         get() const noexcept { return ptr_; }
+    std::size_t   nbytes() const noexcept { return nbytes_; }
+    device        dev() const noexcept { return dev_; }
+    allocation_id id() const noexcept { return id_; }
+    bool          empty() const noexcept { return ptr_ == nullptr; }
 
     // Disarm: returns the raw pointer and zeros the handle so the destructor
     // becomes a no-op.  The caller is responsible for freeing the memory.
@@ -133,9 +131,7 @@ private:
     allocation_id id_;
 };
 
-static_assert(sizeof(storage_handle) == 48,
-    "storage_handle must be exactly 48 bytes (plan §4.2)");
-
+static_assert(sizeof(storage_handle) == 48, "storage_handle must be exactly 48 bytes (plan §4.2)");
 
 // ---------------------------------------------------------------------------
 // Factory functions
@@ -147,17 +143,13 @@ static_assert(sizeof(storage_handle) == 48,
 // GPU: calls caching_allocator_for_device() exactly once; wires gpu_free_fn as
 // the deleter (looks up the allocation stream from the cache block and frees —
 // plan §2.10, R1). 0 registry lookups at free; the handle is self-freeing.
-MEMORY_API storage_handle allocate_bytes(std::size_t     nbytes,
-                                          std::size_t     alignment,
-                                          execution_context ctx);
+MEMORY_API storage_handle
+allocate_bytes(std::size_t nbytes, std::size_t alignment, execution_context ctx);
 
 // Wrap foreign memory in a storage_handle with a mandatory explicit deleter.
 // Throws std::invalid_argument if ptr, nbytes, or del is null/zero.
-inline storage_handle adopt_bytes(void*       ptr,
-                                   std::size_t nbytes,
-                                   device      dev,
-                                   deleter_fn  del,
-                                   void*       del_ctx)
+inline storage_handle adopt_bytes(
+    void* ptr, std::size_t nbytes, device dev, deleter_fn del, void* del_ctx)
 {
     if (!ptr || !nbytes || !del)
     {

@@ -39,7 +39,7 @@
 
 #ifdef _MSC_VER
 #pragma push_macro("__TBB_NO_IMPLICIT_LINKAGE")
-#define __TBB_NO_IMPLICIT_LINKAGE 1  // NOLINT(bugprone-reserved-identifier)
+#define __TBB_NO_IMPLICIT_LINKAGE 1
 #endif
 
 #include <tbb/scalable_allocator.h>
@@ -63,7 +63,7 @@
 #include <mimalloc.h>
 #endif
 
-//#include <logger.h>
+// #include <logger.h>
 
 namespace memory::cpu::memory_allocator
 {

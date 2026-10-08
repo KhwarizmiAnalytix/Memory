@@ -28,13 +28,13 @@ namespace memory::cpu
 {
 struct MEMORY_VISIBILITY pinned_memory_stats
 {
-    std::size_t bytes_requested{0};  // Live user-requested bytes.
-    std::size_t bytes_allocated{0};  // Live rounded block capacity.
-    std::size_t bytes_cached{0};     // Immediately reusable capacity.
-    std::size_t bytes_pending{0};    // Awaiting streams, including quarantined blocks.
+    std::size_t bytes_requested{0};    // Live user-requested bytes.
+    std::size_t bytes_allocated{0};    // Live rounded block capacity.
+    std::size_t bytes_cached{0};       // Immediately reusable capacity.
+    std::size_t bytes_pending{0};      // Awaiting streams, including quarantined blocks.
     std::size_t bytes_quarantined{0};  // Subset of bytes_pending (or live) that is never reused.
-    std::size_t bytes_padding{0};    // Alignment padding inside bytes_reserved.
-    std::size_t bytes_reserved{0};   // Driver-requested bytes, including alignment padding.
+    std::size_t bytes_padding{0};      // Alignment padding inside bytes_reserved.
+    std::size_t bytes_reserved{0};     // Driver-requested bytes, including alignment padding.
     std::size_t peak_bytes_reserved{0};
     std::size_t cache_hits{0};
     std::size_t cache_misses{0};
@@ -58,7 +58,7 @@ class MEMORY_VISIBILITY pinned_memory_allocator
 {
 public:
     // Opaque: a cudaStream_t / hipStream_t converts to it implicitly.
-    using stream_type = void*;
+    using stream_type                                     = void*;
     static constexpr std::size_t alignment                = 64;
     static constexpr std::size_t default_max_cached_bytes = 64 * 1024 * 1024;
 
@@ -114,7 +114,7 @@ public:
     /// Allocate() throws std::bad_alloc when this limit would be exceeded.
     /// 0 means unlimited (the default).  Separate from set_max_cached_bytes
     /// which only limits the reusable-cache portion.
-    MEMORY_API void        set_max_backing_bytes(std::size_t bytes);
+    MEMORY_API void set_max_backing_bytes(std::size_t bytes);
     MEMORY_API std::size_t max_backing_bytes() const;
 
     /// Counts are exact. bytes_quarantined and bytes_padding are computed by a scan

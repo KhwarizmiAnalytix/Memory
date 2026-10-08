@@ -61,18 +61,8 @@ class CppcheckIssue:
 
 def get_logical_processor_count() -> int:
     """Get the number of logical processors available."""
-    try:
-        import psutil  # type: ignore[import-untyped]
-
-        return psutil.cpu_count(logical=True)  # type: ignore[no-untyped-call,no-any-return]
-    except ImportError:
-        try:
-            count = os.cpu_count()
-            return count if count is not None else 1
-        except AttributeError:
-            import multiprocessing
-
-            return multiprocessing.cpu_count()
+    count = os.cpu_count()
+    return count if count is not None else 1
 
 
 def build_cppcheck_command(

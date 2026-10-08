@@ -165,6 +165,7 @@ function(memory_setup_profiler)
     message(STATUS "Memory: using Profiler::Profiler (find_package)")
   else()
     message(STATUS "Memory: Profiler not found via find_package; MEMORY_HAS_PROFILER "
-                    "will be 0. Install it and set CMAKE_PREFIX_PATH to enable it.")
+                   "will be 0. Install it and set CMAKE_PREFIX_PATH to enable it."
+    )
   endif()
 endfunction()

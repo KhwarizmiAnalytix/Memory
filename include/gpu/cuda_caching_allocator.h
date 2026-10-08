@@ -140,7 +140,7 @@ public:
      * @param stream Stream on which the memory is used
      * @throws std::runtime_error if ptr is not a live allocation of this allocator
      */
-    MEMORY_API void record_stream(void* ptr, stream_type stream);
+    MEMORY_API void record_stream(const void* ptr, stream_type stream);
 
     /// True when @p ptr is the base address of a live allocation from this cache
     /// (not an interior pointer, a freed block or foreign memory). Takes the
@@ -233,14 +233,14 @@ public:
     // Each is a single relaxed atomic load — no mutex acquired.  For a
     // consistent full snapshot (bytes_cached, cache_blocks, inactive_split),
     // use stats() instead.
-    MEMORY_API size_t bytes_allocated_now()      const noexcept;
+    MEMORY_API size_t bytes_allocated_now() const noexcept;
     MEMORY_API size_t peak_bytes_allocated_now() const noexcept;
-    MEMORY_API size_t bytes_reserved_now()       const noexcept;
-    MEMORY_API size_t peak_bytes_reserved_now()  const noexcept;
+    MEMORY_API size_t bytes_reserved_now() const noexcept;
+    MEMORY_API size_t peak_bytes_reserved_now() const noexcept;
     // Bytes sitting in the free pools, immediately reusable (blocks awaiting
     // cross-stream events are not counted): O(1), no lock.
-    MEMORY_API size_t bytes_cached_now()         const noexcept;
-    MEMORY_API size_t peak_bytes_cached_now()    const noexcept;
+    MEMORY_API size_t bytes_cached_now() const noexcept;
+    MEMORY_API size_t peak_bytes_cached_now() const noexcept;
 
     /**
      * @brief Enable or disable the allocation-history ring

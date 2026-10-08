@@ -1,0 +1,8 @@
+self-hosted-runner:
+  # Custom labels used by ci.yml's self-hosted GPU runners (linux-cuda,
+  # linux-hip): a fleet with the CUDA toolkit + NVIDIA GPU, or ROCm/hipcc +
+  # AMD GPU, gated behind the GPU_RUNNERS_AVAILABLE repository variable.
+  labels:
+    - gpu
+    - cuda
+    - rocm

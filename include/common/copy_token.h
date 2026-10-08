@@ -63,7 +63,8 @@ public:
     copy_token() noexcept = default;
 
     explicit copy_token(execution_context ctx)
-        : state_(std::allocate_shared<shared_state>(detail::recycled_allocator<shared_state>{}, ctx))
+        : state_(
+              std::allocate_shared<shared_state>(detail::recycled_allocator<shared_state>{}, ctx))
     {
     }
 
@@ -116,8 +117,7 @@ public:
         else
         {
             // Compatibility for externally constructed tokens without an event.
-            detail::driver_result const r =
-                detail::token_stream_query(device, state_->ctx.stream);
+            detail::driver_result const r = detail::token_stream_query(device, state_->ctx.stream);
             if (r.status == detail::driver_status::ok)
             {
                 settle(completion_state::complete, failure_kind::none, 0);
@@ -161,8 +161,8 @@ public:
             return;
         }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        int const                  device = state_->ctx.device_index();
-        detail::driver_result      result;
+        int const             device = state_->ctx.device_index();
+        detail::driver_result result;
         if (state_->event_created)
         {
             if (!state_->event_recorded.load(std::memory_order_acquire))
@@ -256,8 +256,8 @@ public:
             return;
         }
         void*                       created = nullptr;
-        detail::driver_result const result  = detail::token_event_create(
-            state_->ctx.device_index(), &created);
+        detail::driver_result const result =
+            detail::token_event_create(state_->ctx.device_index(), &created);
         if (result.status != detail::driver_status::ok)
         {
             throw std::runtime_error(

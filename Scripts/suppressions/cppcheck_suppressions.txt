@@ -65,19 +65,55 @@ shadowFunction
 # is too aggressive here and we prefer declaration at the point of first use.
 variableScope
 
-# constVariablePointer: in cuda_caching_allocator.cpp:1604, the loop variable
-# 'pool' iterates over pointers to mutable pools (small_blocks_, large_blocks_).
-# The pool contents are read-only in trim_cache_locked(), but the pool objects
-# are semantically mutable module state.
-constVariablePointer:src/gpu/cuda_caching_allocator.cpp:1604
+# constVariablePointer: in cuda_caching_allocator.cpp trim_cache_locked() and
+# release_all_blocks(), the loop variable 'pool' iterates over pointers to
+# mutable pools (small_blocks_, large_blocks_). Those walks only read the
+# pools or clear them at teardown; the pool objects stay non-const because
+# other paths erase through block->pool (victim->pool->blocks.erase()).
+constVariablePointer:src/gpu/cuda_caching_allocator.cpp:2002
+constVariablePointer:src/gpu/cuda_caching_allocator.cpp:2059
 
-# constParameterPointer: in pinned_memory_allocator.cpp:488, deallocate()
-# signature matches the malloc/free pattern of taking non-const void* to signal
-# ownership transfer, consistent with platform allocator APIs.
-constParameterPointer:src/helper/pinned_memory_allocator.cpp:488
+# constParameterPointer: in pinned_memory_allocator.cpp, deallocate() (both the
+# Impl method and the public pinned_memory_allocator::deallocate() wrapper that
+# forwards to it) takes non-const void* to match the malloc/free pattern and
+# signal ownership transfer, consistent with platform allocator APIs. Line
+# numbers shift as the file changes; re-point here rather than deleting on drift.
+constParameterPointer:src/helper/pinned_memory_allocator.cpp:385
+constParameterPointer:src/helper/pinned_memory_allocator.cpp:523
+
+# constParameterPointer: transfer.cpp's validate_stream_handle() takes
+# stream_handle_t (void*) purely by value for an identity comparison; it is
+# never dereferenced. stream_handle_t is the project-wide opaque stream-handle
+# type (see common/execution_context.h) and is deliberately never
+# const-qualified anywhere it is used, so changing just this one parameter to
+# const void* would diverge from that convention for no behavioral benefit.
+constParameterPointer:src/transfer.cpp:163
 
 # knownEmptyContainer: in cuda_caching_allocator.cpp:1679 and 1693, cppcheck
 # cannot see that containers (segment_ptrs, all_blocks) are populated inside
 # a try-catch block before iteration. False positive; sets are conditionally
 # filled in the preceding try block.
 knownEmptyContainer:src/gpu/cuda_caching_allocator.cpp
+
+# knownConditionTrueFalse: profiling_gate.h's countdown() returns a
+# thread_local static that persists and is decremented across calls; cppcheck
+# analyses the function body alone and treats the fresh-looking static as
+# always its initializer value. False positive — the whole point of the gate
+# is that this condition is true on most calls.
+knownConditionTrueFalse:include/profiler/profiling_gate.h
+
+# knownConditionTrueFalse: cuda_caching_allocator.cpp's pending_event is
+# reassigned on every lambda iteration (acquire → record → push_back →
+# nullptr) and can be non-null when cudaEventRecord/push_back throws
+# mid-iteration; cppcheck's per-lambda analysis does not track mutation of the
+# outer captured variable across a throwing call inside it. False positive.
+knownConditionTrueFalse:src/gpu/cuda_caching_allocator.cpp
+
+# noExplicitConstructor: transfer.h's recycled_allocator and
+# cuda_caching_allocator.cpp's pool_allocator each have a templated
+# converting constructor from the same class template instantiated on a
+# different type (the standard allocator "rebind" constructor). It must stay
+# implicit — std::allocate_shared and friends construct it via implicit
+# conversion. cppcheck's noExplicitConstructor still flags that.
+noExplicitConstructor:include/common/transfer.h:130
+noExplicitConstructor:src/gpu/cuda_caching_allocator.cpp:331

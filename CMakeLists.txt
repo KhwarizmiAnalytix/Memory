@@ -96,7 +96,6 @@ option(MEMORY_ENABLE_MEMKIND "Enable memkind extended-memory allocator (Linux on
 # Google Benchmark integration for micro-benchmarking allocator paths.
 option(MEMORY_ENABLE_BENCHMARK "Enable Google Benchmark for Memory (Release-like builds only)" ON)
 
-
 # Icecream distributed compilation launcher (rarely needed; hidden by default).
 option(MEMORY_ENABLE_ICECC "Use Icecream (icecc) distributed compiler for Memory" OFF)
 mark_as_advanced(MEMORY_ENABLE_ICECC)
@@ -191,7 +190,10 @@ include(build_type) # Validates / normalises CMAKE_BUILD_TYPE
 if(MEMORY_ENABLE_BENCHMARK AND NOT CMAKE_CONFIGURATION_TYPES)
   string(TOUPPER "${CMAKE_BUILD_TYPE}" _memory_bench_type)
   if(NOT _memory_bench_type MATCHES "^(RELEASE|RELWITHDEBINFO|MINSIZEREL)$")
-    message(STATUS "Memory: benchmarks disabled for CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}' (Release-like builds only)")
+    message(
+      STATUS
+        "Memory: benchmarks disabled for CMAKE_BUILD_TYPE='${CMAKE_BUILD_TYPE}' (Release-like builds only)"
+    )
     set(MEMORY_ENABLE_BENCHMARK OFF)
   endif()
 endif()
@@ -475,7 +477,9 @@ list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
   file(GLOB_RECURSE GPU_SOURCE_FILES "${_memory_src_root}/gpu/*.cpp")
-  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_include_root}/gpu/*.h" "${_memory_include_root}/gpu/*.hxx")
+  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_include_root}/gpu/*.h"
+       "${_memory_include_root}/gpu/*.hxx"
+  )
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
   list(REMOVE_ITEM memory_sources ${GPU_SOURCE_FILES})
 endif()
@@ -529,7 +533,9 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
   get_target_property(_profiler_include_dirs Profiler::Profiler INTERFACE_INCLUDE_DIRECTORIES)
   set(_profiler_device_dir "")
   foreach(_profiler_inc_entry IN LISTS _profiler_include_dirs)
-    string(REGEX REPLACE "^\\$<BUILD_INTERFACE:(.*)>$" "\\1" _profiler_inc_dir "${_profiler_inc_entry}")
+    string(REGEX REPLACE "^\\$<BUILD_INTERFACE:(.*)>$" "\\1" _profiler_inc_dir
+                         "${_profiler_inc_entry}"
+    )
     if(_profiler_inc_dir MATCHES "^\\$<")
       continue() # unresolved genex (e.g. $<INSTALL_INTERFACE:...>) at configure time — skip
     endif()
@@ -545,8 +551,7 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/profiler/profiled_cpu_memory_reporter.cpp"
     )
     set_source_files_properties(
-      ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES
-                                                      "${_profiler_device_dir}"
+      ${_memory_profiler_shadowed_sources} PROPERTIES INCLUDE_DIRECTORIES "${_profiler_device_dir}"
     )
   endif()
 endif()
@@ -684,21 +689,17 @@ include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/Cmake/MemoryConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
-  INSTALL_DESTINATION lib/cmake/Memory
+  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake" INSTALL_DESTINATION lib/cmake/Memory
   PATH_VARS CMAKE_INSTALL_PREFIX
 )
 
 write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake"
-  VERSION "${PROJECT_VERSION}"
+  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake" VERSION "${PROJECT_VERSION}"
   COMPATIBILITY SameMajorVersion
 )
 
-install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake"
-  DESTINATION lib/cmake/Memory
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
+              "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake" DESTINATION lib/cmake/Memory
 )
 
 install(

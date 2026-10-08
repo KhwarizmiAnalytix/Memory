@@ -101,7 +101,6 @@ jobs:
           -DPROFILER_ENABLE_BENCHMARKS=OFF
           -DPROFILER_ENABLE_INSTALL=ON
           -DBUILD_SHARED_LIBS=OFF
-
           && cmake --build profiler_build
           && cmake --install profiler_build
 
