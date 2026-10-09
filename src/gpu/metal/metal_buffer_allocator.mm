@@ -19,8 +19,12 @@
 
 #include "gpu/metal/metal_buffer_allocator.h"
 
+#include "common/memory_macros.h"
+
+MEMORY_SUPPRESS_DEPRECATED_BEGIN
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+MEMORY_SUPPRESS_DEPRECATED_END
 
 #include "gpu/metal/metal_caching_allocator.h"
 

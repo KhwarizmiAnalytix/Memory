@@ -20,8 +20,10 @@
 #include "gpu/metal/metal_caching_allocator.h"
 #include "common/cleanup_diagnostic.h"
 
+MEMORY_SUPPRESS_DEPRECATED_BEGIN
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+MEMORY_SUPPRESS_DEPRECATED_END
 
 #include <algorithm>
 #include <array>

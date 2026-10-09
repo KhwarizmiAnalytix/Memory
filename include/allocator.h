@@ -710,8 +710,6 @@ public:
             from.size());
     }
 
-    // SIMD loop peeling is not a memory concern; it moves to Vectorization (plan 4.6, task 2.7).
-    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)
     {
         if constexpr ((alignment % scalar_size) != 0)
@@ -731,7 +729,6 @@ public:
         return (first < size) ? first : size;
     }
 
-    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
     {
