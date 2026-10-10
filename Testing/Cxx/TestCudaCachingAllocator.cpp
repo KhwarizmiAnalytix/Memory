@@ -978,6 +978,60 @@ MEMORYTEST_F(CudaCachingAllocator, concurrent_allocations_never_exceed_memory_fr
 // PartialEventFailureOnSecondStreamQuarantinesBlock and
 // SingleStreamEventFailureQuarantinesNotFrees.
 
+/**
+ * @brief successful_allocations/successful_frees count completed block
+ *        carve/return operations one-for-one with allocate()/deallocate()
+ *        calls, independent of cache hits vs. driver-backed segment allocs.
+ */
+MEMORYTEST_F(CudaCachingAllocator, tracks_successful_allocations_and_frees)
+{
+    cuda_caching_allocator allocator(0);
+    auto const             before = allocator.stats();
+
+    void* ptr1 = allocator.allocate(1024);
+    void* ptr2 = allocator.allocate(2048);
+    ASSERT_NE(nullptr, ptr1);
+    ASSERT_NE(nullptr, ptr2);
+    EXPECT_EQ(
+        before.successful_allocations.load() + 2,
+        allocator.stats().successful_allocations.load());
+    EXPECT_EQ(before.successful_frees.load(), allocator.stats().successful_frees.load());
+
+    allocator.deallocate(ptr1, 1024);
+    EXPECT_EQ(before.successful_frees.load() + 1, allocator.stats().successful_frees.load());
+
+    allocator.deallocate(ptr2, 2048);
+    EXPECT_EQ(before.successful_frees.load() + 2, allocator.stats().successful_frees.load());
+    EXPECT_EQ(
+        before.successful_allocations.load() + 2,
+        allocator.stats().successful_allocations.load());
+
+    LOGGING_LOG_INFO("CUDA caching allocator successful allocation/free counters test passed");
+}
+
+/**
+ * @brief cache_blocks reports the live free-block count across both pools
+ *        (small + large): zero with nothing cached, non-zero once a block
+ *        (or split remainder) sits in a free pool, and zero again after
+ *        empty_cache releases every free segment.
+ */
+MEMORYTEST_F(CudaCachingAllocator, cache_blocks_counts_free_pool_entries)
+{
+    cuda_caching_allocator allocator(0);
+    allocator.empty_cache();
+    EXPECT_EQ(0U, allocator.stats().cache_blocks.load());
+
+    void* ptr = allocator.allocate(1024);
+    ASSERT_NE(nullptr, ptr);
+    allocator.deallocate(ptr, 1024);
+    EXPECT_GE(allocator.stats().cache_blocks.load(), 1U);
+
+    allocator.empty_cache();
+    EXPECT_EQ(0U, allocator.stats().cache_blocks.load());
+
+    LOGGING_LOG_INFO("CUDA caching allocator cache_blocks free-pool count test passed");
+}
+
 MEMORYTEST_F(CudaCachingAllocator, same_size_alloc_free_churn)
 {
     cuda_caching_allocator allocator(0);

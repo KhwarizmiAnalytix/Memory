@@ -159,6 +159,28 @@ TEST_F(CudaCachingAllocatorRuntime, SegmentAllocDeviceGuardThrowRollsBackPending
     allocator.deallocate(ptr, kSegmentSize);
 }
 
+// num_alloc_retries counts the OOM-chain's second alloc_segment_unlocked()
+// attempt (is_retry=true): the first driver cudaMalloc fails, the cache is
+// flushed (a no-op here, nothing is cached yet), and the retried cudaMalloc
+// succeeds. This stat is the only signal that an allocate() paid for a
+// cache-flush-and-retry rather than succeeding on the first driver call.
+TEST_F(CudaCachingAllocatorRuntime, OomChainRetrySucceedsAndCountsAllocRetry)
+{
+    cuda_caching_allocator allocator(0);
+
+    rt::fail_malloc_calls = 1;  // only the 1st cudaMalloc call fails
+
+    void* ptr = nullptr;
+    EXPECT_NO_THROW(ptr = allocator.allocate(kSegmentSize));
+    ASSERT_NE(nullptr, ptr);
+
+    EXPECT_EQ(2, rt::malloc_calls);  // the failed attempt plus the retry
+    EXPECT_EQ(1U, allocator.stats().num_alloc_retries.load());
+    EXPECT_EQ(1U, allocator.stats().successful_allocations.load());
+
+    allocator.deallocate(ptr, kSegmentSize);
+}
+
 // ---------------------------------------------------------------------------
 // Task 2.10 / R1 gate tests (plan §2.10 exit criterion)
 // ---------------------------------------------------------------------------
