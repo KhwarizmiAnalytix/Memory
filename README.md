@@ -428,6 +428,39 @@ Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (
 
 ---
 
+## Performance vs PyTorch
+
+`Testing/Cxx/BenchmarkPyTorchComparisonCpu.cpp` and `BenchmarkPyTorchComparisonGpu.cpp` build against
+LibTorch (`-DMEMORY_ENABLE_LIBTORCH=ON`, `CMAKE_PREFIX_PATH` pointed at a `torch` install) and compare
+Memory's allocators against PyTorch's at two levels: the raw allocator core, and the owning buffer
+object (`data_ptr<float>` vs a full tensor). Figures below are median time per allocate/free pair;
+speedup = PyTorch / Memory. Both sides are warm (cache already populated); GPU numbers are host
+submission time, not GPU-side completion time. Full methodology, caveats, and reproduce steps are in
+the linked baseline docs.
+
+**CPU** ([Apple M4 Pro, mimalloc, mobile LibTorch 2.13.0](Docs/baselines/cpu_pytorch_2026-10-06.md)):
+
+| Operation | Size | Memory | PyTorch | Speedup |
+|---|---|---:|---:|---:|
+| Raw allocator core | 64 B | 5.4 ns | 14.8 ns | 2.74× |
+| Raw allocator core | 1 MiB | 222 ns | 232 ns | 1.04× |
+| Owning buffer | 16 floats | 6.9 ns | 78.9 ns | 11.36× |
+| Owning buffer | 256 Ki floats | 220 ns | 301 ns | 1.37× |
+
+**GPU/CUDA** ([Windows, RTX 4060 Ti, CUDA 13.2, Clang-as-CUDA-compiler](Docs/baselines/gpu_cuda_pytorch_2026-10-11.md)):
+
+| Level | Size | Memory | PyTorch | Speedup |
+|---|---|---:|---:|---:|
+| Raw allocator core | 4 KiB | 96 ns | 380 ns | 3.96× |
+| Raw allocator core | 4 MiB | 95 ns | 382 ns | 4.02× |
+| Owning buffer | 16 floats | 77 ns | 850 ns | 11.04× |
+| Owning buffer | 256 Ki floats | 73 ns | 907 ns | 12.42× |
+
+One host and one GPU each; not a claim about every platform or driver combination. HIP/ROCm and
+multi-GPU comparisons are not run (no hardware).
+
+---
+
 ## Understanding the Code
 
 **For users:** See the [**Dependency Graph**](https://claude.ai/artifact/3zHXeRs5FKbxvU6tW5vfqE) for visual architecture

@@ -165,6 +165,18 @@ if(MEMORY_ENABLE_BENCHMARK)
     # -lmkl_rt instead of the full component set (ScaLAPACK/BLACS/CDFT), which
     # would pull in MPI symbols that may not be installed.
     set(MKL_LINK "sdl")
+    # LibTorch's CUDA detection (Caffe2/public/cuda.cmake) asserts
+    # CMAKE_CUDA_COMPILER_VERSION == CUDAToolkit_VERSION unconditionally; that
+    # assumption holds for nvcc but not for this project's Clang-as-CUDA-compiler
+    # setup (Cmake/cuda.cmake), where CMAKE_CUDA_COMPILER_VERSION is Clang's own
+    # version, not the toolkit's (Memory's own cuda.cmake narrows the equivalent
+    # check to CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA" for the same reason).
+    # Shadow it with a directory-local regular variable (not touching the cache)
+    # so Torch's check reads the toolkit version here, matching what Memory
+    # already decided is the correct comparison for a Clang CUDA compiler.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MEMORY_GPU_BACKEND STREQUAL "cuda")
+      set(CMAKE_CUDA_COMPILER_VERSION "${CUDAToolkit_VERSION}")
+    endif()
     find_package(Torch QUIET)
     unset(MKL_LINK)
     set(CMAKE_MODULE_PATH "${_saved_module_path}")
@@ -198,6 +210,23 @@ if(MEMORY_ENABLE_BENCHMARK)
       endforeach()
       unset(_mkl_link_dirs)
       unset(_mkl_ver_libs)
+      # LibTorch's CUDA/CPU targets (Caffe2Targets.cmake) export
+      # INTERFACE_COMPILE_OPTIONS of literal MSVC flags (/permissive-, /EHsc,
+      # /bigobj, /Z7), baked in at LibTorch's own MSVC build time with no
+      # compiler-ID guard. clang++'s GNU-style driver does not parse slash
+      # switches at all (it tries to open them as files), so any target
+      # linking these imported targets fails to compile. Blank the property
+      # on the imported targets themselves post-find_package: Clang already
+      # defaults to strict conformance and exception support, so nothing
+      # here is load-bearing for a Clang consumer.
+      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        foreach(_torch_target IN ITEMS c10 c10_cuda torch_cpu torch_cuda)
+          if(TARGET ${_torch_target})
+            set_property(TARGET ${_torch_target} PROPERTY INTERFACE_COMPILE_OPTIONS "")
+          endif()
+        endforeach()
+        unset(_torch_target)
+      endif()
     else()
       message(STATUS "LibTorch not found — BenchmarkPyTorchComparison skipped "
                      "(add install dir to CMAKE_PREFIX_PATH to enable)"
@@ -269,6 +298,22 @@ if(MEMORY_ENABLE_BENCHMARK)
           TARGET ${target_name} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                                    ${_torch_dlls} $<TARGET_FILE_DIR:${target_name}>
         )
+        if(TARGET torch_cuda)
+          # torch_cuda's own INTERFACE_LINK_LIBRARIES carries this exact
+          # -INCLUDE: flag (Caffe2Targets.cmake) to force-reference a CUDA
+          # symbol and pull in the static initializer that registers the real
+          # CUDAHooks implementation; without it the linker drops the
+          # otherwise-unreferenced registration object, and
+          # torch::cuda::is_available() silently returns false (falls back to
+          # the CPU-only stub hooks) even though the CUDA driver and cudart
+          # both work fine. It is not reaching this target through the normal
+          # target_link_libraries(torch) graph, so add it directly; confirmed
+          # by a minimal out-of-tree repro (device_count 0 without it, 1 with
+          # it, same binary otherwise).
+          target_link_options(${target_name} PRIVATE
+                               "-Wl,-INCLUDE:?warp_size@cuda@at@@YAHXZ"
+          )
+        endif()
       endif()
       message(STATUS "${target_name}: LibTorch comparison benchmark ENABLED")
     endif()
