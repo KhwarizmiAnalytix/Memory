@@ -345,10 +345,30 @@ Memory/
 | Option | Default | Purpose |
 |--------|---------|---------|
 | **`MEMORY_GPU_BACKEND`** | `none` | `cuda`, `hip`, `metal`, or `none` (CPU-only). Sets `MEMORY_HAS_CUDA`, `MEMORY_HAS_HIP`, `MEMORY_HAS_METAL` |
-| `MEMORY_CXX_STANDARD` | 20 | C++ version: 11, 17, 20, 23 |
+| `MEMORY_CXX_STANDARD` | 20 | C++ version: 17, 20, 23 |
 | `MEMORY_ENABLE_TESTING` | ON | Build tests |
 | `MEMORY_ENABLE_BENCHMARK` | ON | Build benchmarks |
 | `MEMORY_ENABLE_MIMALLOC` | ON | Use mimalloc for CPU |
+
+CMake requires version 3.24 or newer. Compiler minimums follow the selected
+standard, matching LinearAlgebra:
+
+| C++ standard | GCC | LLVM Clang | AppleClang | MSVC |
+| --- | --- | --- | --- | --- |
+| 17 | 9.1 | 9 | 11 | 19.14 |
+| 20 | 10 | 11 | 13 | 19.29 |
+| 23 | 11 | 17 | 15 | 19.34 |
+
+Compiler requirements are checked on every configure. Tests default to ON
+for standalone builds and follow `BUILD_TESTING` when the host sets it;
+`BUILD_TESTING=OFF` disables this project's tests even if its own testing
+option is ON. Coverage and sanitizers apply to this project's targets,
+and disable LTO while enabled. Compiler caches and Icecream are configured
+per target; an explicitly selected cache must be installed.
+
+Run CMake configuration regression checks with
+`python3 Testing/CMake/check_configurations.py`.
+
 
 ### Optional Features
 

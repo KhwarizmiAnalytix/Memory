@@ -12,7 +12,7 @@
 # memkind extended-memory library available. Logging is a required sibling
 # module (always links Logging::Logging).
 # =============================================================================
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.24)
 
 # Standalone CMake package — any C++ project can consume it via add_subdirectory;
 # XSigma is one consumer (via the ThirdParty/Memory submodule + ThirdParty/memory.cmake
@@ -26,8 +26,6 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     LANGUAGES CXX C
   )
   set(MEMORY_STANDALONE ON)
-  include(CTest)
-  enable_testing()
   option(BUILD_SHARED_LIBS "Build shared libraries" ON)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
   set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -37,22 +35,22 @@ else()
 endif()
 
 # Own CMake modules: toolchain helpers (lto/cache/sanitize/...), the
-# add_third_party_library machinery (third_party_helpers.cmake), Memory-owned
+# memory_add_third_party_library machinery (third_party_helpers.cmake), Memory-owned
 # feature finders (cuda/hip/metal/numa/tbb_memory), and test/sibling dependency
 # resolvers (MemoryDependencies.cmake) all live in Cmake/.
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Cmake")
+set(MEMORY_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(MEMORY_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
-# add_third_party_library + alias/folder helpers. When embedded in XSigma these
-# are already defined by XSigma's ThirdParty/CMakeLists.txt; including the
-# repo's own copy is a harmless identical redefinition.
-include(third_party_helpers)
+# memory_add_third_party_library + alias/folder helpers. When embedded in XSigma these
+# use project-owned names so the host's helpers remain intact.
+include("${MEMORY_SOURCE_DIR}/Cmake/third_party_helpers.cmake")
 
 # --- Section 1: Feature flags (MEMORY_ENABLE_*) ---
 
 # Link-Time Optimization — disabled when MEMORY_ENABLE_COVERAGE or MEMORY_ENABLE_SANITIZER is ON
 # (LTO conflicts with profiling instrumentation and typical sanitizer workflows).
-include(lto)
-xsigma_lto_compute_default(_lto_default PROFILE PERFORMANCE)
+include("${MEMORY_SOURCE_DIR}/Cmake/lto.cmake")
+memory_lto_compute_default(_lto_default PROFILE PERFORMANCE)
 set(MEMORY_LTO_MODE "${_lto_default}" CACHE STRING
                                             "LTO mode for Memory: off | thin | full | ipo | auto"
 )
@@ -63,7 +61,15 @@ set_property(CACHE MEMORY_LTO_MODE PROPERTY STRINGS off thin full ipo auto)
 option(MEMORY_ENABLE_COVERAGE "Enable coverage instrumentation for Memory" OFF)
 
 # Testing — gates add_subdirectory(Testing/Cxx).
-option(MEMORY_ENABLE_TESTING "Build Memory test suite" ON)
+set(_memory_testing_default ${MEMORY_STANDALONE})
+if(DEFINED BUILD_TESTING)
+  set(_memory_testing_default ${BUILD_TESTING})
+endif()
+option(MEMORY_ENABLE_TESTING "Build Memory test suite" ${_memory_testing_default})
+# Respect the host's global veto, including on reconfigure.
+if(DEFINED BUILD_TESTING AND NOT BUILD_TESTING)
+  set(MEMORY_ENABLE_TESTING OFF)
+endif()
 
 # Examples — gates add_subdirectory(Examples) when Memory examples exist.
 option(MEMORY_ENABLE_EXAMPLES "Build Memory example programs" OFF)
@@ -155,10 +161,10 @@ if(MEMORY_GPU_BACKEND STREQUAL "metal" AND NOT APPLE)
 endif()
 
 # C++ standard — applied to every TU in this module via CMAKE_CXX_STANDARD.
-set(MEMORY_CXX_STANDARD "20" CACHE STRING "C++ standard for Memory. Options: 11 14 17 20 23")
-set_property(CACHE MEMORY_CXX_STANDARD PROPERTY STRINGS 11 14 17 20 23)
-if(NOT MEMORY_CXX_STANDARD MATCHES "^(11|14|17|20|23)$")
-  message(FATAL_ERROR "MEMORY_CXX_STANDARD must be one of: 11 14 17 20 23")
+set(MEMORY_CXX_STANDARD "20" CACHE STRING "C++ standard for Memory. Options: 17 20 23")
+set_property(CACHE MEMORY_CXX_STANDARD PROPERTY STRINGS 17 20 23)
+if(NOT MEMORY_CXX_STANDARD MATCHES "^(17|20|23)$")
+  message(FATAL_ERROR "MEMORY_CXX_STANDARD must be one of: 17 20 23")
 endif()
 
 # Platform constraints — NUMA and memkind are Linux-only kernel/library interfaces. Silently force
@@ -180,9 +186,11 @@ include(CheckCXXSourceRuns)
 include(CheckSymbolExists)
 
 # b) Shared toolchain helpers
-include(compiler_checks) # Detects compiler capabilities; sets PROJECT_* flags
-include(checks) # Additional feature-check macros
-include(build_type) # Validates / normalises CMAKE_BUILD_TYPE
+set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include("${MEMORY_SOURCE_DIR}/Cmake/checks.cmake") # Compiler and platform requirements
+include("${MEMORY_SOURCE_DIR}/Cmake/build_type.cmake") # Validates / normalises CMAKE_BUILD_TYPE
 
 # Benchmarks measure optimized code: a Debug (or coverage/sanitizer) build says
 # nothing about performance, so they are only built when the build type is
@@ -197,25 +205,28 @@ if(MEMORY_ENABLE_BENCHMARK AND NOT CMAKE_CONFIGURATION_TYPES)
     set(MEMORY_ENABLE_BENCHMARK OFF)
   endif()
 endif()
-include(platform) # Platform flags (macOS rpath, Windows /utf-8, …)
+include("${MEMORY_SOURCE_DIR}/Cmake/platform.cmake"
+)# Platform flags (macOS rpath, Windows /utf-8, …)
 include(CMakeDependentOption)
 
-include(cache) # Configures per-target compiler cache launcher
-include(memory_utils) # Memory-specific compiler checks (NUMA availability)
+include("${MEMORY_SOURCE_DIR}/Cmake/cache.cmake") # Configures per-target compiler cache launcher
+include("${MEMORY_SOURCE_DIR}/Cmake/memory_utils.cmake"
+)# Memory-specific compiler checks (NUMA availability)
 
 # c) Memory-owned feature finders (Cmake/)
 if(MEMORY_GPU_BACKEND STREQUAL "cuda")
-  include(cuda) # Detects/configures CUDA
+  include("${MEMORY_SOURCE_DIR}/Cmake/cuda.cmake") # Detects/configures CUDA
 elseif(MEMORY_GPU_BACKEND STREQUAL "hip")
-  include(hip) # Detects/configures HIP/ROCm
+  include("${MEMORY_SOURCE_DIR}/Cmake/hip.cmake") # Detects/configures HIP/ROCm
 elseif(MEMORY_GPU_BACKEND STREQUAL "metal")
-  include(metal) # Detects/configures Apple Metal
+  include("${MEMORY_SOURCE_DIR}/Cmake/metal.cmake") # Detects/configures Apple Metal
 endif()
-include(tbb_memory) # Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
-include(numa) # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
+include("${MEMORY_SOURCE_DIR}/Cmake/tbb_memory.cmake"
+)# Finds/builds TBB scalable allocator when MEMORY_ENABLE_TBB=ON
+include("${MEMORY_SOURCE_DIR}/Cmake/numa.cmake") # Finds NUMA library when MEMORY_ENABLE_NUMA=ON
 if(MEMORY_ENABLE_SANITIZER)
   set(MEMORY_ENABLE_MIMALLOC OFF)
-  include(sanitize)
+  include("${MEMORY_SOURCE_DIR}/Cmake/sanitize.cmake")
 endif()
 
 # Valgrind and mimalloc do not play nicely together: mimalloc can reserve very large
@@ -230,16 +241,23 @@ if(NOT MEMORY_ENABLE_MIMALLOC AND MEMORY_ENABLE_MIMALLOC_STATS)
   set(MEMORY_ENABLE_MIMALLOC_STATS OFF CACHE BOOL "Requires MEMORY_ENABLE_MIMALLOC" FORCE)
 endif()
 if(MEMORY_ENABLE_SPELL)
-  include(spell)
+  include("${MEMORY_SOURCE_DIR}/Cmake/spell.cmake")
 endif()
 if(MEMORY_ENABLE_VALGRIND)
-  include(valgrind)
+  include("${MEMORY_SOURCE_DIR}/Cmake/valgrind.cmake")
 endif()
-include(helper_macros)
+include("${MEMORY_SOURCE_DIR}/Cmake/helper_macros.cmake")
 
-# d) Coverage gate — appends -fprofile-instr-generate / --coverage; LTO already cleared above.
+if(MEMORY_STANDALONE)
+  include(CTest)
+endif()
+if(MEMORY_ENABLE_TESTING)
+  enable_testing()
+endif()
+
+# d) Target-scoped coverage; LTO is skipped when instrumentation is enabled.
 if(MEMORY_ENABLE_COVERAGE)
-  include(coverage)
+  include("${MEMORY_SOURCE_DIR}/Cmake/coverage.cmake")
 elseif(MSVC)
   string(APPEND CMAKE_EXE_LINKER_FLAGS " /DEBUG:FULL")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " /DEBUG:FULL")
@@ -248,7 +266,7 @@ endif()
 # --- Third-party dependencies owned by Memory ---
 # Host (XSigma) ThirdParty vs this repo's nested ThirdParty/. Standalone (CMAKE_SOURCE_DIR ==
 # this repo) resolves to the nested ThirdParty/; embedded in XSigma resolves to the host's.
-include(MemoryDependencies)
+include("${MEMORY_SOURCE_DIR}/Cmake/MemoryDependencies.cmake")
 
 set(_memory_own_tp "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty")
 set(_memory_host_tp "${CMAKE_SOURCE_DIR}/ThirdParty")
@@ -266,9 +284,6 @@ endmacro()
 
 _memory_tp_root(mimalloc _tp_mimalloc)
 
-set(BUILD_TESTING OFF CACHE BOOL "Disable testing for third-party libraries" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "Disable examples for third-party libraries" FORCE)
-set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable benchmarks for third-party libraries" FORCE)
 if(MEMORY_ENABLE_MIMALLOC)
   # mimalloc-specific options
   set(MI_BUILD_TESTS OFF CACHE BOOL "Disable mimalloc tests" FORCE)
@@ -278,7 +293,7 @@ if(MEMORY_ENABLE_MIMALLOC)
   set(MI_BUILD_SHARED OFF CACHE BOOL "Build mimalloc as static library" FORCE)
   set(MI_BUILD_STATIC ON CACHE BOOL "Build mimalloc as static library" FORCE)
 
-  add_third_party_library(
+  memory_add_third_party_library(
     mimalloc
     CONDITION
     MEMORY_ENABLE_MIMALLOC
@@ -293,7 +308,7 @@ if(MEMORY_ENABLE_MIMALLOC)
     FILTER_FLAGS
     "-flto=thin"
     "-flto=full"
-    XSIGMA_TARGETS
+    MEMORY_TARGETS
     "Mimalloc::mimalloc=mimalloc|mimalloc-static"
     INCLUDE_DIR
     "${_tp_mimalloc}/mimalloc/include"
@@ -353,7 +368,7 @@ if(MEMORY_ENABLE_MIMALLOC)
 endif()
 # --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions --- TBB/CUDA/HIP/NUMA flags come
 # from Section 3 finders; mapped after those includes.
-include(compile_definitions)
+include("${MEMORY_SOURCE_DIR}/Cmake/compile_definitions.cmake")
 # Per-allocator call-site tracking (opt-in; adds overhead).
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC)
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC_STATS)
@@ -553,13 +568,17 @@ if(MEMORY_ENABLE_PROFILER AND TARGET Profiler::Profiler)
     )
   endif()
 endif()
-xsigma_target_apply_lto(Memory MEMORY)
-if(MEMORY_ENABLE_SANITIZER)
-  xsigma_configure_sanitizer(MEMORY)
+target_compile_features(Memory PUBLIC cxx_std_${MEMORY_CXX_STANDARD})
+if(MEMORY_ENABLE_COVERAGE)
+  memory_configure_coverage(Memory)
 endif()
-xsigma_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
-xsigma_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
-xsigma_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
+memory_target_apply_cache(Memory MEMORY_ENABLE_CACHE MEMORY_CACHE_BACKEND)
+memory_target_apply_lto(Memory MEMORY)
+if(MEMORY_ENABLE_SANITIZER)
+  memory_configure_sanitizer(Memory MEMORY)
+endif()
+memory_find_linker(${MEMORY_LINKER_CHOICE} Memory MEMORY_LTO_MODE)
+memory_target_optional_icecc(Memory MEMORY_ENABLE_ICECC)
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(Memory PUBLIC MEMORY_SHARED_DEFINE PRIVATE MEMORY_BUILDING_DLL)
   if(COMMAND xsigma_set_target_output_directories)
@@ -579,9 +598,7 @@ if(MEMORY_GPU_BACKEND STREQUAL "cuda" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     PUBLIC "$<BUILD_INTERFACE:$<$<COMPILE_LANGUAGE:CUDA>:--cuda-path=${CUDAToolkit_LIBRARY_ROOT}>>"
   )
 endif()
-if(COMMAND xsigma_module_create_filters)
-  xsigma_module_create_filters("${CMAKE_CURRENT_SOURCE_DIR}")
-endif()
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${memory_sources} ${memory_headers})
 
 set_target_properties(
   Memory PROPERTIES CXX_STANDARD ${MEMORY_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
@@ -616,12 +633,12 @@ if(MEMORY_DEPENDENCY_INCLUDE_DIRS)
   target_include_directories(Memory PRIVATE ${MEMORY_DEPENDENCY_INCLUDE_DIRS})
 endif()
 if(MEMORY_ENABLE_CLANGTIDY)
-  include(clang_tidy)
-  xsigma_target_clang_tidy(Memory ${MEMORY_ENABLE_FIX})
+  include("${MEMORY_SOURCE_DIR}/Cmake/clang_tidy.cmake")
+  memory_target_clang_tidy(Memory ${MEMORY_ENABLE_FIX})
 endif()
 if(MEMORY_ENABLE_IWYU)
-  include(iwyu)
-  xsigma_apply_iwyu(Memory)
+  include("${MEMORY_SOURCE_DIR}/Cmake/iwyu.cmake")
+  memory_apply_iwyu(Memory)
 endif()
 if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(Memory PUBLIC ${MEMORY_DEPENDENCY_LIBS})
@@ -698,57 +715,7 @@ if(MEMORY_ENABLE_TESTING)
   add_subdirectory(Testing/Cxx)
 endif()
 if(MEMORY_ENABLE_VALGRIND AND MEMORY_ENABLE_TESTING)
-  xsigma_apply_valgrind_timeouts()
+  memory_apply_valgrind_timeouts()
 endif()
-if(MEMORY_STANDALONE)
-  message("")
-  message("******** Memory module (CMake flags) ********")
-  message("  Mimalloc             : ${MEMORY_ENABLE_MIMALLOC}")
-  message("  Mimalloc stats       : ${MEMORY_ENABLE_MIMALLOC_STATS}")
-  message("  Logging              : required (Logging::Logging)")
-  message("  Profiler enable      : ${MEMORY_ENABLE_PROFILER}")
-  message("  Profiler             : ${MEMORY_HAS_PROFILER_BUILD}")
-  message("  Memkind              : ${MEMORY_ENABLE_MEMKIND}")
-  message("  Numa                 : ${MEMORY_ENABLE_NUMA}")
-  message("  Tbb                  : ${MEMORY_ENABLE_TBB}")
-  message("  GPU backend          : ${MEMORY_GPU_BACKEND}")
-  message("  Cache                : ${MEMORY_ENABLE_CACHE}")
-  message("  Cache backend        : ${MEMORY_CACHE_BACKEND}")
-  message("  Icecc                : ${MEMORY_ENABLE_ICECC}")
-  xsigma_print_lto_linker_summary(MEMORY)
-  message("  Coverage             : ${MEMORY_ENABLE_COVERAGE}")
-  message("  Testing              : ${MEMORY_ENABLE_TESTING}")
-  message("  Examples             : ${MEMORY_ENABLE_EXAMPLES}")
-  message("  Gtest                : ${MEMORY_ENABLE_GTEST}")
-  message("  Benchmark            : ${MEMORY_ENABLE_BENCHMARK}")
-  message("  Clang-tidy           : ${MEMORY_ENABLE_CLANGTIDY}")
-  message("  Fix                  : ${MEMORY_ENABLE_FIX}")
-  message("  Iwyu                 : ${MEMORY_ENABLE_IWYU}")
-  message("  Sanitizer            : ${MEMORY_ENABLE_SANITIZER}")
-  message("  Sanitizer type       : ${MEMORY_SANITIZER_TYPE}")
-  message("  Spell                : ${MEMORY_ENABLE_SPELL}")
-  message("  Valgrind             : ${MEMORY_ENABLE_VALGRIND}")
-  if(MEMORY_GPU_BACKEND STREQUAL "cuda")
-    message("CUDA (Memory):")
-    message("  CUDA_INCLUDE_DIRS    : ${CUDA_INCLUDE_DIRS}")
-    message("  CUDA_NVCC_EXECUTABLE : ${CUDA_NVCC_EXECUTABLE}")
-    message("  CMAKE_CUDA_FLAGS     : ${CMAKE_CUDA_FLAGS}")
-    message("  CUDA_HOST_COMPILER   : ${CUDA_HOST_COMPILER}")
-    message("  CUDA_SEPARABLE_COMPILATION : ${CUDA_SEPARABLE_COMPILATION}")
-    message("  CUDA_VERSION         : ${CUDA_VERSION}")
-    message("  PROJECT_CUDA_LIBRARIES : ${PROJECT_CUDA_LIBRARIES}")
-    message("  CMAKE_CUDA_COMPILER  : ${CMAKE_CUDA_COMPILER}")
-    message("  CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES : ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
-  endif()
-  message("")
-  message("Build:")
-  message("  Default C++ standard : ${CMAKE_CXX_STANDARD}")
-  message("  C flags              : ${CMAKE_C_FLAGS}")
-  message("  CXX flags            : ${CMAKE_CXX_FLAGS}")
-  message("  Shared linker flags  : ${CMAKE_SHARED_LINKER_FLAGS}")
-  message("  Static linker flags  : ${CMAKE_STATIC_LINKER_FLAGS}")
-  message("  Module linker flags  : ${CMAKE_MODULE_LINKER_FLAGS}")
-  get_directory_property(_summary_compile_defs DIRECTORY ${PROJECT_SOURCE_DIR} COMPILE_DEFINITIONS)
-  message("  Top-level compile defs : ${_summary_compile_defs}")
-  message("")
-endif()
+include("${MEMORY_SOURCE_DIR}/Cmake/summary.cmake")
+memory_print_configuration_summary()

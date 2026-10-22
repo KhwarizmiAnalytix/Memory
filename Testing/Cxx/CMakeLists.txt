@@ -2,7 +2,7 @@
 # Memory Library C++
 # Tests
 # =============================================================================
-include(MemoryDependencies)
+include("${MEMORY_SOURCE_DIR}/Cmake/MemoryDependencies.cmake")
 
 memory_setup_gtest()
 
@@ -17,7 +17,9 @@ add_subdirectory(
   "${CMAKE_CURRENT_BINARY_DIR}/CudaCachingAllocator"
 )
 
-file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
+file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp"
+)
 
 set(TestFiles)
 foreach(_test_source IN ITEMS ${test_sources})
@@ -64,10 +66,16 @@ target_include_directories(
 target_compile_features(MemoryConsumerNoVendorHeaders PRIVATE cxx_std_20)
 target_compile_definitions(
   MemoryConsumerNoVendorHeaders PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0
-                                       MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
+                                        MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
 )
 
 add_executable(MemoryCxxTests ${TestFiles})
+if(MEMORY_ENABLE_COVERAGE)
+  memory_configure_coverage(MemoryCxxTests)
+endif()
+if(MEMORY_ENABLE_SANITIZER)
+  memory_configure_sanitizer(MemoryCxxTests MEMORY)
+endif()
 
 # Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory
 # interface. Memory's own include/ root must come first: some third-party deps (e.g. Profiler)
@@ -123,6 +131,14 @@ add_test(NAME MemoryCxxTests COMMAND MemoryCxxTests
 )
 
 set_tests_properties(MemoryCxxTests PROPERTIES TIMEOUT 120 LABELS "Memory;Unit")
+if(MEMORY_ENABLE_SANITIZER AND MEMORY_SANITIZER_TYPE MATCHES "(^|,)address(,|$)")
+  # Oversized-allocation tests expect bad_alloc, so let the allocator report failure.
+  # Match CI while retaining any other ASan options supplied by the caller.
+  set_property(
+    TEST MemoryCxxTests APPEND PROPERTY ENVIRONMENT_MODIFICATION
+                                        "ASAN_OPTIONS=string_append::allocator_may_return_null=1"
+  )
+endif()
 
 if(COMMAND memory_set_target_output_directories)
   memory_set_target_output_directories(MemoryCxxTests)
@@ -131,7 +147,7 @@ endif()
 if(MEMORY_ENABLE_BENCHMARK)
   # --- Google Benchmark setup ---
   memory_setup_benchmark()
-  _create_third_party_interface_targets(
+  memory_create_third_party_interface_targets(
     "Benchmark::benchmark=benchmark::benchmark|benchmark"
     "Benchmark::benchmark_main=benchmark::benchmark_main|benchmark_main"
   )
@@ -248,6 +264,12 @@ if(MEMORY_ENABLE_BENCHMARK)
     set(target_name "benchmark_memory_${bench_suffix_lower}")
 
     add_executable(${target_name} "${_bench_source}")
+    if(MEMORY_ENABLE_COVERAGE)
+      memory_configure_coverage(${target_name})
+    endif()
+    if(MEMORY_ENABLE_SANITIZER)
+      memory_configure_sanitizer(${target_name} MEMORY)
+    endif()
     target_include_directories(
       ${target_name} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                              "${CMAKE_CURRENT_BINARY_DIR}/.."
@@ -325,6 +347,12 @@ if(MEMORY_ENABLE_BENCHMARK)
     string(TOLOWER "${_p0}" _p0_lower)
     set(_p0_target "benchmark_memory_${_p0_lower}")
     add_executable(${_p0_target} "${CMAKE_CURRENT_SOURCE_DIR}/${_p0}.cpp")
+    if(MEMORY_ENABLE_COVERAGE)
+      memory_configure_coverage(${_p0_target})
+    endif()
+    if(MEMORY_ENABLE_SANITIZER)
+      memory_configure_sanitizer(${_p0_target} MEMORY)
+    endif()
     target_include_directories(
       ${_p0_target} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                             "${CMAKE_CURRENT_BINARY_DIR}/.."

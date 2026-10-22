@@ -1,3 +1,29 @@
+# Configure vendored dependencies without changing the host's build options.
+function(memory_add_dependency_subdirectory source_dir binary_dir)
+  foreach(_option IN ITEMS BUILD_TESTING BUILD_EXAMPLES BUILD_BENCHMARKS)
+    get_property(
+      _had_${_option}
+      CACHE ${_option}
+      PROPERTY TYPE
+      SET
+    )
+    if(_had_${_option})
+      get_property(_value_${_option} CACHE ${_option} PROPERTY VALUE)
+      get_property(_type_${_option} CACHE ${_option} PROPERTY TYPE)
+      get_property(_help_${_option} CACHE ${_option} PROPERTY HELPSTRING)
+    endif()
+    set(${_option} OFF)
+  endforeach()
+  add_subdirectory("${source_dir}" "${binary_dir}" ${ARGN})
+  foreach(_option IN ITEMS BUILD_TESTING BUILD_EXAMPLES BUILD_BENCHMARKS)
+    if(_had_${_option})
+      set(${_option} "${_value_${_option}}" CACHE ${_type_${_option}} "${_help_${_option}}" FORCE)
+    else()
+      unset(${_option} CACHE)
+    endif()
+  endforeach()
+endfunction()
+
 # =============================================================================
 # Memory — test dependency resolution (standalone + embedded)
 # =============================================================================
@@ -8,7 +34,7 @@
 
 include_guard(GLOBAL)
 
-include(third_party_helpers)
+include("${CMAKE_CURRENT_LIST_DIR}/third_party_helpers.cmake")
 
 get_filename_component(_memory_repo_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(MEMORY_THIRD_PARTY_DIR "${_memory_repo_root}/ThirdParty"
@@ -28,7 +54,7 @@ function(memory_setup_gtest)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${MEMORY_THIRD_PARTY_DIR}/googletest" "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build"
       EXCLUDE_FROM_ALL
     )
@@ -48,7 +74,7 @@ function(memory_setup_gtest)
   if(TARGET gtest_main AND NOT TARGET GTest::gtest_main)
     add_library(GTest::gtest_main ALIAS gtest_main)
   endif()
-  _create_third_party_interface_targets(
+  memory_create_third_party_interface_targets(
     "Gtest::gtest=GTest::gtest|gtest" "Gtest::gtest_main=GTest::gtest_main|gtest_main"
   )
 endfunction()
@@ -63,7 +89,7 @@ function(memory_setup_benchmark)
   set(_bench_src "")
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/benchmark/CMakeLists.txt")
     set(_bench_src "${MEMORY_THIRD_PARTY_DIR}/benchmark")
-  elseif(XSIGMA_ENABLE_EXTERNAL)
+  elseif(MEMORY_ENABLE_EXTERNAL)
     find_package(benchmark QUIET)
     if(benchmark_FOUND)
       message(STATUS "Found external Google Benchmark")
@@ -89,7 +115,7 @@ function(memory_setup_benchmark)
   set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Don't use bundled gtest for benchmark" FORCE)
   set(BENCHMARK_DOWNLOAD_DEPENDENCIES OFF CACHE BOOL "Don't download dependencies" FORCE)
   if(_bench_src)
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${_bench_src}" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build" EXCLUDE_FROM_ALL
     )
   else()
@@ -99,7 +125,9 @@ function(memory_setup_benchmark)
     )
     FetchContent_MakeAvailable(benchmark)
   endif()
-  _set_third_party_folder_properties("benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build")
+  memory_set_third_party_folder_properties(
+    "benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
+  )
 endfunction()
 
 # -----------------------------------------------------------------------------
@@ -120,7 +148,7 @@ function(memory_setup_logging)
   set(LOGGING_ENABLE_TESTING OFF CACHE BOOL "Logging tests build only standalone" FORCE)
   set(LOGGING_ENABLE_EXAMPLES OFF CACHE BOOL "Logging examples build only standalone" FORCE)
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Logging/CMakeLists.txt")
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${MEMORY_THIRD_PARTY_DIR}/Logging" "${CMAKE_BINARY_DIR}/ThirdParty/Logging_build"
       EXCLUDE_FROM_ALL
     )
@@ -144,7 +172,7 @@ endfunction()
 # memory_setup_profiler: optional sibling XSigma repo
 # (https://github.com/KhwarizmiAnalytix/Profiler). Not a vendored third-party
 # library — resolved exclusively via find_package(Profiler), independent of
-# XSIGMA_ENABLE_EXTERNAL (that flag governs vendored ThirdParty/ copies).
+# MEMORY_ENABLE_EXTERNAL (that flag governs vendored ThirdParty/ copies).
 # Install it first (cmake --install) and point CMAKE_PREFIX_PATH at it.
 # Optional: callers gate on TARGET Profiler::Profiler, so a missing install
 # just disables MEMORY_HAS_PROFILER rather than failing the configure.

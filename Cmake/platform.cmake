@@ -1,21 +1,3 @@
-# Make sure Crun is linked in with the native compiler; it is not used by default for shared
-# libraries and is required for things like Java to work.
-if(CMAKE_SYSTEM MATCHES "SunOS.*")
-  if(NOT CMAKE_COMPILER_IS_GNUCXX)
-    message(STATUS "SunOS + Sun CC: searching for Crun/Cstd runtime libraries")
-    find_library(PROJECT_SUNCC_CRUN_LIBRARY Crun /opt/SUNWspro/lib)
-    if(PROJECT_SUNCC_CRUN_LIBRARY)
-      message(STATUS "  Linking Crun: ${PROJECT_SUNCC_CRUN_LIBRARY}")
-      link_libraries(${PROJECT_SUNCC_CRUN_LIBRARY})
-    endif()
-    find_library(PROJECT_SUNCC_CSTD_LIBRARY Cstd /opt/SUNWspro/lib)
-    if(PROJECT_SUNCC_CSTD_LIBRARY)
-      message(STATUS "  Linking Cstd: ${PROJECT_SUNCC_CSTD_LIBRARY}")
-      link_libraries(${PROJECT_SUNCC_CSTD_LIBRARY})
-    endif()
-  endif()
-endif()
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   message(STATUS "Emscripten: enabling WebAssembly exception handling (-fwasm-exceptions)")
   # Enable exceptions because XSigma and third party code rely on C++ exceptions. Allow C++ to
@@ -61,101 +43,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   endif()
 endif()
 
-# A GCC compiler.
-if(CMAKE_COMPILER_IS_GNUCXX)
-  message(STATUS "GCC compiler detected")
-  if(WIN32)
-    # The platform is gcc on cygwin.
-    message(STATUS "  GCC/Cygwin: adding -mwin32, linking gdi32")
-    string(APPEND CMAKE_CXX_FLAGS " -mwin32")
-    string(APPEND CMAKE_C_FLAGS " -mwin32")
-    link_libraries(-lgdi32)
-  endif()
-  if(MINGW)
-    message(STATUS "  MinGW: adding -mthreads")
-    string(APPEND CMAKE_CXX_FLAGS " -mthreads")
-    string(APPEND CMAKE_C_FLAGS " -mthreads")
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -mthreads")
-    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -mthreads")
-    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -mthreads")
-  endif()
-  if(CMAKE_SYSTEM MATCHES "SunOS.*")
-    # Disable warnings that occur in X11 headers.
-    if(DART_ROOT AND BUILD_TESTING)
-      message(STATUS "  GCC/SunOS: suppressing unknown-pragmas warnings for X11 headers")
-      string(APPEND CMAKE_CXX_FLAGS " -Wno-unknown-pragmas")
-      string(APPEND CMAKE_C_FLAGS " -Wno-unknown-pragmas")
-    endif()
-  endif()
-else()
-  if(CMAKE_ANSI_CFLAGS)
-    message(STATUS "Non-GCC: appending ANSI C flags: ${CMAKE_ANSI_CFLAGS}")
-    string(APPEND CMAKE_C_FLAGS " ${CMAKE_ANSI_CFLAGS}")
-  endif()
-  if(CMAKE_SYSTEM MATCHES "OSF1-V.*")
-    message(STATUS "OSF1: adding -timplicit_local -no_implicit_include")
-    string(APPEND CMAKE_CXX_FLAGS " -timplicit_local -no_implicit_include")
-  endif()
-  if(CMAKE_SYSTEM MATCHES "AIX.*")
-    message(
-      STATUS "AIX: enabling RTTI (-qrtti=all), suppressing duplicate symbol warnings (-bhalt:5)"
-    )
-    # allow t-ypeid and d-ynamic_cast usage (normally off by default on xlC)
-    string(APPEND CMAKE_CXX_FLAGS " -qrtti=all")
-    # silence duplicate symbol warnings on AIX
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -bhalt:5")
-    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -bhalt:5")
-    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -bhalt:5")
-  endif()
-  if(CMAKE_SYSTEM MATCHES "HP-UX.*")
-    message(STATUS "HP-UX: adding compatibility warning flags (+W2111 +W2236 +W4276)")
-    string(APPEND CMAKE_C_FLAGS " +W2111 +W2236 +W4276")
-    string(APPEND CMAKE_CXX_FLAGS " +W2111 +W2236 +W4276")
-  endif()
+# MinGW GCC threading support.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND MINGW)
+  message(STATUS "MinGW: adding -mthreads")
+  string(APPEND CMAKE_CXX_FLAGS " -mthreads")
+  string(APPEND CMAKE_C_FLAGS " -mthreads")
+  string(APPEND CMAKE_EXE_LINKER_FLAGS " -mthreads")
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS " -mthreads")
+  string(APPEND CMAKE_MODULE_LINKER_FLAGS " -mthreads")
 endif()
 
-# figure out whether the compiler might be the Intel compiler
-set(_MAY_BE_INTEL_COMPILER FALSE)
-if(UNIX)
-  if(CMAKE_CXX_COMPILER_ID)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-      set(_MAY_BE_INTEL_COMPILER TRUE)
-    endif()
-  else()
-    if(NOT CMAKE_COMPILER_IS_GNUCXX)
-      set(_MAY_BE_INTEL_COMPILER TRUE)
-    endif()
-  endif()
-endif()
-
-# if so, test whether -i_dynamic is needed
-if(_MAY_BE_INTEL_COMPILER)
-  message(STATUS "Intel compiler detected: testing whether -i_dynamic is required")
-  include(${CMAKE_CURRENT_LIST_DIR}/TestNO_ICC_IDYNAMIC_NEEDED.cmake)
-  testno_icc_idynamic_needed(NO_ICC_IDYNAMIC_NEEDED ${CMAKE_CURRENT_LIST_DIR})
-  if(NO_ICC_IDYNAMIC_NEEDED)
-    message(STATUS "  Intel compiler: -i_dynamic not needed")
-  else()
-    message(STATUS "  Intel compiler: adding -i_dynamic")
-    string(APPEND CMAKE_CXX_FLAGS " -i_dynamic")
-  endif()
-endif()
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "PGI")
-  message(
-    STATUS
-      "PGI compiler: suppressing diagnostic 236 (constant value asserts) and 381 (redundant semicolons)"
-  )
-  # --diag_suppress=236 is for constant value asserts used for error handling This can be restricted
-  # to the implementation and doesn't need to propagate
-  string(APPEND CMAKE_CXX_FLAGS " --diag_suppress=236")
-
-  # --diag_suppress=381 is for redundant semi-colons used in macros This needs to propagate to
-  # anything that includes XSigma headers
-  string(APPEND CMAKE_CXX_FLAGS " --diag_suppress=381")
-endif()
-
-if(MSVC)
+if(MSVC AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT
+                                                            STREQUAL "GNU")
+)
   message(STATUS "MSVC compiler detected: applying MSVC-specific flags")
   # Use the highest warning level for visual c++ compiler. set(CMAKE_CXX_WARNING_LEVEL 4)
   # if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]") string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS
@@ -171,10 +71,6 @@ if(MSVC)
   )
   string(APPEND CMAKE_CXX_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
   string(APPEND CMAKE_C_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
-
-  # Disable deprecation warnings for standard C and STL functions in VS2015+ and later
-  add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS)
-  add_definitions(-D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS)
 
   # Enable /MP flag for Visual Studio
   set(CMAKE_CXX_MP_FLAG ON CACHE BOOL "Build with /MP flag enabled")
@@ -197,10 +93,26 @@ if(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " /bigobj")
   string(APPEND CMAKE_C_FLAGS " /bigobj")
 
-  # Enable faster PDB generation
-  message(STATUS "  MSVC: enabling PDB debug info (/Zi)")
-  string(APPEND CMAKE_CXX_FLAGS " /Zi")
-  string(APPEND CMAKE_C_FLAGS " /Zi")
+  # Compiler caches cannot safely share a compiler PDB between concurrent
+  # invocations, even with /FS. Embed debug info in each object instead.
+  # Normalize legacy CMake defaults as well as CMP0141's target default.
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
+  set(_memory_debug_configs Debug Release RelWithDebInfo MinSizeRel ${CMAKE_CONFIGURATION_TYPES}
+                            ${CMAKE_BUILD_TYPE}
+  )
+  list(REMOVE_DUPLICATES _memory_debug_configs)
+  foreach(_language C CXX)
+    foreach(_config IN LISTS _memory_debug_configs)
+      string(TOUPPER "${_config}" _config_upper)
+      set(_flags_var "CMAKE_${_language}_FLAGS_${_config_upper}")
+      string(REGEX REPLACE "(^|[ \t])[-/]Z[iI]([ \t]|$)" "\\1/Z7\\2" ${_flags_var}
+                           "${${_flags_var}}"
+      )
+    endforeach()
+  endforeach()
+  message(STATUS "  MSVC: embedding debug info in object files (/Z7)")
+  string(APPEND CMAKE_CXX_FLAGS " /Z7")
+  string(APPEND CMAKE_C_FLAGS " /Z7")
 
   # Use /utf-8 so that MSVC uses utf-8 in source files and object files
   message(STATUS "  MSVC: setting source/output encoding to UTF-8 (/utf-8)")
@@ -211,6 +123,14 @@ if(MSVC)
   message(STATUS "  MSVC: enabling structured exception handling (/EHsc)")
   string(APPEND CMAKE_CXX_FLAGS " /EHsc")
   string(APPEND CMAKE_C_FLAGS " /EHsc")
+endif()
+
+# Suppress MSVC CRT deprecation warnings for all compilers that target the
+# Windows CRT (cl.exe, clang-cl, clang++ with MSVC CRT).  MinGW ships its own
+# CRT that does not use these macros, so it is excluded.
+if(WIN32 AND NOT MINGW)
+  add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS)
+  add_definitions(-D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS)
 endif()
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -244,43 +164,18 @@ if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   endif()
 endif()
 
-if(APPLE)
-  message(STATUS "Applying macOS LLVM linker options")
-
-  if(DEFINED PROJECT_LLVM_INSTALL_PREFIX AND PROJECT_LLVM_INSTALL_PREFIX)
-    set(_xsigma_llvm_prefix "${PROJECT_LLVM_INSTALL_PREFIX}")
-  elseif(EXISTS "/opt/homebrew/opt/llvm/lib")
-    set(_xsigma_llvm_prefix "/opt/homebrew/opt/llvm")
-  elseif(EXISTS "/usr/local/opt/llvm/lib")
-    set(_xsigma_llvm_prefix "/usr/local/opt/llvm")
-  else()
-    set(_xsigma_llvm_prefix "/opt/homebrew/opt/llvm")
-  endif()
-
-  set(LLVM_LINK_FLAGS
-      -L${_xsigma_llvm_prefix}/lib/c++ -L${_xsigma_llvm_prefix}/lib
-      -Wl,-rpath,${_xsigma_llvm_prefix}/lib/c++ -Wl,-rpath,${_xsigma_llvm_prefix}/lib
-  )
-
-  # Add each flag only if not already included
-  foreach(flag IN LISTS LLVM_LINK_FLAGS)
-    string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${flag}" flag_found)
-    if(flag_found EQUAL -1)
-      add_link_options(${flag})
-    endif()
-  endforeach()
-endif()
-
 if(UNIX AND NOT APPLE)
   include(CheckCXXCompilerFlag)
   include(CheckCCompilerFlag)
   include(CheckCXXSourceCompiles)
 
   # Append flag to CMAKE_CXX_FLAGS and CMAKE_C_FLAGS if both compilers accept it.
-  macro(_xsigma_add_compile_flag _flag)
+  macro(_memory_add_compile_flag _flag)
     string(MAKE_C_IDENTIFIER "${_flag}" _id)
     check_cxx_compiler_flag("${_flag}" _CXX_HAS${_id})
-    check_c_compiler_flag("${_flag}" _C_HAS${_id})
+    if(CMAKE_C_COMPILER_LOADED)
+      check_c_compiler_flag("${_flag}" _C_HAS${_id})
+    endif()
     if(_CXX_HAS${_id})
       string(APPEND CMAKE_CXX_FLAGS " ${_flag}")
     endif()
@@ -291,7 +186,7 @@ if(UNIX AND NOT APPLE)
 
   # Append flag to all linker flag variables if the linker accepts it. Uses
   # CMAKE_REQUIRED_LINK_OPTIONS (CMake >= 3.14) since check_linker_flag needs 3.18.
-  macro(_xsigma_add_linker_flag _flag)
+  macro(_memory_add_linker_flag _flag)
     string(MAKE_C_IDENTIFIER "${_flag}" _id)
     set(CMAKE_REQUIRED_LINK_OPTIONS "${_flag}")
     check_cxx_source_compiles("int main(){}" _LINKER_HAS${_id})
@@ -304,13 +199,13 @@ if(UNIX AND NOT APPLE)
   endmacro()
 
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    _xsigma_add_compile_flag("-fPIC")
-    _xsigma_add_compile_flag("-pipe")
+    _memory_add_compile_flag("-fPIC")
+    _memory_add_compile_flag("-pipe")
   endif()
 
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    _xsigma_add_compile_flag("-fcolor-diagnostics")
+    _memory_add_compile_flag("-fcolor-diagnostics")
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    _xsigma_add_compile_flag("-fdiagnostics-color=always")
+    _memory_add_compile_flag("-fdiagnostics-color=always")
   endif()
 endif()
