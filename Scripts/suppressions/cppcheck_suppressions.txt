@@ -1,5 +1,6 @@
 # cppcheck suppressions for XSigma Memory library
-#
+# Cppcheck 2.13 rejects a line that is only "#": it is not skipped as a comment
+# and is added as a suppression with no id.
 # Format: <id>[:<file>[:<line>]]
 # File paths are relative to the project root (where cppcheck is invoked).
 

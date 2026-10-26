@@ -54,6 +54,18 @@ void* operator new(std::size_t n)
 // would be silently bypassed.  Forward all array forms here so the counting
 // and injection flags work for both scalar and array allocations.
 void* operator new[](std::size_t n) { return ::operator new(n); }
+// get_temporary_buffer allocates with nothrow new and frees with the sized
+// delete below. That pair has to be malloc/free: Valgrind still intercepts
+// libstdc++'s nothrow new, and a sized delete that calls free is then a
+// mismatched deallocation. This overload does not consume the failure hook.
+void* operator new(std::size_t n, std::nothrow_t const&) noexcept
+{
+    return std::malloc(n != 0 ? n : 1);
+}
+void* operator new[](std::size_t n, std::nothrow_t const&) noexcept
+{
+    return ::operator new(n, std::nothrow);
+}
 void  operator delete(void* p) noexcept { std::free(p); }
 void  operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void  operator delete[](void* p) noexcept { std::free(p); }

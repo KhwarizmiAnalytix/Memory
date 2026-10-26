@@ -6,8 +6,13 @@ if(NOT MEMORYCHECK_COMMAND)
       "Valgrind requested but not found; set MEMORYCHECK_COMMAND or disable MEMORY_ENABLE_VALGRIND"
   )
 endif()
+# somalloc=nouserintercepts keeps Memcheck on libc malloc/free and libstdc++
+# operator new, but does not replace allocation symbols defined by the tests.
+# Several suites install their own operator new to inject std::bad_alloc; the
+# default interception skips that body, so the failure never fires and a later
+# retry frees the same pointer twice.
 set(MEMORYCHECK_COMMAND_OPTIONS
-    "--tool=memcheck --leak-check=full --show-leak-kinds=definite --errors-for-leak-kinds=definite --track-origins=yes --track-fds=yes --num-callers=50 --trace-children=yes --error-exitcode=1"
+    "--tool=memcheck --leak-check=full --show-leak-kinds=definite --errors-for-leak-kinds=definite --track-origins=yes --track-fds=yes --num-callers=50 --trace-children=yes --error-exitcode=1 --soname-synonyms=somalloc=nouserintercepts"
 )
 set(MEMORYCHECK_SUPPRESSIONS_FILE
     "${CMAKE_CURRENT_LIST_DIR}/../Scripts/suppressions/valgrind_suppression.txt"

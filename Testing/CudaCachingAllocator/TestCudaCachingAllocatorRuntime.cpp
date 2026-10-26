@@ -23,7 +23,9 @@
 // this suite's CMakeLists.txt for why this builds under the HIP labels.
 
 #include <atomic>
+#include <cstdlib>
 #include <exception>
+#include <new>
 #include <cstdio>
 #include <map>
 #include <random>
@@ -281,6 +283,14 @@ void* operator new(std::size_t n)
 }
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+// get_temporary_buffer allocates with nothrow new and frees with the sized
+// delete above. Both must use malloc/free once Valgrind stops replacing this
+// executable's operator new; otherwise the sized delete is a mismatched free.
+// The injection counter stays on the throwing operator new.
+void* operator new(std::size_t n, std::nothrow_t const&) noexcept
+{
+    return std::malloc(n ? n : 1);
+}
 
 extern "C" const char* __asan_default_options()
 {
