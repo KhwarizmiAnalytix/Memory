@@ -338,7 +338,8 @@ void mi_cdecl log_mimalloc_stats_line(const char* msg, void* /*arg*/)
 void stats_print() noexcept
 {
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
-    mi_stats_merge();  // fold this thread's counters into the process totals
+    // mi_stats_print_out aggregates heap counters itself. The deprecated
+    // mi_stats_merge() is declared in this mimalloc's header and has no definition.
     mi_stats_print_out(&log_mimalloc_stats_line, nullptr);
 #endif
 }
