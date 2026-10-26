@@ -65,9 +65,11 @@ jobs:
   # ---------------------------------------------------------------------------
   # External Profiler: Profiler is a sibling repository, not a ThirdParty
   # submodule. Check it out on its own, install it, then configure Memory
-  # against that prefix. Exercises find_package(Profiler) in
-  # memory_setup_profiler() (Cmake/MemoryDependencies.cmake). The other jobs
-  # leave Profiler uninstalled, so MEMORY_HAS_PROFILER stays 0 there.
+  # against that prefix with MEMORY_ENABLE_PROFILER=ON. The option defaults
+  # to OFF, and memory_setup_profiler() skips find_package unless it is ON.
+  # Exercises find_package(Profiler) in memory_setup_profiler()
+  # (Cmake/MemoryDependencies.cmake). The other jobs leave Profiler
+  # uninstalled and the option off, so MEMORY_HAS_PROFILER stays 0 there.
   # ---------------------------------------------------------------------------
   external-profiler:
     name: External Profiler / ${{ matrix.os }}
@@ -118,6 +120,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_PREFIX_PATH=${{ github.workspace }}/profiler_install
           -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_PROFILER=ON
           -DMEMORY_ENABLE_TESTING=ON
           -DMEMORY_ENABLE_BENCHMARK=ON
           | tee configure.log
