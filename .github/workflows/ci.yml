@@ -293,9 +293,19 @@ jobs:
   # Linux + macOS only — Cmake/sanitize.cmake requires Clang/GCC and explicitly
   # warns "Sanitizers require GCC or Clang" for MSVC, so Windows is skipped
   # (unsupported by the codebase's own sanitizer module, not a CI gap).
+  #
+  # Standard GitHub-hosted plans run at most 5 macOS jobs at once
+  # (https://docs.github.com/en/actions/reference/limits). This workflow
+  # otherwise requests 6 macos-latest runners together — macOS CPU, Bazel,
+  # external Profiler, coverage, and both sanitizers — and the sixth stays
+  # queued with "All GitHub-hosted runners with label [macos-latest] are busy."
+  # Waiting for external-profiler keeps the initial macOS requests at 4.
+  # !cancelled() still runs the sanitizers when that job fails.
   # ---------------------------------------------------------------------------
   sanitize:
     name: Sanitizer / ${{ matrix.os }} / ${{ matrix.sanitizer }}
+    needs: external-profiler
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
