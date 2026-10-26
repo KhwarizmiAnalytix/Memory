@@ -101,14 +101,3 @@ local_logging_repository(
     path = "ThirdParty/Logging",
     build_file = "//ThirdParty:logging.BUILD",
 )
-
-# =============================================================================
-# Profiler — optional sibling dependency (https://github.com/KhwarizmiAnalytix/Profiler)
-# =============================================================================
-load("//bazel:profiler_repository.bzl", "local_profiler_repository")
-
-local_profiler_repository(
-    name = "profiler",
-    path = "ThirdParty/Profiler",
-    build_file = "//ThirdParty:profiler.BUILD",
-)

@@ -2,5 +2,4 @@
 exports_files([
     "mimalloc.BUILD",
     "logging.BUILD",
-    "profiler.BUILD",
 ])

@@ -395,7 +395,7 @@ class MemoryFlags:
             "build Memory example programs",
             "enable GoogleTest for Memory (default ON; token disables it)",
             "enable Google Benchmark for Memory (default ON; token disables it)",
-            "link the Profiler library (default ON; token disables it)",
+            "enable profiling via an installed Profiler library (default OFF; token enables it)",
             "enable the mimalloc CPU allocator (default ON; token disables it)",
             "compile mimalloc statistics support (MI_STAT=1)",
             "enable the memkind extended-memory allocator (Linux only)",
@@ -466,7 +466,7 @@ class MemoryFlags:
                 "test": self.ON,  # MEMORY_ENABLE_TESTING default ON
                 "gtest": self.ON,  # MEMORY_ENABLE_GTEST default ON
                 "benchmark": self.ON,  # MEMORY_ENABLE_BENCHMARK default ON
-                "profiler": self.ON,  # MEMORY_ENABLE_PROFILER default ON
+                "profiler": self.OFF,  # MEMORY_ENABLE_PROFILER default OFF
                 "mimalloc": self.ON,  # MEMORY_ENABLE_MIMALLOC default ON
                 "cache": self.ON,  # MEMORY_ENABLE_CACHE default ON
                 "gpu": "none",  # MEMORY_GPU_BACKEND default "none"
@@ -534,7 +534,7 @@ class MemoryFlags:
                 self.__value["cxxstd"] = std_version
                 print_status(f"Setting C++ standard to C++{std_version}", "INFO")
             elif arg in self.__key:
-                if arg in ("gtest", "cache", "profiler", "mimalloc"):
+                if arg in ("gtest", "cache", "mimalloc"):
                     # CMake default ON: providing the token turns it OFF.
                     self.__value[arg] = self.OFF
                 elif arg == "benchmark":

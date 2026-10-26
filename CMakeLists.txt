@@ -40,6 +40,7 @@ endif()
 # resolvers (MemoryDependencies.cmake) all live in Cmake/.
 set(MEMORY_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(MEMORY_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+include(GNUInstallDirs)
 
 # memory_add_third_party_library + alias/folder helpers. When embedded in XSigma these
 # use project-owned names so the host's helpers remain intact.
@@ -77,12 +78,13 @@ option(MEMORY_ENABLE_EXAMPLES "Build Memory example programs" OFF)
 # Google Test integration for Memory tests.
 option(MEMORY_ENABLE_GTEST "Enable GoogleTest for Memory" ON)
 
-# When ON and target Profiler::Profiler exists: link Profiler and set MEMORY_HAS_PROFILER=1, so
-# the CPU allocator and GPU caching allocators can report allocation/deallocation/OOM events via
-# profiler::report_memory_usage() / report_out_of_memory(). CPU allocate/free compile those calls
-# out when this is 0; when it is 1 they run only after profiler::memory_profiling_active()
-# (predicted-false). Safe to leave ON.
-option(MEMORY_ENABLE_PROFILER "Link Memory with the Profiler library when available" ON)
+# When ON and target Profiler::Profiler exists (via find_package): link Profiler and set
+# MEMORY_HAS_PROFILER=1, so the CPU allocator and GPU caching allocators can report
+# allocation/deallocation/OOM events via profiler::report_memory_usage() /
+# report_out_of_memory(). CPU allocate/free compile those calls out when this is 0; when it is
+# 1 they run only after profiler::memory_profiling_active() (predicted-false). Profiler is not a
+# vendored submodule — install it separately and point CMAKE_PREFIX_PATH at its install prefix.
+option(MEMORY_ENABLE_PROFILER "Enable profiling support via an installed Profiler library" OFF)
 
 # Microsoft mimalloc — high-performance drop-in malloc replacement. ON by default to match the CMake
 # project default.
@@ -177,7 +179,7 @@ if(NOT UNIX OR APPLE)
   set(MEMORY_ENABLE_MEMKIND OFF CACHE BOOL "Enable memkind allocator (Linux only)" FORCE)
 endif()
 
-# --- Section 3: CMake module includes --- Order: introspection → toolchain helpers → Memory-owned
+# --- Section 2: CMake module includes --- Order: introspection → toolchain helpers → Memory-owned
 # finders → coverage/sanitizer → LTO/linker.
 
 # a) Standard CMake introspection
@@ -366,8 +368,8 @@ if(MEMORY_ENABLE_MIMALLOC)
     endif()
   endif()
 endif()
-# --- Section 2: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions --- TBB/CUDA/HIP/NUMA flags come
-# from Section 3 finders; mapped after those includes.
+# --- Section 3: MEMORY_ENABLE_* → MEMORY_HAS_* compile definitions --- TBB/CUDA/HIP/NUMA flags
+# come from Section 2 finders; mapped after those includes.
 include("${MEMORY_SOURCE_DIR}/Cmake/compile_definitions.cmake")
 # Per-allocator call-site tracking (opt-in; adds overhead).
 compile_definition(MEMORY_COMPILE_DEFINITIONS MEMORY_ENABLE_MIMALLOC)
@@ -473,14 +475,16 @@ set(memory_headers "")
 set(memory_sources "")
 set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
 
-file(GLOB_RECURSE memory_headers LIST_DIRECTORIES false "${_memory_include_root}/*.h"
-                                                        "${_memory_include_root}/*.hxx"
+file(GLOB_RECURSE memory_headers CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     "${_memory_include_root}/*.h" "${_memory_include_root}/*.hxx"
 )
-file(GLOB_RECURSE memory_sources LIST_DIRECTORIES false "${_memory_src_root}/*.cpp")
+file(GLOB_RECURSE memory_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false "${_memory_src_root}/*.cpp")
 
 # Objective-C++ sources (Metal backend only) are globbed separately since they require
 # OBJCXX language support, only enabled when MEMORY_GPU_BACKEND=metal (see below).
-file(GLOB_RECURSE memory_objcxx_sources LIST_DIRECTORIES false "${_memory_src_root}/*.mm")
+file(GLOB_RECURSE memory_objcxx_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     "${_memory_src_root}/*.mm"
+)
 
 # Keep test sources out of the Memory library target.
 list(FILTER memory_sources EXCLUDE REGEX ".*/Testing/.*")
@@ -489,8 +493,8 @@ list(FILTER memory_objcxx_sources EXCLUDE REGEX ".*/Testing/.*")
 
 # GPU sources are only compiled when a GPU backend is active.
 if(MEMORY_GPU_BACKEND STREQUAL "none")
-  file(GLOB_RECURSE GPU_SOURCE_FILES "${_memory_src_root}/gpu/*.cpp")
-  file(GLOB_RECURSE GPU_HEADER_FILES "${_memory_include_root}/gpu/*.h"
+  file(GLOB_RECURSE GPU_SOURCE_FILES CONFIGURE_DEPENDS "${_memory_src_root}/gpu/*.cpp")
+  file(GLOB_RECURSE GPU_HEADER_FILES CONFIGURE_DEPENDS "${_memory_include_root}/gpu/*.h"
        "${_memory_include_root}/gpu/*.hxx"
   )
   list(REMOVE_ITEM memory_headers ${GPU_HEADER_FILES})
@@ -603,16 +607,7 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${memory_sources} ${memory
 set_target_properties(
   Memory PROPERTIES CXX_STANDARD ${MEMORY_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
 )
-if(MSVC)
-  target_compile_options(Memory PRIVATE /WX)
-else()
-  # Some toolchains implicitly provide standard headers; others (notably Clang 20.x in Debug builds)
-  # have exhibited compiler instability with forced `-include cstdlib` on large translation units.
-  # The project includes <cstdlib> where needed, so keep this workaround off for Clang.
-  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(Memory PRIVATE -include cstdlib)
-  endif()
-endif()
+memory_apply_platform_compile_flags(Memory)
 
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/Testing/MemoryTest.h.in"
@@ -660,11 +655,11 @@ endif()
 install(
   TARGETS Memory
   EXPORT MemoryTargets
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   INCLUDES
-  DESTINATION include
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(
   # Flat "include" destination, matching the $<INSTALL_INTERFACE:include> above and
@@ -676,7 +671,7 @@ install(
   # would not resolve, because Memory::Memory's exported include dir is "include",
   # not "include/Memory".
   DIRECTORY "${_memory_include_root}/"
-  DESTINATION include
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "experimental" EXCLUDE
@@ -690,7 +685,8 @@ include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/Cmake/MemoryConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake" INSTALL_DESTINATION lib/cmake/Memory
+  "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Memory
   PATH_VARS CMAKE_INSTALL_PREFIX
 )
 
@@ -700,14 +696,15 @@ write_basic_package_version_file(
 )
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
-              "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake" DESTINATION lib/cmake/Memory
+              "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfigVersion.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Memory
 )
 
 install(
   EXPORT MemoryTargets
   NAMESPACE Memory::
   FILE MemoryTargets.cmake
-  DESTINATION lib/cmake/Memory
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Memory
 )
 
 # --- Testing ---

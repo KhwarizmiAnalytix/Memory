@@ -1,211 +1,262 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
-  message(STATUS "Emscripten: enabling WebAssembly exception handling (-fwasm-exceptions)")
-  # Enable exceptions because XSigma and third party code rely on C++ exceptions. Allow C++ to
-  # catch exceptions. Emscripten disables it by default due to high overhead. Generate helper
-  # functions to get stack traces for uncaught exceptions
-  string(APPEND CMAKE_CXX_FLAGS " -fwasm-exceptions")
-  string(APPEND CMAKE_C_FLAGS " -fwasm-exceptions")
-  string(APPEND CMAKE_EXE_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
-  string(APPEND CMAKE_SHARED_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
-  string(APPEND CMAKE_MODULE_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
-  # Consumers linking to XSigma also need to add the exception flag.
-  if(TARGET XSigmaPlatform)
-    target_link_options(XSigmaPlatform INTERFACE "-fwasm-exceptions" "-sEXCEPTION_STACK_TRACES=1")
-  endif()
-  if(PROJECT_WEBASSEMBLY_THREADS)
-    message(STATUS "Emscripten: enabling pthreads (-pthread -Wno-pthreads-mem-growth)")
-    # Remove after https://github.com/WebAssembly/design/issues/1271 is closed Set Wno flag globally
-    # because even though the flag is added in XSigmaCompilerWarningFlags.cmake, wrapping tools do
-    # not link with `XSigmaPlatform`
-    string(APPEND CMAKE_CXX_FLAGS " -pthread -Wno-pthreads-mem-growth")
-    string(APPEND CMAKE_C_FLAGS " -pthread -Wno-pthreads-mem-growth")
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -pthread")
-    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -pthread")
-    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -pthread")
-    # Consumers linking to XSigma also need to add the pthread flag.
+    message(STATUS "Emscripten: enabling WebAssembly exception handling (-fwasm-exceptions)")
+    # Enable exceptions because XSigma and third party code rely on C++ exceptions. Allow C++ to
+    # catch exceptions. Emscripten disables it by default due to high overhead. Generate helper
+    # functions to get stack traces for uncaught exceptions
+    string(APPEND CMAKE_CXX_FLAGS " -fwasm-exceptions")
+    string(APPEND CMAKE_C_FLAGS " -fwasm-exceptions")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -fwasm-exceptions -sEXCEPTION_STACK_TRACES=1")
+    # Consumers linking to XSigma also need to add the exception flag.
     if(TARGET XSigmaPlatform)
-      target_compile_options(XSigmaPlatform INTERFACE "-pthread" "-Wno-pthreads-mem-growth")
-      target_link_options(XSigmaPlatform INTERFACE "-pthread")
+        target_link_options(XSigmaPlatform INTERFACE "-fwasm-exceptions" "-sEXCEPTION_STACK_TRACES=1")
     endif()
-  endif()
-  if(PROJECT_WEBASSEMBLY_64_BIT)
-    message(STATUS "Emscripten: enabling 64-bit memory (-sMEMORY64=1)")
-    string(APPEND CMAKE_CXX_FLAGS " -sMEMORY64=1")
-    string(APPEND CMAKE_C_FLAGS " -sMEMORY64=1")
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -sMEMORY64=1")
-    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -sMEMORY64=1")
-    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -sMEMORY64=1")
-    # Consumers linking to XSigma also need to add the memory64 flag.
-    if(TARGET XSigmaPlatform)
-      target_compile_options(XSigmaPlatform INTERFACE "-sMEMORY64=1")
-      target_link_options(XSigmaPlatform INTERFACE "-sMEMORY64=1")
+    if(PROJECT_WEBASSEMBLY_THREADS)
+        message(STATUS "Emscripten: enabling pthreads (-pthread -Wno-pthreads-mem-growth)")
+        # Remove after https://github.com/WebAssembly/design/issues/1271 is closed Set Wno flag
+        # globally because even though the flag is added in XSigmaCompilerWarningFlags.cmake,
+        # wrapping tools do not link with `XSigmaPlatform`
+        string(APPEND CMAKE_CXX_FLAGS " -pthread -Wno-pthreads-mem-growth")
+        string(APPEND CMAKE_C_FLAGS " -pthread -Wno-pthreads-mem-growth")
+        string(APPEND CMAKE_EXE_LINKER_FLAGS " -pthread")
+        string(APPEND CMAKE_SHARED_LINKER_FLAGS " -pthread")
+        string(APPEND CMAKE_MODULE_LINKER_FLAGS " -pthread")
+        # Consumers linking to XSigma also need to add the pthread flag.
+        if(TARGET XSigmaPlatform)
+            target_compile_options(XSigmaPlatform INTERFACE "-pthread" "-Wno-pthreads-mem-growth")
+            target_link_options(XSigmaPlatform INTERFACE "-pthread")
+        endif()
     endif()
-  endif()
+    if(PROJECT_WEBASSEMBLY_64_BIT)
+        message(STATUS "Emscripten: enabling 64-bit memory (-sMEMORY64=1)")
+        string(APPEND CMAKE_CXX_FLAGS " -sMEMORY64=1")
+        string(APPEND CMAKE_C_FLAGS " -sMEMORY64=1")
+        string(APPEND CMAKE_EXE_LINKER_FLAGS " -sMEMORY64=1")
+        string(APPEND CMAKE_SHARED_LINKER_FLAGS " -sMEMORY64=1")
+        string(APPEND CMAKE_MODULE_LINKER_FLAGS " -sMEMORY64=1")
+        # Consumers linking to XSigma also need to add the memory64 flag.
+        if(TARGET XSigmaPlatform)
+            target_compile_options(XSigmaPlatform INTERFACE "-sMEMORY64=1")
+            target_link_options(XSigmaPlatform INTERFACE "-sMEMORY64=1")
+        endif()
+    endif()
 endif()
 
 # MinGW GCC threading support.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND MINGW)
-  message(STATUS "MinGW: adding -mthreads")
-  string(APPEND CMAKE_CXX_FLAGS " -mthreads")
-  string(APPEND CMAKE_C_FLAGS " -mthreads")
-  string(APPEND CMAKE_EXE_LINKER_FLAGS " -mthreads")
-  string(APPEND CMAKE_SHARED_LINKER_FLAGS " -mthreads")
-  string(APPEND CMAKE_MODULE_LINKER_FLAGS " -mthreads")
+    message(STATUS "MinGW: adding -mthreads")
+    string(APPEND CMAKE_CXX_FLAGS " -mthreads")
+    string(APPEND CMAKE_C_FLAGS " -mthreads")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " -mthreads")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -mthreads")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS " -mthreads")
 endif()
 
 if(MSVC AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT
                                                             STREQUAL "GNU")
 )
-  message(STATUS "MSVC compiler detected: applying MSVC-specific flags")
-  # Use the highest warning level for visual c++ compiler. set(CMAKE_CXX_WARNING_LEVEL 4)
-  # if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]") string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS
-  # "${CMAKE_CXX_FLAGS}") else() set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4") endif() Enable C++20
-  # support: /Zc:__cplusplus
-  message(STATUS "  MSVC: enabling C++20 __cplusplus macro (/Zc:__cplusplus)")
-  string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus")
-  # Treat warnings as errors set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX") Disable C4244: conversion
-  # warnings
-  message(
-    STATUS
-      "  MSVC: disabling conversion/truncation/signed warnings (/wd4244 /wd4267 /wd4715 /wd4018)"
-  )
-  string(APPEND CMAKE_CXX_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
-  string(APPEND CMAKE_C_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
+    message(STATUS "MSVC compiler detected: applying MSVC-specific flags")
+    # Use the highest warning level for visual c++ compiler. set(CMAKE_CXX_WARNING_LEVEL 4)
+    # if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]") string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS
+    # "${CMAKE_CXX_FLAGS}") else() set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4") endif() Enable C++20
+    # support: /Zc:__cplusplus
+    message(STATUS "  MSVC: enabling C++20 __cplusplus macro (/Zc:__cplusplus)")
+    string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus")
+    # Treat warnings as errors set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX") Disable C4244: conversion
+    # warnings
+    message(
+        STATUS
+            "  MSVC: disabling conversion/truncation/signed warnings (/wd4244 /wd4267 /wd4715 /wd4018)"
+    )
+    string(APPEND CMAKE_CXX_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
+    string(APPEND CMAKE_C_FLAGS " /wd4244 /wd4267 /wd4715 /wd4018")
 
-  # Enable /MP flag for Visual Studio
-  set(CMAKE_CXX_MP_FLAG ON CACHE BOOL "Build with /MP flag enabled")
-  set(PROCESSOR_COUNT "$ENV{NUMBER_OF_PROCESSORS}")
-  set(CMAKE_CXX_MP_NUM_PROCESSORS ${PROCESSOR_COUNT}
-      CACHE STRING "The maximum number of processes for the /MP flag"
-  )
-  if(CMAKE_CXX_MP_FLAG AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_GENERATOR MATCHES
-                                                                           "Ninja")
-  )
-    message(STATUS "  MSVC: parallel compilation enabled (/MP${CMAKE_CXX_MP_NUM_PROCESSORS})")
-    string(APPEND CMAKE_CXX_FLAGS " /MP${CMAKE_CXX_MP_NUM_PROCESSORS}")
-    string(APPEND CMAKE_C_FLAGS " /MP${CMAKE_CXX_MP_NUM_PROCESSORS}")
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_GENERATOR MATCHES "Ninja")
-    message(STATUS "  Clang/Ninja: skipping /MP — Ninja handles parallelism")
-  endif()
+    # Enable /MP flag for Visual Studio
+    set(CMAKE_CXX_MP_FLAG ON CACHE BOOL "Build with /MP flag enabled")
+    set(PROCESSOR_COUNT "$ENV{NUMBER_OF_PROCESSORS}")
+    set(CMAKE_CXX_MP_NUM_PROCESSORS ${PROCESSOR_COUNT}
+        CACHE STRING "The maximum number of processes for the /MP flag"
+    )
+    if(CMAKE_CXX_MP_FLAG AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_GENERATOR MATCHES
+                                                                             "Ninja")
+    )
+        message(STATUS "  MSVC: parallel compilation enabled (/MP${CMAKE_CXX_MP_NUM_PROCESSORS})")
+        string(APPEND CMAKE_CXX_FLAGS " /MP${CMAKE_CXX_MP_NUM_PROCESSORS}")
+        string(APPEND CMAKE_C_FLAGS " /MP${CMAKE_CXX_MP_NUM_PROCESSORS}")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_GENERATOR MATCHES "Ninja")
+        message(STATUS "  Clang/Ninja: skipping /MP — Ninja handles parallelism")
+    endif()
 
-  # Enable /bigobj for MSVC to allow larger symbol tables
-  message(STATUS "  MSVC: enabling large object files (/bigobj)")
-  string(APPEND CMAKE_CXX_FLAGS " /bigobj")
-  string(APPEND CMAKE_C_FLAGS " /bigobj")
+    # Enable /bigobj for MSVC to allow larger symbol tables
+    message(STATUS "  MSVC: enabling large object files (/bigobj)")
+    string(APPEND CMAKE_CXX_FLAGS " /bigobj")
+    string(APPEND CMAKE_C_FLAGS " /bigobj")
 
-  # Compiler caches cannot safely share a compiler PDB between concurrent
-  # invocations, even with /FS. Embed debug info in each object instead.
-  # Normalize legacy CMake defaults as well as CMP0141's target default.
-  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
-  set(_memory_debug_configs Debug Release RelWithDebInfo MinSizeRel ${CMAKE_CONFIGURATION_TYPES}
-                            ${CMAKE_BUILD_TYPE}
-  )
-  list(REMOVE_DUPLICATES _memory_debug_configs)
-  foreach(_language C CXX)
-    foreach(_config IN LISTS _memory_debug_configs)
-      string(TOUPPER "${_config}" _config_upper)
-      set(_flags_var "CMAKE_${_language}_FLAGS_${_config_upper}")
-      string(REGEX REPLACE "(^|[ \t])[-/]Z[iI]([ \t]|$)" "\\1/Z7\\2" ${_flags_var}
-                           "${${_flags_var}}"
-      )
+    # Compiler caches cannot safely share a compiler PDB between concurrent
+    # invocations, even with /FS. Embed debug info in each object instead.
+    # Normalize legacy CMake defaults as well as CMP0141's target default.
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
+    set(_memory_debug_configs Debug Release RelWithDebInfo MinSizeRel ${CMAKE_CONFIGURATION_TYPES}
+                              ${CMAKE_BUILD_TYPE}
+    )
+    list(REMOVE_DUPLICATES _memory_debug_configs)
+    foreach(_language C CXX)
+        foreach(_config IN LISTS _memory_debug_configs)
+            string(TOUPPER "${_config}" _config_upper)
+            set(_flags_var "CMAKE_${_language}_FLAGS_${_config_upper}")
+            string(REGEX REPLACE "(^|[ \t])[-/]Z[iI]([ \t]|$)" "\\1/Z7\\2" ${_flags_var}
+                                 "${${_flags_var}}"
+            )
+        endforeach()
     endforeach()
-  endforeach()
-  message(STATUS "  MSVC: embedding debug info in object files (/Z7)")
-  string(APPEND CMAKE_CXX_FLAGS " /Z7")
-  string(APPEND CMAKE_C_FLAGS " /Z7")
+    message(STATUS "  MSVC: embedding debug info in object files (/Z7)")
+    string(APPEND CMAKE_CXX_FLAGS " /Z7")
+    string(APPEND CMAKE_C_FLAGS " /Z7")
 
-  # Use /utf-8 so that MSVC uses utf-8 in source files and object files
-  message(STATUS "  MSVC: setting source/output encoding to UTF-8 (/utf-8)")
-  string(APPEND CMAKE_CXX_FLAGS " /utf-8")
-  string(APPEND CMAKE_C_FLAGS " /utf-8")
+    # Use /utf-8 so that MSVC uses utf-8 in source files and object files
+    message(STATUS "  MSVC: setting source/output encoding to UTF-8 (/utf-8)")
+    string(APPEND CMAKE_CXX_FLAGS " /utf-8")
+    string(APPEND CMAKE_C_FLAGS " /utf-8")
 
-  # use /EHsc for exception handling
-  message(STATUS "  MSVC: enabling structured exception handling (/EHsc)")
-  string(APPEND CMAKE_CXX_FLAGS " /EHsc")
-  string(APPEND CMAKE_C_FLAGS " /EHsc")
+    # use /EHsc for exception handling
+    message(STATUS "  MSVC: enabling structured exception handling (/EHsc)")
+    string(APPEND CMAKE_CXX_FLAGS " /EHsc")
+    string(APPEND CMAKE_C_FLAGS " /EHsc")
 endif()
 
 # Suppress MSVC CRT deprecation warnings for all compilers that target the
 # Windows CRT (cl.exe, clang-cl, clang++ with MSVC CRT).  MinGW ships its own
 # CRT that does not use these macros, so it is excluded.
 if(WIN32 AND NOT MINGW)
-  add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS)
-  add_definitions(-D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS)
+    add_definitions(
+        -D_CRT_SECURE_NO_DEPRECATE -D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS
+    )
+    add_definitions(-D_SCL_SECURE_NO_DEPRECATE -D_SCL_SECURE_NO_WARNINGS)
 endif()
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  message(STATUS "Clang on Windows: applying Clang-specific flags")
+    message(STATUS "Clang on Windows: applying Clang-specific flags")
 
-  # Colored diagnostics — Ninja relays Clang's ANSI codes correctly; MSVC color codes are not
-  string(APPEND CMAKE_CXX_FLAGS " -fcolor-diagnostics")
-  string(APPEND CMAKE_C_FLAGS " -fcolor-diagnostics")
+    # Colored diagnostics — Ninja relays Clang's ANSI codes correctly; MSVC color codes are not
+    string(APPEND CMAKE_CXX_FLAGS " -fcolor-diagnostics")
+    string(APPEND CMAKE_C_FLAGS " -fcolor-diagnostics")
 
-  # Suppress spurious warnings that fire when MSVC-style flags are mixed with Clang
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-unused-command-line-argument")
-  string(APPEND CMAKE_C_FLAGS " -Wno-unused-command-line-argument")
+    # Suppress spurious warnings that fire when MSVC-style flags are mixed with Clang
+    string(APPEND CMAKE_CXX_FLAGS " -Wno-unused-command-line-argument")
+    string(APPEND CMAKE_C_FLAGS " -Wno-unused-command-line-argument")
 
-  # MSVC CRT marks getenv/strcpy/etc. with __declspec(deprecated) under Clang;
-  # _CRT_SECURE_NO_WARNINGS removes the #pragma form but not the __declspec form, so Clang still
-  # fires -Wdeprecated-declarations
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
-  string(APPEND CMAKE_C_FLAGS " -Wno-deprecated-declarations")
+    # MSVC CRT marks getenv/strcpy/etc. with __declspec(deprecated) under Clang;
+    # _CRT_SECURE_NO_WARNINGS removes the #pragma form but not the __declspec form, so Clang still
+    # fires -Wdeprecated-declarations
+    string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
+    string(APPEND CMAKE_C_FLAGS " -Wno-deprecated-declarations")
 
-  # Third-party C code (e.g. mimalloc) uses old-style K&R function declarations without prototypes
-  string(APPEND CMAKE_C_FLAGS " -Wno-strict-prototypes")
+    # Third-party C code (e.g. mimalloc) uses old-style K&R function declarations without prototypes
+    string(APPEND CMAKE_C_FLAGS " -Wno-strict-prototypes")
 
-  if(CMAKE_GENERATOR MATCHES "Ninja")
-    message(STATUS "  Clang/Ninja/Windows: applying Ninja-specific adjustments")
+    if(CMAKE_GENERATOR MATCHES "Ninja")
+        message(STATUS "  Clang/Ninja/Windows: applying Ninja-specific adjustments")
 
-    if(NOT MSVC)
-      # Plain clang++ driver: emit CodeView debug info so WinDbg / VS can read symbols
-      string(APPEND CMAKE_CXX_FLAGS " -gcodeview")
-      string(APPEND CMAKE_C_FLAGS " -gcodeview")
+        if(NOT MSVC)
+            # Plain clang++ driver: emit CodeView debug info so WinDbg / VS can read symbols
+            string(APPEND CMAKE_CXX_FLAGS " -gcodeview")
+            string(APPEND CMAKE_C_FLAGS " -gcodeview")
+        endif()
     endif()
-  endif()
+endif()
+
+# On macOS with a Homebrew LLVM clang, libLogging.dylib is built against
+# LLVM's libc++ (from lib/c++).  Memory's own executables must use the same
+# libc++ so that std::exception's typeinfo is a single shared object and
+# cross-library catch (const std::exception &) works.  Without this,
+# MemoryCxxTests catches a different std::exception typeinfo from Apple's
+# system libc++ and EXPECT_THROW(..., std::exception) fails.
+if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(DEFINED MEMORY_LLVM_INSTALL_PREFIX AND MEMORY_LLVM_INSTALL_PREFIX)
+        set(_memory_llvm_prefix "${MEMORY_LLVM_INSTALL_PREFIX}")
+    elseif(EXISTS "/opt/homebrew/opt/llvm/lib/c++")
+        set(_memory_llvm_prefix "/opt/homebrew/opt/llvm")
+    elseif(EXISTS "/usr/local/opt/llvm/lib/c++")
+        set(_memory_llvm_prefix "/usr/local/opt/llvm")
+    else()
+        set(_memory_llvm_prefix "")
+    endif()
+
+    if(_memory_llvm_prefix)
+        set(_memory_llvm_link_flags
+            -L${_memory_llvm_prefix}/lib/c++
+            -Wl,-rpath,${_memory_llvm_prefix}/lib/c++
+        )
+        foreach(_flag IN LISTS _memory_llvm_link_flags)
+            string(FIND "${CMAKE_EXE_LINKER_FLAGS}" "${_flag}" _flag_found)
+            if(_flag_found EQUAL -1)
+                add_link_options(${_flag})
+            endif()
+        endforeach()
+        unset(_memory_llvm_link_flags)
+        unset(_memory_llvm_prefix)
+    endif()
 endif()
 
 if(UNIX AND NOT APPLE)
-  include(CheckCXXCompilerFlag)
-  include(CheckCCompilerFlag)
-  include(CheckCXXSourceCompiles)
+    include(CheckCXXCompilerFlag)
+    include(CheckCCompilerFlag)
+    include(CheckCXXSourceCompiles)
 
-  # Append flag to CMAKE_CXX_FLAGS and CMAKE_C_FLAGS if both compilers accept it.
-  macro(_memory_add_compile_flag _flag)
-    string(MAKE_C_IDENTIFIER "${_flag}" _id)
-    check_cxx_compiler_flag("${_flag}" _CXX_HAS${_id})
-    if(CMAKE_C_COMPILER_LOADED)
-      check_c_compiler_flag("${_flag}" _C_HAS${_id})
-    endif()
-    if(_CXX_HAS${_id})
-      string(APPEND CMAKE_CXX_FLAGS " ${_flag}")
-    endif()
-    if(_C_HAS${_id})
-      string(APPEND CMAKE_C_FLAGS " ${_flag}")
-    endif()
-  endmacro()
+    # Append flag to CMAKE_CXX_FLAGS and CMAKE_C_FLAGS if both compilers accept it.
+    macro(_memory_add_compile_flag _flag)
+        string(MAKE_C_IDENTIFIER "${_flag}" _id)
+        check_cxx_compiler_flag("${_flag}" _CXX_HAS${_id})
+        if(CMAKE_C_COMPILER_LOADED)
+            check_c_compiler_flag("${_flag}" _C_HAS${_id})
+        endif()
+        if(_CXX_HAS${_id})
+            string(APPEND CMAKE_CXX_FLAGS " ${_flag}")
+        endif()
+        if(_C_HAS${_id})
+            string(APPEND CMAKE_C_FLAGS " ${_flag}")
+        endif()
+    endmacro()
 
-  # Append flag to all linker flag variables if the linker accepts it. Uses
-  # CMAKE_REQUIRED_LINK_OPTIONS (CMake >= 3.14) since check_linker_flag needs 3.18.
-  macro(_memory_add_linker_flag _flag)
-    string(MAKE_C_IDENTIFIER "${_flag}" _id)
-    set(CMAKE_REQUIRED_LINK_OPTIONS "${_flag}")
-    check_cxx_source_compiles("int main(){}" _LINKER_HAS${_id})
-    unset(CMAKE_REQUIRED_LINK_OPTIONS)
-    if(_LINKER_HAS${_id})
-      string(APPEND CMAKE_EXE_LINKER_FLAGS " ${_flag}")
-      string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${_flag}")
-      string(APPEND CMAKE_MODULE_LINKER_FLAGS " ${_flag}")
+    # Append flag to all linker flag variables if the linker accepts it. Uses
+    # CMAKE_REQUIRED_LINK_OPTIONS (CMake >= 3.14) since check_linker_flag needs 3.18.
+    macro(_memory_add_linker_flag _flag)
+        string(MAKE_C_IDENTIFIER "${_flag}" _id)
+        set(CMAKE_REQUIRED_LINK_OPTIONS "${_flag}")
+        check_cxx_source_compiles("int main(){}" _LINKER_HAS${_id})
+        unset(CMAKE_REQUIRED_LINK_OPTIONS)
+        if(_LINKER_HAS${_id})
+            string(APPEND CMAKE_EXE_LINKER_FLAGS " ${_flag}")
+            string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${_flag}")
+            string(APPEND CMAKE_MODULE_LINKER_FLAGS " ${_flag}")
+        endif()
+    endmacro()
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        _memory_add_compile_flag("-fPIC")
+        _memory_add_compile_flag("-pipe")
     endif()
-  endmacro()
 
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    _memory_add_compile_flag("-fPIC")
-    _memory_add_compile_flag("-pipe")
-  endif()
-
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    _memory_add_compile_flag("-fcolor-diagnostics")
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    _memory_add_compile_flag("-fdiagnostics-color=always")
-  endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        _memory_add_compile_flag("-fcolor-diagnostics")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        _memory_add_compile_flag("-fdiagnostics-color=always")
+    endif()
 endif()
+
+# Apply per-target compilation flags: /WX on MSVC (excluding CUDA TUs and the
+# GNU-frontend clang-cl variant that rejects /WX as a path), -include cstdlib
+# everywhere else (except Clang, which has exhibited compiler instability with
+# forced `-include cstdlib` on large translation units in some versions).
+function(memory_apply_platform_compile_flags target)
+    if(MSVC AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT
+                                                                STREQUAL "GNU")
+    )
+        # Exclude CUDA: nvcc's frontend does not recognize the bare MSVC-style /WX
+        # flag and misparses it as a second input file.
+        target_compile_options(${target} PRIVATE $<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:/WX>)
+    elseif(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(${target} PRIVATE -include cstdlib)
+    endif()
+endfunction()
