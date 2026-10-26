@@ -615,31 +615,34 @@ jobs:
         run: bazel test //... --test_output=errors
 
   # ---------------------------------------------------------------------------
-  # Sanitizers: Clang ASan and UBSan, CPU backend, Debug.
-  # Linux + macOS only — Cmake/sanitize.cmake requires Clang/GCC and explicitly
-  # warns "Sanitizers require GCC or Clang" for MSVC, so Windows is skipped
-  # (unsupported by the codebase's own sanitizer module, not a CI gap).
+  # Sanitizers: Clang, CPU backend, Debug. Types the hosted toolchain can run:
+  #   address, undefined, thread — Ubuntu and macOS
+  #   leak                       — Ubuntu only (Apple Clang rejects -fsanitize=leak)
+  # MemorySanitizer (memory) needs an instrumented C++ standard library, which
+  # these runners do not provide, so it stays a local Clang build.
+  # Windows is skipped: Cmake/sanitize.cmake requires GCC or Clang.
   #
   # Standard GitHub-hosted plans run at most 5 macOS jobs at once
-  # (https://docs.github.com/en/actions/reference/limits). This workflow
-  # otherwise requests 6 macos-latest runners together — macOS CPU, Bazel,
-  # coverage, and both sanitizers — and the extra one stays queued with
-  # "All GitHub-hosted runners with label [macos-latest] are busy."
-  # Waiting for macOS CPU keeps the initial macOS requests at 3 (CPU, Bazel,
-  # coverage). Profiler on macOS runs later, inside macos-allocators.
-  # !cancelled() still runs the sanitizers when that job fails.
+  # (https://docs.github.com/en/actions/reference/limits). Waiting for macOS
+  # CPU keeps the initial macOS requests at 3 (CPU, Bazel, coverage). The
+  # three macOS sanitizers start after that. Profiler on macOS runs later,
+  # inside macos-allocators. !cancelled() still runs the sanitizers when the
+  # macOS CPU job fails.
   # ---------------------------------------------------------------------------
   sanitize:
     name: Sanitizer / ${{ matrix.os }} / ${{ matrix.sanitizer }}
     needs: macos-cpu
     if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        sanitizer: [address, undefined]
+        sanitizer: [address, undefined, thread, leak]
+        exclude:
+          - os: macos-latest
+            sanitizer: leak
     env:
       CC: clang
       CXX: clang++
@@ -674,7 +677,76 @@ jobs:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:allocator_may_return_null=1
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/Scripts/suppressions/lsan_suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          TSAN_OPTIONS: halt_on_error=1:abort_on_error=1
         run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Valgrind memcheck. Linux only: MEMORY_ENABLE_VALGRIND turns mimalloc off
+  # (mimalloc's reserved address space crashes Valgrind) and ctest -T memcheck
+  # uses the suppression file and the 20x timeout multiplier. macOS hosted
+  # runners have no Valgrind.
+  # ---------------------------------------------------------------------------
+  valgrind:
+    name: Valgrind
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build valgrind
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMEMORY_GPU_BACKEND=none
+          -DMEMORY_ENABLE_TESTING=ON
+          -DMEMORY_ENABLE_BENCHMARK=OFF
+          -DMEMORY_ENABLE_VALGRIND=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test under Valgrind
+        run: ctest --test-dir build -T memcheck --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # cppcheck: static analysis of src/ via Scripts/helpers/cppcheck.py.
+  # Fails the job on severity "error". Style findings stay in the log.
+  # ---------------------------------------------------------------------------
+  cppcheck:
+    name: cppcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Analyze
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python3 - <<'PY'
+          import subprocess
+          import sys
+
+          sys.path.insert(0, "Scripts")
+          from helpers.cppcheck import build_cppcheck_command, process_cppcheck_results
+
+          output = "build/cppcheck_output.log"
+          command = build_cppcheck_command(".", output)
+          print(" ".join(command))
+          result = subprocess.run(command, check=False)
+          sys.exit(process_cppcheck_results(result, output, verbose=True))
+          PY
 
   # ---------------------------------------------------------------------------
   # Coverage: gcc/gcov+lcov (Linux), Homebrew LLVM/clang (macOS), MSVC/OpenCppCoverage

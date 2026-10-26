@@ -378,7 +378,8 @@ Run CMake configuration regression checks with
 | `MEMORY_ENABLE_NUMA` | OFF | NUMA support; per-allocation node binding stays off unless `cpu::memory_allocator::set_numa_placement(true)` |
 | `MEMORY_ENABLE_MIMALLOC_STATS` | OFF | Runtime stats reporting |
 | `MEMORY_ENABLE_COVERAGE` | OFF | Coverage instrumentation |
-| `MEMORY_ENABLE_SANITIZER` | OFF | Sanitizer (address/memory/thread/undefined) |
+| `MEMORY_ENABLE_SANITIZER` | OFF | Sanitizer (`address`, `undefined`, `thread`, `leak`, `memory`) |
+| `MEMORY_ENABLE_VALGRIND` | OFF | Run the test suite under Valgrind memcheck |
 
 **See `CMakeLists.txt` for complete list**
 
@@ -413,13 +414,15 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 | **macOS CPU** | macOS, AppleClang | Release, CPU backend, mimalloc |
 | **Windows CPU** | Windows, MSVC | Release, CPU backend, mimalloc |
 | **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
-| **Sanitizers** | Ubuntu and macOS, Clang | ASan and UBSan, Debug, CPU backend |
+| **Sanitizers** | Ubuntu and macOS, Clang | ASan, UBSan, and TSan. LeakSanitizer on Ubuntu. Debug, CPU backend |
+| **Valgrind** | Ubuntu, gcc | Debug CPU tests under memcheck (`MEMORY_ENABLE_VALGRIND=ON`) |
+| **cppcheck** | Ubuntu | Static analysis of `src/`; errors fail the job |
 | **Coverage** | Ubuntu, macOS, Windows | Instrumented CPU-backend tests; HTML report uploaded as `coverage-html-<os>` |
 | **Windows Profiler** | Windows, MSVC | `MEMORY_ENABLE_PROFILER=ON` against an installed Profiler |
 | **Linux CUDA** | Self-hosted NVIDIA GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 | **Linux HIP** | Self-hosted AMD GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 
-Hosted jobs exercise every allocator flag the platform accepts. Linux adds NUMA, memkind, and Profiler. macOS adds Metal and Profiler. Windows uses `_aligned_malloc` for the native allocator, builds TBB from source when it is not already installed, and has its own Profiler job. CUDA and HIP stay on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) and run only while `GPU_RUNNERS_AVAILABLE` is `true`.
+Hosted jobs exercise every allocator flag the platform accepts. Linux adds NUMA, memkind, and Profiler. macOS adds Metal and Profiler. Windows uses `_aligned_malloc` for the native allocator, builds TBB from source when it is not already installed, and has its own Profiler job. Sanitizer jobs cover AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer on Ubuntu and macOS, plus LeakSanitizer on Ubuntu. MemorySanitizer stays local: it needs a C++ standard library built with `-fsanitize=memory`, which the hosted images do not ship. Valgrind and cppcheck run on Ubuntu. CUDA and HIP stay on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) and run only while `GPU_RUNNERS_AVAILABLE` is `true`.
 
 ### Coverage
 

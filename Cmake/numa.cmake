@@ -27,8 +27,10 @@ if(NOT UNIX)
   return()
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
-find_package(Numa)
+# Include the finder by path. Appending this directory to CMAKE_MODULE_PATH
+# would make Logging's include(lto) load Memory's lto.cmake, which does not
+# define xsigma_lto_compute_default.
+include("${CMAKE_CURRENT_LIST_DIR}/FindNuma.cmake")
 if(NOT NUMA_FOUND)
   message(WARNING "NUMA library not found. Suppress this warning with -DMEMORY_ENABLE_NUMA=OFF")
   set(MEMORY_ENABLE_NUMA OFF CACHE BOOL "Enable numa node" FORCE)
