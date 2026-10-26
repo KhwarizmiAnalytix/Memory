@@ -111,7 +111,7 @@ MEMORY_FORCE_INLINE void* allocate_zero(
 // ---------------------------------------------------------------------------
 // mimalloc statistics — available only when the library is configured with
 // MEMORY_ENABLE_MIMALLOC_STATS=ON (compiles the vendored mimalloc with
-// MI_STAT=1; mimalloc release builds otherwise compile all counters out).
+// MI_STATS=1; otherwise the counters are compiled out).
 // Because mimalloc is linked with MI_OVERRIDE=OFF, the statistics cover only
 // allocations that went through this namespace — not the process's malloc.
 // ---------------------------------------------------------------------------

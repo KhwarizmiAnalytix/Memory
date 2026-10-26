@@ -91,10 +91,11 @@ option(MEMORY_ENABLE_PROFILER "Enable profiling support via an installed Profile
 option(MEMORY_ENABLE_MIMALLOC "Enable Microsoft mimalloc high-performance memory allocator" ON)
 mark_as_advanced(MEMORY_ENABLE_MIMALLOC)
 
-# mimalloc statistics — OFF by default: mimalloc release builds compile stats out (MI_STAT=0).
-# ON compiles the vendored mimalloc with MI_STAT=1 so MIMALLOC_SHOW_STATS / mi_stats_print() and
-# the cpu::memory_allocator stats helpers report real counters.
-option(MEMORY_ENABLE_MIMALLOC_STATS "Compile mimalloc statistics support (MI_STAT=1)" OFF)
+# mimalloc statistics — OFF by default. mimalloc's own switch is MI_STATS (0 = counters
+# compiled out, 1 = fast counters). ON forces MI_STATS=1 before the vendored
+# subdirectory is added, so mi_stats_print() and the cpu::memory_allocator stats
+# helpers report real counters.
+option(MEMORY_ENABLE_MIMALLOC_STATS "Compile mimalloc statistics support (MI_STATS=1)" OFF)
 mark_as_advanced(MEMORY_ENABLE_MIMALLOC_STATS)
 
 # memkind — Linux-only extended-memory allocator (pmem, HBM, etc.). Forced OFF on non-Linux
@@ -295,6 +296,15 @@ if(MEMORY_ENABLE_MIMALLOC)
   set(MI_BUILD_SHARED OFF CACHE BOOL "Build mimalloc as static library" FORCE)
   set(MI_BUILD_STATIC ON CACHE BOOL "Build mimalloc as static library" FORCE)
 
+  # mimalloc records MI_STATS into the static library while its subdirectory is
+  # added. Set the cache first. A compile definition applied afterwards cannot
+  # replace that value. The macro mimalloc reads is MI_STATS.
+  if(MEMORY_ENABLE_MIMALLOC_STATS)
+    set(MI_STATS "ON" CACHE STRING "Enable mimalloc statistics (MI_STATS=1)" FORCE)
+  else()
+    set(MI_STATS "OFF" CACHE STRING "Compile out mimalloc statistics (MI_STATS=0)" FORCE)
+  endif()
+
   memory_add_third_party_library(
     mimalloc
     CONDITION
@@ -319,12 +329,6 @@ if(MEMORY_ENABLE_MIMALLOC)
   )
 
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tp_mimalloc}/mimalloc/include")
-
-  # mimalloc release builds compile statistics out (MI_STAT=0); re-enable them on the
-  # vendored target only — no ThirdParty source edits.
-  if(MEMORY_ENABLE_MIMALLOC_STATS AND TARGET mimalloc-static)
-    target_compile_definitions(mimalloc-static PRIVATE MI_STAT=1)
-  endif()
 
   # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
   if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)

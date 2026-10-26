@@ -63,6 +63,155 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
+  # Linux CPU allocators: the default jobs above keep mimalloc on, TBB off,
+  # and mimalloc stats off, so allocate() never compiles the other two
+  # backends and MimallocStatsAvailability stays on its has_stats()==false
+  # branch. These three legs are mutually exclusive in allocate_raw():
+  #   tbb            — MEMORY_ENABLE_MIMALLOC=OFF, MEMORY_ENABLE_TBB=ON
+  #                    (mimalloc wins the #if when both are on)
+  #   native         — both off: malloc / posix_memalign
+  #   mimalloc-stats — mimalloc on and MEMORY_ENABLE_MIMALLOC_STATS=ON
+  #                    (vendored mimalloc compiled with MI_STATS=1)
+  # Coverage from each leg is uploaded so the Codecov report includes those
+  # branches. libtbb-dev supplies TBB::tbbmalloc; tbb_memory.cmake would
+  # otherwise FetchContent oneTBB during configure. MEMORY_ENABLE_EXTERNAL
+  # stays OFF so the stats leg compiles ThirdParty/mimalloc with MI_STATS=1
+  # instead of linking a system mimalloc that ignores that switch.
+  # ---------------------------------------------------------------------------
+  linux-allocators:
+    name: Linux allocators / ${{ matrix.allocator }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        allocator: [tbb, native, mimalloc-stats]
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          packages=(ninja-build lcov)
+          if [ "${{ matrix.allocator }}" = "tbb" ]; then
+            packages+=(libtbb-dev)
+          fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install coverage-tool
+        run: pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
+
+      - name: Configure
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
+        run: |
+          set -euo pipefail
+          extra=()
+          case "$ALLOCATOR" in
+            tbb)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=OFF
+                -DMEMORY_ENABLE_TBB=ON
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+              )
+              ;;
+            native)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=OFF
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+              )
+              ;;
+            mimalloc-stats)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=ON
+              )
+              ;;
+            *)
+              echo "unknown allocator: $ALLOCATOR" >&2
+              exit 1
+              ;;
+          esac
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DMEMORY_GPU_BACKEND=none \
+            -DMEMORY_ENABLE_TESTING=ON \
+            -DMEMORY_ENABLE_BENCHMARK=OFF \
+            -DMEMORY_ENABLE_COVERAGE=ON \
+            -DMEMORY_ENABLE_EXTERNAL=OFF \
+            "${extra[@]}" 2>&1 | tee configure.log
+
+      - name: Verify allocator configuration
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, sys
+          allocator = os.environ["ALLOCATOR"]
+          log = pathlib.Path("configure.log").read_text()
+          ninja = pathlib.Path("build/build.ninja").read_text()
+          summary = {
+              "tbb": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "ON"},
+              "native": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "OFF"},
+              "mimalloc-stats": {"Mimalloc": "ON", "Mimalloc stats": "ON", "Tbb": "OFF"},
+          }[allocator]
+          defines = {
+              "tbb": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=1", "MEMORY_HAS_MIMALLOC_STATS=0"),
+              "native": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=0", "MEMORY_HAS_MIMALLOC_STATS=0"),
+              "mimalloc-stats": ("MEMORY_HAS_MIMALLOC=1", "MEMORY_HAS_TBB=0", "MEMORY_HAS_MIMALLOC_STATS=1"),
+          }[allocator]
+          for label, value in summary.items():
+              needle = f"  {label:<20}: {value}"
+              if needle not in log:
+                  sys.exit(f"configure summary missing {needle!r}")
+          if allocator == "tbb":
+              if "Intel TBB memory allocator configuration complete" not in log:
+                  sys.exit("TBB allocator was not configured")
+              if "TBB::tbbmalloc target is not available" in log:
+                  sys.exit("TBB::tbbmalloc was not found")
+          for define in defines:
+              if define not in ninja:
+                  sys.exit(f"build.ninja missing {define}")
+          if allocator == "mimalloc-stats":
+              if "MI_STATS=1" not in ninja:
+                  sys.exit("mimalloc was not compiled with MI_STATS=1")
+              if "MI_STATS=0" in ninja:
+                  sys.exit("mimalloc still has MI_STATS=0")
+          else:
+              if "MI_STATS=1" in ninja:
+                  sys.exit("MI_STATS=1 was set on a non-stats build")
+          print(f"verified {allocator}")
+          PY
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Collect coverage
+        run: coverage-tool --build=build --compiler=gcc
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build/coverage_filtered.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ---------------------------------------------------------------------------
   # External Profiler: Profiler is a sibling repository, not a ThirdParty
   # submodule. Check it out on its own, install it, then configure Memory
   # against that prefix with MEMORY_ENABLE_PROFILER=ON. The option defaults

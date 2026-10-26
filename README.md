@@ -406,7 +406,8 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 
 | Job | Where | What it checks |
 |-----|--------|----------------|
-| **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none` |
+| **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none`, mimalloc on |
+| **Linux allocators** | Ubuntu, gcc | Debug coverage builds for TBB (`mimalloc` off), native malloc (mimalloc and TBB off), and mimalloc stats (`MI_STATS=1`) |
 | **macOS CPU** | macOS, AppleClang | Release, CPU backend |
 | **Windows CPU** | Windows, MSVC | Release, CPU backend |
 | **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
@@ -415,7 +416,7 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 | **Linux CUDA** | Self-hosted NVIDIA GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 | **Linux HIP** | Self-hosted AMD GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 
-Hosted jobs exercise the CPU allocator. CUDA and HIP run on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) only while the repository variable `GPU_RUNNERS_AVAILABLE` is `true`. Metal stays a local Apple build.
+Hosted jobs exercise the CPU allocator. The default CPU jobs use mimalloc. The Linux allocators job also builds and tests TBB (`MEMORY_ENABLE_MIMALLOC=OFF` so `allocate()` uses `tbbmalloc`), native `malloc` / `posix_memalign`, and mimalloc with `MI_STATS=1`. CUDA and HIP run on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) only while the repository variable `GPU_RUNNERS_AVAILABLE` is `true`. Metal stays a local Apple build.
 
 ### Coverage
 
@@ -444,7 +445,7 @@ pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
 coverage-tool --build=build --compiler=gcc
 ```
 
-Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. The reported percentage is CPU-backend coverage; CUDA, HIP, and Metal paths are outside that number.
+Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. Codecov merges that default mimalloc build with the three Linux allocator builds, so TBB, native malloc, and mimalloc stats are included. CUDA, HIP, and Metal paths stay outside that number.
 
 ---
 

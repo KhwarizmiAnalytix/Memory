@@ -397,7 +397,7 @@ class MemoryFlags:
             "enable Google Benchmark for Memory (default ON; token disables it)",
             "enable profiling via an installed Profiler library (default OFF; token enables it)",
             "enable the mimalloc CPU allocator (default ON; token disables it)",
-            "compile mimalloc statistics support (MI_STAT=1)",
+            "compile mimalloc statistics support (MI_STATS=1)",
             "enable the memkind extended-memory allocator (Linux only)",
             "enable the Intel TBB scalable memory allocator (tbbmalloc)",
             "enable NUMA-aware allocation (Linux only)",
