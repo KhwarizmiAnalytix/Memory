@@ -407,16 +407,19 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 | Job | Where | What it checks |
 |-----|--------|----------------|
 | **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none`, mimalloc on |
-| **Linux allocators** | Ubuntu, gcc | Debug coverage builds for TBB (`mimalloc` off), native malloc (mimalloc and TBB off), and mimalloc stats (`MI_STATS=1`) |
-| **macOS CPU** | macOS, AppleClang | Release, CPU backend |
-| **Windows CPU** | Windows, MSVC | Release, CPU backend |
+| **Linux allocators** | Ubuntu, gcc | TBB, native malloc, mimalloc stats, NUMA (`libnuma`), memkind, and Profiler |
+| **macOS allocators** | macOS, AppleClang | TBB, native malloc, mimalloc stats, Metal, and Profiler. Runs after the sanitizers |
+| **Windows allocators** | Windows, MSVC | TBB, native `_aligned_malloc`, and mimalloc stats |
+| **macOS CPU** | macOS, AppleClang | Release, CPU backend, mimalloc |
+| **Windows CPU** | Windows, MSVC | Release, CPU backend, mimalloc |
 | **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
 | **Sanitizers** | Ubuntu and macOS, Clang | ASan and UBSan, Debug, CPU backend |
 | **Coverage** | Ubuntu, macOS, Windows | Instrumented CPU-backend tests; HTML report uploaded as `coverage-html-<os>` |
+| **Windows Profiler** | Windows, MSVC | `MEMORY_ENABLE_PROFILER=ON` against an installed Profiler |
 | **Linux CUDA** | Self-hosted NVIDIA GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 | **Linux HIP** | Self-hosted AMD GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 
-Hosted jobs exercise the CPU allocator. The default CPU jobs use mimalloc. The Linux allocators job also builds and tests TBB (`MEMORY_ENABLE_MIMALLOC=OFF` so `allocate()` uses `tbbmalloc`), native `malloc` / `posix_memalign`, and mimalloc with `MI_STATS=1`. CUDA and HIP run on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) only while the repository variable `GPU_RUNNERS_AVAILABLE` is `true`. Metal stays a local Apple build.
+Hosted jobs exercise every allocator flag the platform accepts. Linux adds NUMA, memkind, and Profiler. macOS adds Metal and Profiler. Windows uses `_aligned_malloc` for the native allocator, builds TBB from source when it is not already installed, and has its own Profiler job. CUDA and HIP stay on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) and run only while `GPU_RUNNERS_AVAILABLE` is `true`.
 
 ### Coverage
 
@@ -445,7 +448,7 @@ pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
 coverage-tool --build=build --compiler=gcc
 ```
 
-Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. Codecov merges that default mimalloc build with the three Linux allocator builds, so TBB, native malloc, and mimalloc stats are included. CUDA, HIP, and Metal paths stay outside that number.
+Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. Codecov merges the default mimalloc build with the Linux allocator builds, so TBB, native malloc, mimalloc stats, NUMA, and memkind are included. macOS Metal, CUDA, and HIP stay outside that Linux upload.
 
 ---
 

@@ -63,29 +63,26 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # ---------------------------------------------------------------------------
-  # Linux CPU allocators: the default jobs above keep mimalloc on, TBB off,
-  # and mimalloc stats off, so allocate() never compiles the other two
-  # backends and MimallocStatsAvailability stays on its has_stats()==false
-  # branch. These three legs are mutually exclusive in allocate_raw():
-  #   tbb            — MEMORY_ENABLE_MIMALLOC=OFF, MEMORY_ENABLE_TBB=ON
-  #                    (mimalloc wins the #if when both are on)
-  #   native         — both off: malloc / posix_memalign
-  #   mimalloc-stats — mimalloc on and MEMORY_ENABLE_MIMALLOC_STATS=ON
-  #                    (vendored mimalloc compiled with MI_STATS=1)
-  # Coverage from each leg is uploaded so the Codecov report includes those
-  # branches. libtbb-dev supplies TBB::tbbmalloc; tbb_memory.cmake would
-  # otherwise FetchContent oneTBB during configure. MEMORY_ENABLE_EXTERNAL
-  # stays OFF so the stats leg compiles ThirdParty/mimalloc with MI_STATS=1
-  # instead of linking a system mimalloc that ignores that switch.
+  # Linux CPU allocators. Every flag the Linux build can honor:
+  #   tbb            — mimalloc off so allocate() uses tbbmalloc
+  #   native         — mimalloc and TBB off: malloc / posix_memalign
+  #   mimalloc-stats — mimalloc on, MI_STATS=1
+  #   numa           — libnuma, MEMORY_HAS_NUMA=1 (Linux only)
+  #   memkind        — MEMORY_HAS_MEMKIND=1 (forced off on macOS and Windows)
+  #   profiler       — installed Profiler, MEMORY_ENABLE_PROFILER=ON
+  # macOS and Windows run the subset those platforms accept in their own
+  # jobs. Coverage from each Linux leg is uploaded. libtbb-dev supplies
+  # TBB::tbbmalloc. MEMORY_ENABLE_EXTERNAL stays OFF so the stats leg
+  # compiles ThirdParty/mimalloc with MI_STATS=1.
   # ---------------------------------------------------------------------------
   linux-allocators:
     name: Linux allocators / ${{ matrix.allocator }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        allocator: [tbb, native, mimalloc-stats]
+        allocator: [tbb, native, mimalloc-stats, numa, memkind, profiler]
     env:
       CC: gcc
       CXX: g++
@@ -98,9 +95,10 @@ jobs:
         run: |
           sudo apt-get update
           packages=(ninja-build lcov)
-          if [ "${{ matrix.allocator }}" = "tbb" ]; then
-            packages+=(libtbb-dev)
-          fi
+          case "${{ matrix.allocator }}" in
+            tbb) packages+=(libtbb-dev) ;;
+            numa) packages+=(libnuma-dev) ;;
+          esac
           sudo apt-get install -y "${packages[@]}"
 
       - uses: actions/setup-python@v5
@@ -109,6 +107,30 @@ jobs:
 
       - name: Install coverage-tool
         run: pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
+
+      - name: Checkout Profiler
+        if: matrix.allocator == 'profiler'
+        uses: actions/checkout@v4
+        with:
+          repository: KhwarizmiAnalytix/Profiler
+          path: profiler
+          submodules: recursive
+
+      - name: Build and install Profiler
+        if: matrix.allocator == 'profiler'
+        run: >
+          cmake -S profiler -B profiler_build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/profiler_install
+          -DPROFILER_GPU_BACKEND=none
+          -DPROFILER_ENABLE_TESTING=OFF
+          -DPROFILER_ENABLE_EXAMPLES=OFF
+          -DPROFILER_ENABLE_BENCHMARKS=OFF
+          -DPROFILER_ENABLE_INSTALL=ON
+          -DBUILD_SHARED_LIBS=OFF
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          && cmake --build profiler_build
+          && cmake --install profiler_build
 
       - name: Configure
         env:
@@ -138,6 +160,31 @@ jobs:
                 -DMEMORY_ENABLE_MIMALLOC_STATS=ON
               )
               ;;
+            numa)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                -DMEMORY_ENABLE_NUMA=ON
+              )
+              ;;
+            memkind)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                -DMEMORY_ENABLE_MEMKIND=ON
+              )
+              ;;
+            profiler)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                -DMEMORY_ENABLE_PROFILER=ON
+                -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install"
+              )
+              ;;
             *)
               echo "unknown allocator: $ALLOCATOR" >&2
               exit 1
@@ -155,45 +202,7 @@ jobs:
       - name: Verify allocator configuration
         env:
           ALLOCATOR: ${{ matrix.allocator }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, pathlib, sys
-          allocator = os.environ["ALLOCATOR"]
-          log = pathlib.Path("configure.log").read_text()
-          ninja = pathlib.Path("build/build.ninja").read_text()
-          summary = {
-              "tbb": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "ON"},
-              "native": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "OFF"},
-              "mimalloc-stats": {"Mimalloc": "ON", "Mimalloc stats": "ON", "Tbb": "OFF"},
-          }[allocator]
-          defines = {
-              "tbb": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=1", "MEMORY_HAS_MIMALLOC_STATS=0"),
-              "native": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=0", "MEMORY_HAS_MIMALLOC_STATS=0"),
-              "mimalloc-stats": ("MEMORY_HAS_MIMALLOC=1", "MEMORY_HAS_TBB=0", "MEMORY_HAS_MIMALLOC_STATS=1"),
-          }[allocator]
-          for label, value in summary.items():
-              needle = f"  {label:<20}: {value}"
-              if needle not in log:
-                  sys.exit(f"configure summary missing {needle!r}")
-          if allocator == "tbb":
-              if "Intel TBB memory allocator configuration complete" not in log:
-                  sys.exit("TBB allocator was not configured")
-              if "TBB::tbbmalloc target is not available" in log:
-                  sys.exit("TBB::tbbmalloc was not found")
-          for define in defines:
-              if define not in ninja:
-                  sys.exit(f"build.ninja missing {define}")
-          if allocator == "mimalloc-stats":
-              if "MI_STATS=1" not in ninja:
-                  sys.exit("mimalloc was not compiled with MI_STATS=1")
-              if "MI_STATS=0" in ninja:
-                  sys.exit("mimalloc still has MI_STATS=0")
-          else:
-              if "MI_STATS=1" in ninja:
-                  sys.exit("MI_STATS=1 was set on a non-stats build")
-          print(f"verified {allocator}")
-          PY
+        run: python3 Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
         run: cmake --build build
@@ -212,43 +221,42 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # External Profiler: Profiler is a sibling repository, not a ThirdParty
-  # submodule. Check it out on its own, install it, then configure Memory
-  # against that prefix with MEMORY_ENABLE_PROFILER=ON. The option defaults
-  # to OFF, and memory_setup_profiler() skips find_package unless it is ON.
-  # Exercises find_package(Profiler) in memory_setup_profiler()
-  # (Cmake/MemoryDependencies.cmake). The other jobs leave Profiler
-  # uninstalled and the option off, so MEMORY_HAS_PROFILER stays 0 there.
+  # macOS allocators: TBB, native malloc, mimalloc stats, Metal, and Profiler.
+  # NUMA and memkind are forced off on Apple. Starts after the sanitizers so
+  # it does not join the initial macos-latest burst (the hosted cap is 5).
   # ---------------------------------------------------------------------------
-  external-profiler:
-    name: External Profiler / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+  macos-allocators:
+    name: macOS allocators / ${{ matrix.allocator }}
+    needs: sanitize
+    if: ${{ !cancelled() }}
+    runs-on: macos-latest
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        allocator: [tbb, native, mimalloc-stats, metal, profiler]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Install build tools
+        run: |
+          brew install ninja
+          if [ "${{ matrix.allocator }}" = "tbb" ]; then
+            brew install tbb
+          fi
+
       - name: Checkout Profiler
+        if: matrix.allocator == 'profiler'
         uses: actions/checkout@v4
         with:
           repository: KhwarizmiAnalytix/Profiler
           path: profiler
           submodules: recursive
 
-      - name: Install Ninja (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - name: Install Ninja (macOS)
-        if: runner.os == 'macOS'
-        run: brew install ninja
-
       - name: Build and install Profiler
+        if: matrix.allocator == 'profiler'
         run: >
           cmake -S profiler -B profiler_build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
@@ -263,26 +271,195 @@ jobs:
           && cmake --build profiler_build
           && cmake --install profiler_build
 
-      - name: Configure Memory against the installed Profiler
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/profiler_install
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_PROFILER=ON
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
-          | tee configure.log
-
-      - name: Verify the external Profiler was actually used
+      - name: Configure
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
         run: |
-          grep -q 'Memory: using Profiler::Profiler (find_package)' configure.log
+          set -euo pipefail
+          extra=()
+          case "$ALLOCATOR" in
+            tbb)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=OFF
+                -DMEMORY_ENABLE_TBB=ON
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                -DCMAKE_PREFIX_PATH="$(brew --prefix tbb)"
+              )
+              ;;
+            native)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=OFF
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+              )
+              ;;
+            mimalloc-stats)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=ON
+              )
+              ;;
+            metal)
+              extra+=(
+                -DMEMORY_GPU_BACKEND=metal
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+              )
+              ;;
+            profiler)
+              extra+=(
+                -DMEMORY_ENABLE_MIMALLOC=ON
+                -DMEMORY_ENABLE_TBB=OFF
+                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                -DMEMORY_ENABLE_PROFILER=ON
+                -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install"
+              )
+              ;;
+            *)
+              echo "unknown allocator: $ALLOCATOR" >&2
+              exit 1
+              ;;
+          esac
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMEMORY_GPU_BACKEND=none \
+            -DMEMORY_ENABLE_TESTING=ON \
+            -DMEMORY_ENABLE_BENCHMARK=ON \
+            -DMEMORY_ENABLE_EXTERNAL=OFF \
+            "${extra[@]}" 2>&1 | tee configure.log
+
+      - name: Verify allocator configuration
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
+        run: python3 Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
         run: cmake --build build
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Windows allocators: TBB (built from source when no system TBB is
+  # installed), native _aligned_malloc, and mimalloc stats. NUMA, memkind,
+  # HIP, and Metal are not Windows configurations.
+  # ---------------------------------------------------------------------------
+  windows-allocators:
+    name: Windows allocators / ${{ matrix.allocator }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        allocator: [tbb, native, mimalloc-stats]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        shell: pwsh
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
+        run: |
+          $extra = @()
+          if ($env:ALLOCATOR -eq "tbb") {
+            $extra = @(
+              "-DMEMORY_ENABLE_MIMALLOC=OFF",
+              "-DMEMORY_ENABLE_TBB=ON",
+              "-DMEMORY_ENABLE_MIMALLOC_STATS=OFF"
+            )
+          } elseif ($env:ALLOCATOR -eq "native") {
+            $extra = @(
+              "-DMEMORY_ENABLE_MIMALLOC=OFF",
+              "-DMEMORY_ENABLE_TBB=OFF",
+              "-DMEMORY_ENABLE_MIMALLOC_STATS=OFF"
+            )
+          } elseif ($env:ALLOCATOR -eq "mimalloc-stats") {
+            $extra = @(
+              "-DMEMORY_ENABLE_MIMALLOC=ON",
+              "-DMEMORY_ENABLE_TBB=OFF",
+              "-DMEMORY_ENABLE_MIMALLOC_STATS=ON"
+            )
+          } else {
+            Write-Error "unknown allocator: $env:ALLOCATOR"
+            exit 1
+          }
+          cmake -S . -B build `
+            -DMEMORY_GPU_BACKEND=none `
+            -DMEMORY_ENABLE_TESTING=ON `
+            -DMEMORY_ENABLE_BENCHMARK=ON `
+            -DMEMORY_ENABLE_EXTERNAL=OFF `
+            @extra *> configure.log
+          if ($LASTEXITCODE -ne 0) { Get-Content configure.log; exit $LASTEXITCODE }
+          Get-Content configure.log
+
+      - name: Verify allocator configuration
+        shell: pwsh
+        env:
+          ALLOCATOR: ${{ matrix.allocator }}
+        run: python Scripts/verify_allocator_config.py configure.log build
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # Windows Profiler. Linux and macOS enable Profiler inside their allocator
+  # matrices. MSVC uses the Visual Studio generator so the compiler
+  # environment GitHub already provides is enough. HIP, Metal, NUMA, and
+  # memkind stay off.
+  # ---------------------------------------------------------------------------
+  windows-profiler:
+    name: External Profiler / windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout Profiler
+        uses: actions/checkout@v4
+        with:
+          repository: KhwarizmiAnalytix/Profiler
+          path: profiler
+          submodules: recursive
+
+      - name: Build and install Profiler
+        shell: pwsh
+        run: |
+          cmake -S profiler -B profiler_build -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/profiler_install" -DPROFILER_GPU_BACKEND=none -DPROFILER_ENABLE_TESTING=OFF -DPROFILER_ENABLE_EXAMPLES=OFF -DPROFILER_ENABLE_BENCHMARKS=OFF -DPROFILER_ENABLE_INSTALL=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build profiler_build --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --install profiler_build --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Memory against the installed Profiler
+        shell: pwsh
+        run: |
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install" -DMEMORY_GPU_BACKEND=none -DMEMORY_ENABLE_PROFILER=ON -DMEMORY_ENABLE_TESTING=ON -DMEMORY_ENABLE_BENCHMARK=ON *> configure.log
+          if ($LASTEXITCODE -ne 0) { Get-Content configure.log; exit $LASTEXITCODE }
+          Get-Content configure.log
+
+      - name: Verify the external Profiler was actually used
+        shell: pwsh
+        run: |
+          if (-not (Select-String -Path configure.log -Pattern 'Memory: using Profiler::Profiler \(find_package\)' -Quiet)) {
+            Write-Error "Profiler was not found via find_package"
+            exit 1
+          }
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
 
   # ---------------------------------------------------------------------------
   # Linux CUDA: builds and runs the Memory test suite against a real CUDA
@@ -446,14 +623,15 @@ jobs:
   # Standard GitHub-hosted plans run at most 5 macOS jobs at once
   # (https://docs.github.com/en/actions/reference/limits). This workflow
   # otherwise requests 6 macos-latest runners together — macOS CPU, Bazel,
-  # external Profiler, coverage, and both sanitizers — and the sixth stays
-  # queued with "All GitHub-hosted runners with label [macos-latest] are busy."
-  # Waiting for external-profiler keeps the initial macOS requests at 4.
+  # coverage, and both sanitizers — and the extra one stays queued with
+  # "All GitHub-hosted runners with label [macos-latest] are busy."
+  # Waiting for macOS CPU keeps the initial macOS requests at 3 (CPU, Bazel,
+  # coverage). Profiler on macOS runs later, inside macos-allocators.
   # !cancelled() still runs the sanitizers when that job fails.
   # ---------------------------------------------------------------------------
   sanitize:
     name: Sanitizer / ${{ matrix.os }} / ${{ matrix.sanitizer }}
-    needs: external-profiler
+    needs: macos-cpu
     if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

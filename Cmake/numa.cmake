@@ -27,6 +27,7 @@ if(NOT UNIX)
   return()
 endif()
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
 find_package(Numa)
 if(NOT NUMA_FOUND)
   message(WARNING "NUMA library not found. Suppress this warning with -DMEMORY_ENABLE_NUMA=OFF")
