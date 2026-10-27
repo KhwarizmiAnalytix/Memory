@@ -167,6 +167,11 @@ public:
 
         pointer         ptr    = nullptr;
         size_type const nbytes = checked_byte_count(n, scalar_size);
+        // Contiguous objects cannot exceed the range representable by pointer differences.
+        if (nbytes > static_cast<size_type>(std::numeric_limits<difference_type>::max()))
+        {
+            throw std::bad_alloc();
+        }
 
         if (type == device_enum::CPU)
         {

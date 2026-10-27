@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>  // for std::memset
+#include <limits>
 
 #include "include/util/exception.h"
 
@@ -155,16 +156,19 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    LOGGING_CHECK(
-        static_cast<std::ptrdiff_t>(nbytes) > 0,
-        "cpu allocate() called with negative or zero size: {}",
-        nbytes);
+    LOGGING_CHECK(nbytes > 0, "cpu allocate() called with zero size: {}", nbytes);
 
     LOGGING_CHECK(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,
         sizeof(void*));
+
+    // Reject impossible object sizes before sanitizer or platform allocators see them.
+    if (nbytes > static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()))
+    {
+        return nullptr;
+    }
 
     void* ptr = allocate_raw(nbytes, alignment);
     // cppcheck-suppress syntaxError

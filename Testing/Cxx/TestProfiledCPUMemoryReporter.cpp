@@ -18,6 +18,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 
 #include "MemoryTest.h"
 #include "helper/memory_allocator.h"
@@ -140,7 +141,7 @@ MEMORYTEST(ProfiledCPUMemoryReporter, huge_allocation_untracked_without_profiler
 {
     const std::size_t ooms_before = cpu_memory_reporter().num_ooms();
 
-    void* ptr = cpu::memory_allocator::allocate(static_cast<std::size_t>(-1) / 2, 64);
+    void* ptr = cpu::memory_allocator::allocate(std::numeric_limits<std::size_t>::max(), 64);
     EXPECT_EQ(ptr, nullptr);
     EXPECT_EQ(cpu_memory_reporter().num_ooms(), ooms_before);
     END_TEST();

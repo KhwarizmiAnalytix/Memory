@@ -88,9 +88,10 @@ MEMORYTEST(Allocator, FreeNullptrIsNoOp)
 MEMORYTEST(Allocator, AllocateHugeSizeThrowsBadAlloc)
 {
     using alloc_t = allocator<char>;
-    // Larger than any real system can satisfy -- forces the underlying
-    // backend to return nullptr, which allocate() converts to bad_alloc.
-    EXPECT_THROW(alloc_t::allocate(static_cast<size_t>(-1) / 2, device_enum::CPU), std::bad_alloc);
+    // This cannot describe a valid C++ object and must be rejected before the
+    // request reaches a platform allocator or sanitizer runtime.
+    EXPECT_THROW(
+        alloc_t::allocate(std::numeric_limits<size_t>::max(), device_enum::CPU), std::bad_alloc);
     END_TEST();
 }
 

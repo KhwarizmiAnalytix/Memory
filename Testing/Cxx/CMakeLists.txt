@@ -76,6 +76,10 @@ endif()
 if(MEMORY_ENABLE_SANITIZER)
   memory_configure_sanitizer(MemoryCxxTests MEMORY)
 endif()
+if(MEMORY_ENABLE_SANITIZER AND MEMORY_SANITIZER_TYPE MATCHES "(^|,)(thread|leak)(,|$)")
+  # TSan and LSan provide their own replaceable allocation operators.
+  target_compile_definitions(MemoryCxxTests PRIVATE MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE=1)
+endif()
 
 # Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory
 # interface. Memory's own include/ root must come first: some third-party deps (e.g. Profiler)

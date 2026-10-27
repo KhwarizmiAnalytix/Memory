@@ -22,9 +22,11 @@
 
 namespace
 {
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 std::atomic<bool>   g_count_news{false};
 std::atomic<size_t> g_news{0};
 std::atomic<bool>   g_fail_next_new{false};
+#endif
 
 void* key(std::uintptr_t i)
 {
@@ -32,6 +34,7 @@ void* key(std::uintptr_t i)
 }
 }  // namespace
 
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 // Counting / failing global operator new, active only while a test arms it.
 void* operator new(std::size_t n)
 {
@@ -70,6 +73,7 @@ void  operator delete(void* p) noexcept { std::free(p); }
 void  operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void  operator delete[](void* p) noexcept { std::free(p); }
 void  operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+#endif
 
 extern "C" const char* __asan_default_options()
 {
@@ -190,20 +194,25 @@ MEMORYTEST(FlatPtrMap, steady_state_churn_does_not_allocate)
         m.emplace(key(static_cast<std::uintptr_t>(i)), i);
     }
     // Same live size, a different key each round: the warm alloc/free pattern.
-    g_news = 0;
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+    g_news       = 0;
     g_count_news = true;
+#endif
     for (int round = 0; round < 200000; ++round)
     {
         void* const k = key(static_cast<std::uintptr_t>(100000 + (round % 4096)));
         m.emplace(k, round);
         m.erase(k);
     }
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
     g_count_news = false;
     EXPECT_EQ(g_news.load(), 0U);
+#endif
     EXPECT_EQ(m.size(), 500U);
     END_TEST();
 }
 
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 MEMORYTEST(FlatPtrMap, failed_growth_leaves_the_map_unchanged)
 {
     memory::flat_ptr_map<int> m;
@@ -213,7 +222,7 @@ MEMORYTEST(FlatPtrMap, failed_growth_leaves_the_map_unchanged)
         m.emplace(key(static_cast<std::uintptr_t>(i)), i);
     }
     size_t const capacity_before = m.capacity();
-    g_fail_next_new = true;
+    g_fail_next_new              = true;
     EXPECT_THROW(m.emplace(key(1000), 1000), std::bad_alloc);
     g_fail_next_new = false;
     EXPECT_EQ(m.size(), 32U);
@@ -227,6 +236,7 @@ MEMORYTEST(FlatPtrMap, failed_growth_leaves_the_map_unchanged)
     EXPECT_TRUE(m.emplace(key(1000), 1000).second);  // and the retry succeeds
     END_TEST();
 }
+#endif
 
 MEMORYTEST(FlatPtrMap, clear_keeps_the_table_for_reuse)
 {
@@ -239,13 +249,17 @@ MEMORYTEST(FlatPtrMap, clear_keeps_the_table_for_reuse)
     m.clear();
     EXPECT_TRUE(m.empty());
     EXPECT_EQ(m.capacity(), capacity);
-    g_news = 0;
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+    g_news       = 0;
     g_count_news = true;
+#endif
     for (int i = 0; i < 100; ++i)
     {
         m.emplace(key(static_cast<std::uintptr_t>(i)), i);
     }
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
     g_count_news = false;
     EXPECT_EQ(g_news.load(), 0U);
+#endif
     END_TEST();
 }
