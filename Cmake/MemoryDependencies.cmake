@@ -121,7 +121,7 @@ function(memory_setup_benchmark)
   else()
     include(FetchContent)
     FetchContent_Declare(
-      benchmark GIT_REPOSITORY https://github.com/google/benchmark.git GIT_TAG v1.9.4
+      benchmark GIT_REPOSITORY https://github.com/google/benchmark.git GIT_TAG v1.9.5
     )
     FetchContent_MakeAvailable(benchmark)
   endif()
@@ -147,6 +147,15 @@ function(memory_setup_logging)
   endif()
   set(LOGGING_ENABLE_TESTING OFF CACHE BOOL "Logging tests build only standalone" FORCE)
   set(LOGGING_ENABLE_EXAMPLES OFF CACHE BOOL "Logging examples build only standalone" FORCE)
+  # Forward tool flags so Logging inherits Memory's build settings.
+  foreach(_mem_log_feat IN ITEMS CACHE ICECC CLANGTIDY FIX IWYU SANITIZER COVERAGE SPELL VALGRIND)
+    set(LOGGING_ENABLE_${_mem_log_feat} "${MEMORY_ENABLE_${_mem_log_feat}}"
+        CACHE BOOL "Configured by Memory" FORCE)
+  endforeach()
+  foreach(_mem_log_setting IN ITEMS CACHE_BACKEND SANITIZER_TYPE LINKER_CHOICE LTO_MODE)
+    set(LOGGING_${_mem_log_setting} "${MEMORY_${_mem_log_setting}}"
+        CACHE STRING "Configured by Memory" FORCE)
+  endforeach()
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Logging/CMakeLists.txt")
     memory_add_dependency_subdirectory(
       "${MEMORY_THIRD_PARTY_DIR}/Logging" "${CMAKE_BINARY_DIR}/ThirdParty/Logging_build"
