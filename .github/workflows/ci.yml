@@ -587,8 +587,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # Compiler cache & Icecc: exercises MEMORY_ENABLE_CACHE / MEMORY_CACHE_BACKEND
   # (ccache, sccache) and MEMORY_ENABLE_ICECC across Linux, macOS, and Windows.
-  # buildcache is not exercised here (it needs a pinned installer; out of
-  # scope for this lightweight matrix). Icecream has no Windows port, so
+  # BuildCache runs in buildcache.yml. Icecream has no Windows port, so
   # there is no windows-icecc leg. ICECC=no forces the icecc launcher to fall
   # back to local compilation instead of requiring a scheduler/cluster.
   # ---------------------------------------------------------------------------
