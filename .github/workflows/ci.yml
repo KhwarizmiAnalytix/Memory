@@ -583,6 +583,128 @@ jobs:
         run: ctest --test-dir build --build-config Release --output-on-failure
 
   # ---------------------------------------------------------------------------
+  # Compiler cache & Icecc: exercises MEMORY_ENABLE_CACHE / MEMORY_CACHE_BACKEND
+  # (ccache, sccache) and MEMORY_ENABLE_ICECC across Linux, macOS, and Windows.
+  # buildcache is not exercised here (it needs a pinned installer; out of
+  # scope for this lightweight matrix). Icecream has no Windows port, so
+  # there is no windows-icecc leg. ICECC=no forces the icecc launcher to fall
+  # back to local compilation instead of requiring a scheduler/cluster.
+  # ---------------------------------------------------------------------------
+  cache-icecc:
+    name: Cache & Icecc / ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-ccache
+            os: ubuntu-latest
+            backend: ccache
+            icecc: "OFF"
+          - name: linux-sccache
+            os: ubuntu-latest
+            backend: sccache
+            icecc: "OFF"
+          - name: linux-icecc
+            os: ubuntu-latest
+            backend: none
+            icecc: "ON"
+          - name: macos-ccache
+            os: macos-latest
+            backend: ccache
+            icecc: "OFF"
+          - name: macos-sccache
+            os: macos-latest
+            backend: sccache
+            icecc: "OFF"
+          - name: macos-icecc
+            os: macos-latest
+            backend: none
+            icecc: "ON"
+          - name: windows-ccache
+            os: windows-latest
+            backend: ccache
+            icecc: "OFF"
+          - name: windows-sccache
+            os: windows-latest
+            backend: sccache
+            icecc: "OFF"
+    env:
+      ICECC: 'no'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Ninja, ccache, and icecc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache icecc
+
+      - name: Install Ninja, ccache, and icecc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja ccache icecream
+
+      - name: Install ccache (Windows)
+        if: runner.os == 'Windows' && matrix.backend == 'ccache'
+        run: choco install -y ccache
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+        if: matrix.backend == 'sccache'
+        with:
+          version: v0.12.0
+
+      - name: Configure (Linux/macOS)
+        if: runner.os != 'Windows'
+        env:
+          BACKEND: ${{ matrix.backend }}
+          USE_ICECC: ${{ matrix.icecc }}
+        run: |
+          set -euo pipefail
+          extra=(-DMEMORY_ENABLE_ICECC="$USE_ICECC")
+          if [ "$BACKEND" != "none" ]; then
+            extra+=(-DMEMORY_ENABLE_CACHE=ON -DMEMORY_CACHE_BACKEND="$BACKEND")
+          fi
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMEMORY_GPU_BACKEND=none \
+            -DMEMORY_ENABLE_TESTING=ON \
+            -DMEMORY_ENABLE_BENCHMARK=OFF \
+            "${extra[@]}"
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: |
+          $extra = @()
+          if ($env:BACKEND -ne "none") {
+            $extra = @("-DMEMORY_ENABLE_CACHE=ON", "-DMEMORY_CACHE_BACKEND=$env:BACKEND")
+          }
+          cmake -S . -B build `
+            -DMEMORY_GPU_BACKEND=none `
+            -DMEMORY_ENABLE_TESTING=ON `
+            -DMEMORY_ENABLE_BENCHMARK=OFF `
+            @extra
+
+      - name: Build (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: cmake --build build
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build --config Release
+
+      - name: Test (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+  # ---------------------------------------------------------------------------
   # Bazel: builds/tests the whole tree (CPU-only default backend), cross-platform.
   # ---------------------------------------------------------------------------
   bazel:
