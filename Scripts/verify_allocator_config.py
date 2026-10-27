@@ -12,11 +12,20 @@ import os
 import pathlib
 import sys
 
-# label -> value that must appear in the CMake summary. Labels are padded
-# to the same width as Cmake/summary.cmake.
+# Label -> value that must appear in the CMake summary, independent of padding.
 SUMMARY = {
-    "tbb": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "ON", "GPU backend": "none"},
-    "native": {"Mimalloc": "OFF", "Mimalloc stats": "OFF", "Tbb": "OFF", "GPU backend": "none"},
+    "tbb": {
+        "Mimalloc": "OFF",
+        "Mimalloc stats": "OFF",
+        "Tbb": "ON",
+        "GPU backend": "none",
+    },
+    "native": {
+        "Mimalloc": "OFF",
+        "Mimalloc stats": "OFF",
+        "Tbb": "OFF",
+        "GPU backend": "none",
+    },
     "mimalloc-stats": {
         "Mimalloc": "ON",
         "Mimalloc stats": "ON",
@@ -54,7 +63,11 @@ SUMMARY = {
 
 DEFINES = {
     "tbb": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=1", "MEMORY_HAS_MIMALLOC_STATS=0"),
-    "native": ("MEMORY_HAS_MIMALLOC=0", "MEMORY_HAS_TBB=0", "MEMORY_HAS_MIMALLOC_STATS=0"),
+    "native": (
+        "MEMORY_HAS_MIMALLOC=0",
+        "MEMORY_HAS_TBB=0",
+        "MEMORY_HAS_MIMALLOC_STATS=0",
+    ),
     "mimalloc-stats": (
         "MEMORY_HAS_MIMALLOC=1",
         "MEMORY_HAS_TBB=0",
@@ -101,10 +114,15 @@ def main() -> int:
     log = log_path.read_text(encoding="utf-8", errors="replace")
     rules = build_text(build_dir)
 
+    summary = {}
+    for line in log.splitlines():
+        label, separator, value = line.partition(":")
+        if separator:
+            summary[label.strip()] = value.strip()
+
     for label, value in SUMMARY[allocator].items():
-        needle = f"  {label:<20}: {value}"
-        if needle not in log:
-            sys.exit(f"configure summary missing {needle!r}")
+        if summary.get(label) != value:
+            sys.exit(f"configure summary missing '{label}: {value}'")
 
     if allocator == "tbb":
         if "Intel TBB memory allocator configuration complete" not in log:
@@ -118,7 +136,10 @@ def main() -> int:
             sys.exit("libnuma was not found")
     if allocator == "metal" and "Metal framework:" not in log:
         sys.exit("Metal framework was not found")
-    if allocator == "profiler" and "Memory: using Profiler::Profiler (find_package)" not in log:
+    if (
+        allocator == "profiler"
+        and "Memory: using Profiler::Profiler (find_package)" not in log
+    ):
         sys.exit("Profiler was not found via find_package")
 
     for define in DEFINES[allocator]:

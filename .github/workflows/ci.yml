@@ -202,7 +202,9 @@ jobs:
       - name: Verify allocator configuration
         env:
           ALLOCATOR: ${{ matrix.allocator }}
-        run: python3 Scripts/verify_allocator_config.py configure.log build
+        run: |
+          python3 -m unittest discover -s Testing/CMake -p 'test_verify_allocator_config.py' -v
+          python3 Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
         run: cmake --build build
