@@ -57,11 +57,23 @@ endforeach()
 # Task 2.6 exit: public L2/L3 headers must compile with a GPU backend selected and no
 # vendor runtime header reachable. Deliberately inherits no CUDA/HIP include directories.
 add_library(MemoryConsumerNoVendorHeaders OBJECT ConsumerNoVendorHeaders.cpp)
+if(NOT TARGET Logging::Logging)
+  message(FATAL_ERROR "MemoryConsumerNoVendorHeaders requires Logging::Logging "
+                      "(memory_setup_logging() should have provided it earlier).")
+endif()
 target_include_directories(
   MemoryConsumerNoVendorHeaders
-  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
-          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging/include/logger"
-          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging"
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
+    # Pulled from the real target rather than hardcoded, so this tracks
+    # whatever Logging::Logging exposes PUBLIC (its own include/logger and
+    # repo-root dirs, plus magic_enum's include dir -- string_util.h is a
+    # public Logging header that includes <magic_enum/magic_enum.hpp>
+    # directly; see LOGGING_MAGICENUM_INCLUDE_DIR in
+    # ThirdParty/Logging/CMakeLists.txt). Deliberately not linking
+    # Logging::Logging itself (which would also pull in its compile
+    # definitions/link libraries) -- this target only wants its include dirs.
+    "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>"
 )
 target_compile_features(MemoryConsumerNoVendorHeaders PRIVATE cxx_std_20)
 target_compile_definitions(
