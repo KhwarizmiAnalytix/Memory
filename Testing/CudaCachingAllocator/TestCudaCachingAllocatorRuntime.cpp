@@ -262,6 +262,7 @@ std::atomic<long> g_inject_new_seen{0};
 std::atomic<bool> g_inject_new_fired{false};
 }  // namespace
 
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 void* operator new(std::size_t n)
 {
     if (g_count_new.load(std::memory_order_relaxed))
@@ -291,6 +292,7 @@ void* operator new(std::size_t n, std::nothrow_t const&) noexcept
 {
     return std::malloc(n ? n : 1);
 }
+#endif
 
 extern "C" const char* __asan_default_options()
 {
@@ -320,8 +322,16 @@ struct new_probe
 #define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS() (void)0
 #endif
 
+#if defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+#define SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER()                                                    \
+    GTEST_SKIP() << "sanitizer owns global allocation operators; heap probe unavailable"
+#else
+#define SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER() (void)0
+#endif
+
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     allocator.deallocate(allocator.allocate(4096), 4096);  // warm the pool
@@ -344,6 +354,7 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             split_and_merge = [&]
@@ -367,6 +378,7 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeRecordStreamUpToFourStreamsNoHeap)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     cuda_caching_allocator allocator(0);
     allocator.deallocate(allocator.allocate(4096), 4096);
     void*  p    = allocator.allocate(4096);
@@ -469,6 +481,7 @@ TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
 // event and allocates nothing.
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             cross_stream_pair = [&](size_t streams)
@@ -633,6 +646,7 @@ void expect_exact_after_failure(cuda_caching_allocator& allocator, long n)
 
 TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASegmentAlloc)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
@@ -682,6 +696,7 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
 
 TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASplit)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
@@ -737,6 +752,7 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
 
 TEST_F(CudaCachingAllocatorRuntime, FreeFailingBeforeCommitLeavesTheBlockLiveAndRetryable)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
