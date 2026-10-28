@@ -31,8 +31,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Optional
+
+from helpers import cppcheck as cppcheck_helper
 
 try:
     import colorama
@@ -512,9 +515,19 @@ class MemoryBazelConfiguration:
             print_status("spell: codespell not found on PATH (pip install codespell).", "WARNING")
             return
         workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        ignore_words = os.path.join(
+            workspace_root, "Scripts", "suppressions", "spell_suppressions.txt"
+        )
+        skip_patterns = (
+            ".git,.augment,.github,.vscode,build,Build,build_*,build-*,.venv*,venv*,"
+            "bazel-*,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,"
+            "*3rdparty*,.mypy_cache,__pycache__,.pytest_cache,.ruff_cache,*.mypy_cache*,"
+            "*__pycache__*,*.pytest_cache*,*.ruff_cache*,*.pb.*,*.lock"
+        )
         cmd = [
             codespell,
-            "--skip=*.git,bazel-*,ThirdParty,*.pb.*,*.lock",
+            f"--ignore-words={ignore_words}",
+            f"--skip={skip_patterns}",
             "--quiet-level=2",
             workspace_root,
         ]
@@ -536,29 +549,27 @@ class MemoryBazelConfiguration:
             print_status("cppcheck: not found on PATH.", "WARNING")
             return
         workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-        # Scan only first-party directories; exclude vendored ThirdParty/ trees.
-        first_party_dirs = [
-            d for d in ("include", "Testing", "Scripts", "bazel")
-            if os.path.isdir(os.path.join(workspace_root, d))
-        ]
-        scan_targets = [os.path.join(workspace_root, d) for d in first_party_dirs] or [workspace_root]
-        cmd = [
-            cppcheck,
-            "--enable=warning,style,performance",
-            "--suppress=missingIncludeSystem",
-            "--quiet",
-            "--error-exitcode=1",
-            *scan_targets,
-        ]
-        print_status(f"Running cppcheck: {' '.join(cmd)}", "INFO")
         try:
             start_time = time.time()
-            result = subprocess.run(cmd, check=False, timeout=300)
+            with tempfile.TemporaryDirectory(prefix="memory-cppcheck-") as temp_dir:
+                output_file = os.path.join(temp_dir, "cppcheck_output.log")
+                cmd = cppcheck_helper.build_cppcheck_command(workspace_root, output_file)
+                cmd[0] = cppcheck
+                print_status(f"Running cppcheck: {' '.join(cmd)}", "INFO")
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    cwd=workspace_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                exit_code = cppcheck_helper.process_cppcheck_results(result, output_file)
             elapsed = time.time() - start_time
-            if result.returncode == 0:
+            if exit_code == 0:
                 print_status(f"cppcheck passed ({elapsed:.2f}s)", "SUCCESS")
             else:
-                print_status(f"cppcheck found issues (exit {result.returncode})", "WARNING")
+                print_status(f"cppcheck found errors (exit {exit_code})", "WARNING")
         except subprocess.TimeoutExpired:
             print_status("cppcheck timed out.", "WARNING")
 
@@ -691,29 +702,34 @@ class MemoryBazelConfiguration:
         .profraw data — it's only Bazel's own downstream report merging that's
         broken (its bundled collect_cc_coverage.sh never populates the
         runtime_objects_list.txt manifest entry llvm-cov needs). The raw files
-        land under the output base's sandbox stash, which Bazel keeps around
-        for sandbox reuse rather than deleting immediately.
+        land under the configured output path's testlogs tree. Older Bazel
+        versions may instead retain them in the sandbox stash.
         """
+        output_path = self._bazel_info("output_path", "", match_config=True)
         output_base = self._bazel_info("output_base", "")
-        if not output_base:
-            return []
-        stash_root = os.path.join(output_base, "sandbox", "sandbox_stash", "TestRunner")
-        if not os.path.isdir(stash_root):
-            return []
+        search_roots = []
+        if output_path:
+            search_roots.append(os.path.join(output_path, "testlogs", "_coverage"))
+        if output_base:
+            search_roots.append(
+                os.path.join(output_base, "sandbox", "sandbox_stash", "TestRunner")
+            )
+
         profraw_files = []
-        for root, _dirs, files in os.walk(stash_root):
-            if "_coverage" not in root:
+        for search_root in search_roots:
+            if not os.path.isdir(search_root):
                 continue
-            for name in files:
-                if not name.endswith(".profraw"):
-                    continue
-                path = os.path.join(root, name)
-                try:
-                    if os.path.getmtime(path) >= since:
-                        profraw_files.append(path)
-                except OSError:
-                    continue
-        return profraw_files
+            for root, _, files in os.walk(search_root):
+                for name in files:
+                    if not name.endswith(".profraw"):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        if os.path.getmtime(path) >= since:
+                            profraw_files.append(path)
+                    except OSError:
+                        continue
+        return sorted(profraw_files)
 
     def _find_coverage_test_binaries(self) -> list[str]:
         """Resolve bazel-bin paths for every cc_test target covered by this run."""
@@ -725,13 +741,6 @@ class MemoryBazelConfiguration:
                     "query",
                     f"kind(cc_test, {targets_expr})",
                     "--output=label",
-                    # `query` doesn't inherit .bazelrc's "build --enable_workspace" the
-                    # way build/test/coverage do (query only inherits "common", not
-                    # "build"). This repo mixes bzlmod (MODULE.bazel: rules_cc,
-                    # platforms, bazel_skylib) with WORKSPACE-registered local_repository/
-                    # new_local_repository deps (ThirdParty/* submodules) — querying
-                    # without this flag fails to resolve those with "unknown repo" errors.
-                    "--enable_workspace",
                 ],
                 check=True,
                 capture_output=True,
