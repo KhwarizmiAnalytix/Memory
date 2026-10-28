@@ -1,5 +1,4 @@
 # Third-party BUILD overlay templates for the vendored nested submodules.
 exports_files([
     "mimalloc.BUILD",
-    "logging.BUILD",
 ])

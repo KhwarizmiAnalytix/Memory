@@ -1,9 +1,7 @@
-# Keep WORKSPACE mode working alongside Bzlmod (same approach as XSigma).
-# Requires Bazel 7/8 — WORKSPACE-based repos (local_repository / new_local_repository
-# in WORKSPACE.bazel, wiring every ThirdParty/ submodule) are unsupported starting
-# with Bazel 9. See .bazelversion; bump only after migrating WORKSPACE.bazel to
-# bzlmod (MODULE.bazel) equivalents (e.g. local_path_override / a repo rule).
-build --enable_workspace
+# Pure Bzlmod (no WORKSPACE.bazel) — matches LinearAlgebra/Solvers. All
+# ThirdParty/ submodules are wired via MODULE.bazel (bazel_dep +
+# local_path_override / use_repo_rule), so Bazel 9's removal of
+# WORKSPACE-based repos doesn't affect this repo.
 
 # Auto-select the build:<os>/test:<os> blocks below for the host platform
 # (linux/macos/windows), so cross-platform flags don't need --config.
@@ -17,15 +15,14 @@ build:linux --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
 build:macos --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
 build:windows --cxxopt=/std:c++20 --host_cxxopt=/std:c++20
 
-# Local distdir for WORKSPACE http_archive dependencies — avoids fetching over
-# TLS when Java's bundled cert store can't validate the remote (PKIX error on
-# Windows). Archives here must match the sha256 declared in WORKSPACE.bazel.
-# Add new archives with: Invoke-WebRequest <url> -OutFile bazel\distdir\<file>
-build --distdir=bazel/distdir
-
 # GPU backend selector example:
 #   bazel build //... --define=memory_gpu_backend=cuda
 #   bazel build //... --define=memory_enable_tbb=true
+
+# Logging backend — this repo forces NATIVE instead of Logging's own default
+# (LOGURU), via the standard flag Logging's own bazel/BUILD.bazel exposes.
+# Other options: glog, spdlog, loguru.
+build --define=logging_backend=native
 
 # Profiler is off by default under Bazel: ThirdParty/profiler.BUILD still targets
 # Profiler's pre-include/ source layout and does not yet wire its kineto/ittapi

@@ -35,6 +35,10 @@
     "https://bcr.bazel.build/modules/bazel_skylib/1.7.1/source.json": "f121b43eeefc7c29efbd51b83d08631e2347297c95aac9764a701f2a6a2bb953",
     "https://bcr.bazel.build/modules/buildozer/7.1.2/MODULE.bazel": "2e8dd40ede9c454042645fd8d8d0cd1527966aa5c919de86661e62953cd73d84",
     "https://bcr.bazel.build/modules/buildozer/7.1.2/source.json": "c9028a501d2db85793a6996205c8de120944f50a0d570438fcae0457a5f9d1f8",
+    "https://bcr.bazel.build/modules/gflags/2.2.2/MODULE.bazel": "ba6502c3fee189734f359454db8a49b7c08afd7271b32e7c6fc38c2d2e1edbeb",
+    "https://bcr.bazel.build/modules/gflags/2.2.2/source.json": "b06d93702e18b5d75a69d53464c37ef5c2a9b4e237a8d4f2bf0217b3b0af2bee",
+    "https://bcr.bazel.build/modules/glog/0.7.1/MODULE.bazel": "56479ec15bd11a411f46ee4a381c305b8d0763462713027d5421efe68de0e468",
+    "https://bcr.bazel.build/modules/glog/0.7.1/source.json": "110c33d8557e88aa65b3069eaaa13ab8c0c758a74ed78053954a9368ef62bcfe",
     "https://bcr.bazel.build/modules/google_benchmark/1.8.2/MODULE.bazel": "a70cf1bba851000ba93b58ae2f6d76490a9feb74192e57ab8e8ff13c34ec50cb",
     "https://bcr.bazel.build/modules/googletest/1.11.0/MODULE.bazel": "3a83f095183f66345ca86aa13c58b59f9f94a2f81999c093d4eeaa2d262d12f4",
     "https://bcr.bazel.build/modules/googletest/1.14.0.bcr.1/MODULE.bazel": "22c31a561553727960057361aa33bf20fb2e98584bc4fec007906e27053f80c6",
@@ -217,6 +221,61 @@
         "recordedRepoMappingEntries": [
           [
             "rules_kotlin+",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
+    "@@xsigma_logging+//bazel:vendor_deps.bzl%vendor_deps": {
+      "general": {
+        "bzlTransitiveDigest": "A/bVnij2p2ANsMakEBbuAzDd8gzMF6PIi19jnm0pgbg=",
+        "usagesDigest": "+mqox897tGytSSgOpNcqM/FRa1TXWhgI4ubpADFHrPE=",
+        "recordedFileInputs": {
+          "@@xsigma_logging+//ThirdParty/fmt.BUILD": "3ae60d377e43d6aa1f75ab1e51abd688eb58a7bce535962427f1e412b0b14971",
+          "@@xsigma_logging+//ThirdParty/loguru.BUILD": "cd1e9ceeee89557a8251cf9c58bb22e8c2034f0a35af1b9a2e79611da7f5bfa1",
+          "@@xsigma_logging+//ThirdParty/spdlog.BUILD": "9c25646c49c59c19ce0397d3753fec7db741826450eb7a6a3cc34d01e31b3542"
+        },
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "fmt": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:local.bzl%new_local_repository",
+            "attributes": {
+              "path": "/private/var/tmp/_bazel_toufikbellaj/91259883412f5bfd1a14aa1cd0a6e4e6/external/xsigma_logging+/ThirdParty/fmt",
+              "build_file_content": "# =============================================================================\n# fmt Library BUILD Configuration\n# =============================================================================\n# Modern formatting library (header-only mode)\n# Equivalent to ThirdParty/fmt\n# =============================================================================\n\npackage(default_visibility = [\"//visibility:public\"])\n\ncc_library(\n    name = \"fmt\",\n    hdrs = glob([\n        \"include/fmt/*\",\n    ]),\n    defines = [\"FMT_HEADER_ONLY=1\"],\n    includes = [\"include\"],\n    textual_hdrs = glob([\n        \"include/fmt/*\",\n    ]),\n)\n"
+            }
+          },
+          "loguru": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:local.bzl%new_local_repository",
+            "attributes": {
+              "path": "/private/var/tmp/_bazel_toufikbellaj/91259883412f5bfd1a14aa1cd0a6e4e6/external/xsigma_logging+/ThirdParty/loguru",
+              "build_file_content": "# BUILD file for Loguru logging library\n# This file is part of the XSigma project and provides build rules for the\n# third-party Loguru library without modifying the submodule itself.\n# See .augment/rules/ThirdParty.md for third-party integration guidelines.\n\nload(\"@rules_cc//cc:defs.bzl\", \"cc_library\")\n\ncc_library(\n    name = \"loguru\",\n    srcs = [\"loguru.cpp\"],\n    hdrs = [\"loguru.hpp\"],\n    copts = select({\n        \"@platforms//os:windows\": [\n            \"/W0\",  # Disable warnings\n            \"/std:c++17\",\n        ],\n        \"@platforms//os:macos\": [\n            \"-w\",  # Disable warnings\n            \"-std=c++17\",\n            \"-fPIC\",\n        ],\n        \"//conditions:default\": [\n            \"-w\",  # Disable warnings\n            \"-std=c++17\",\n            \"-fPIC\",\n        ],\n    }),\n    defines = [\n        \"LOGURU_WITH_STREAMS=1\",\n    ],\n    includes = [\".\"],\n    linkopts = select({\n        \"@platforms//os:windows\": [],\n        \"@platforms//os:macos\": [\"-lpthread\"],\n        \"//conditions:default\": [\"-lpthread\", \"-ldl\"],\n    }),\n    linkstatic = True,\n    visibility = [\"//visibility:public\"],\n)\n\n"
+            }
+          },
+          "spdlog": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:local.bzl%new_local_repository",
+            "attributes": {
+              "path": "/private/var/tmp/_bazel_toufikbellaj/91259883412f5bfd1a14aa1cd0a6e4e6/external/xsigma_logging+/ThirdParty/spdlog",
+              "build_file_content": "# BUILD file for spdlog (header-only, external fmt) â vendored ThirdParty/spdlog submodule.\n# Mirrors Library/Logging CMake: SPDLOG_FMT_EXTERNAL_HO + header-only use of @fmt.\nload(\"@rules_cc//cc:defs.bzl\", \"cc_library\")\n\npackage(default_visibility = [\"//visibility:public\"])\n\ncc_library(\n    name = \"spdlog\",\n    hdrs = glob([\"include/spdlog/**/*.h\"]),\n    defines = [\n        \"SPDLOG_FMT_EXTERNAL_HO\",\n    ],\n    includes = [\"include\"],\n    deps = [\"@fmt//:fmt\"],\n)\n"
+            }
+          },
+          "com_google_googletest": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:local.bzl%local_repository",
+            "attributes": {
+              "path": "/private/var/tmp/_bazel_toufikbellaj/91259883412f5bfd1a14aa1cd0a6e4e6/external/xsigma_logging+/ThirdParty/googletest"
+            }
+          },
+          "com_google_benchmark": {
+            "repoRuleId": "@@bazel_tools//tools/build_defs/repo:local.bzl%local_repository",
+            "attributes": {
+              "path": "/private/var/tmp/_bazel_toufikbellaj/91259883412f5bfd1a14aa1cd0a6e4e6/external/xsigma_logging+/ThirdParty/benchmark"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "xsigma_logging+",
             "bazel_tools",
             "bazel_tools"
           ]

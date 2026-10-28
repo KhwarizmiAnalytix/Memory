@@ -73,7 +73,7 @@ cc_library(
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
     }),
     includes = ["include"],
-    deps = ["@logging//:Logging"] + select({
+    deps = ["@xsigma_logging//:Logging"] + select({
         "//bazel:disable_profiler": [],
         "//conditions:default": ["@profiler//:Profiler"],
     }),
@@ -126,7 +126,7 @@ cc_library(
         "//conditions:default": True,
     }),
     deps = [
-        "@logging//:Logging",
+        "@xsigma_logging//:Logging",
     ] + select({
         "//bazel:disable_profiler": [],
         "//conditions:default": ["@profiler//:Profiler"],

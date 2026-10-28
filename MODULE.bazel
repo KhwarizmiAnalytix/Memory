@@ -7,3 +7,59 @@ bazel_dep(name = "rules_cc", version = "0.2.17")
 bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
+
+# Logging library (vendored git submodule), wired as its own Bazel module
+# rather than a custom staging repo rule — matches LinearAlgebra/Solvers.
+# fmt is resolved transitively through Logging's own MODULE.bazel; the
+# backend is selected via --define=logging_backend=native (see .bazelrc)
+# instead of overriding Logging's own bazel/logging.bzl defaults.
+bazel_dep(name = "xsigma_logging", version = "1.0.0")
+bazel_dep(name = "magic_enum", version = "0.9.8")
+
+local_path_override(
+    module_name = "xsigma_logging",
+    path = "ThirdParty/Logging",
+)
+
+local_path_override(
+    module_name = "magic_enum",
+    path = "ThirdParty/Logging/ThirdParty/magic_enum",
+)
+
+# Resolve vendor paths relative to this workspace.
+new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
+local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+
+# CUDA Toolkit — @local_config_cuda wraps the installed CUDA toolkit.
+# Path mirrors the default NVIDIA GPU Computing Toolkit install on Windows.
+# Update the path if the toolkit version changes.
+new_local_repository(
+    name = "local_config_cuda",
+    path = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2",
+    build_file = "//ThirdParty:cuda.BUILD",
+)
+
+# TBB — system-installed oneTBB, found via TBB_ROOT / TBB_DIR / TBBROOT.
+# Mirrors cmake/tbb_memory.cmake's find_package(TBB) pattern: no vendored
+# ThirdParty/tbb submodule. Required when --define=memory_enable_tbb=true.
+tbb_repository = use_repo_rule("//bazel:tbb_repository.bzl", "tbb_repository")
+
+tbb_repository(name = "tbb")
+
+# mimalloc — vendored nested submodule (ThirdParty/)
+new_local_repository(
+    name = "mimalloc",
+    path = "ThirdParty/mimalloc",
+    build_file = "//ThirdParty:mimalloc.BUILD",
+)
+
+# Google Test / Benchmark — vendored nested submodules (ThirdParty/)
+local_repository(
+    name = "com_google_googletest",
+    path = "ThirdParty/googletest",
+)
+
+local_repository(
+    name = "com_google_benchmark",
+    path = "ThirdParty/benchmark",
+)

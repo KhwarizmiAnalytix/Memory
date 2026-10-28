@@ -23,7 +23,7 @@
 #include <limits>
 #include <vector>  // for vector
 
-#include <include/logging.h>
+#include "include/logging.h"
 
 #include "MemoryTest.h"               // for MEMORYTEST, END_TEST, IsAligned
 #include "helper/memory_allocator.h"  // for free, allocate, usable_size
