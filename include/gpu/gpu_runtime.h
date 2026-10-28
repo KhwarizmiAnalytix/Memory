@@ -71,6 +71,7 @@ using cudaMemcpyKind = hipMemcpyKind;
 #define cudaStreamNonBlocking hipStreamNonBlocking
 #define cudaStreamDestroy hipStreamDestroy
 #define cudaStreamSynchronize hipStreamSynchronize
+#define cudaDeviceSynchronize hipDeviceSynchronize
 #define cudaStreamQuery hipStreamQuery
 #define cudaStreamWaitEvent hipStreamWaitEvent
 #define cudaDeviceCanAccessPeer hipDeviceCanAccessPeer
