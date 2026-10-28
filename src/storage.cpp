@@ -43,6 +43,7 @@ void gpu_free_fn(void* cache_ctx, void* ptr, std::size_t nbytes) noexcept
 }
 #endif
 
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
 // Guard: is `t` the GPU backend that was compiled in?
 constexpr bool is_active_gpu(device_enum t) noexcept
 {
@@ -52,11 +53,9 @@ constexpr bool is_active_gpu(device_enum t) noexcept
     return t == device_enum::HIP;
 #elif MEMORY_HAS_METAL
     return t == device_enum::METAL;
-#else
-    (void)t;
-    return false;
 #endif
 }
+#endif
 }  // namespace
 
 storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,

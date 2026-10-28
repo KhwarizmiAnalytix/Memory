@@ -323,11 +323,10 @@ MEMORYTEST(Allocator, IsActiveGpuDevice)
 // be rejected, not silently dispatched into the compiled allocator.
 MEMORYTEST(Allocator, AllocateWrongCompiledGpuLabelThrows)
 {
-    using alloc_t = allocator<float>;
 #if MEMORY_HAS_CUDA
-    EXPECT_THROW(alloc_t::allocate(4, device_enum::HIP), std::invalid_argument);
+    EXPECT_THROW(allocator<float>::allocate(4, device_enum::HIP), std::invalid_argument);
 #elif MEMORY_HAS_HIP
-    EXPECT_THROW(alloc_t::allocate(4, device_enum::CUDA), std::invalid_argument);
+    EXPECT_THROW(allocator<float>::allocate(4, device_enum::CUDA), std::invalid_argument);
 #endif
     END_TEST();
 }
