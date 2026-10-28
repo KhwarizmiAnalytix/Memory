@@ -666,6 +666,10 @@ jobs:
           if [ "$BACKEND" != "none" ]; then
             extra+=(-DMEMORY_ENABLE_CACHE=ON -DMEMORY_CACHE_BACKEND="$BACKEND")
           fi
+          # Release defaults to LTO, which Memory rejects with sccache.
+          if [ "$BACKEND" = "sccache" ]; then
+            extra+=(-DMEMORY_LTO_MODE=off)
+          fi
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DMEMORY_GPU_BACKEND=none \
@@ -682,6 +686,9 @@ jobs:
           $extra = @()
           if ($env:BACKEND -ne "none") {
             $extra = @("-DMEMORY_ENABLE_CACHE=ON", "-DMEMORY_CACHE_BACKEND=$env:BACKEND")
+          }
+          if ($env:BACKEND -eq "sccache") {
+            $extra += "-DMEMORY_LTO_MODE=off"
           }
           cmake -S . -B build `
             -DMEMORY_GPU_BACKEND=none `

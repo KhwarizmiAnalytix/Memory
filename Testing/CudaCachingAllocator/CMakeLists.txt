@@ -126,3 +126,16 @@ foreach(_variant "" "Lockwait" "Spin")
     endif()
   endif()
 endforeach()
+
+# These standalone shims do not link Memory, so they must opt into its
+# instrumentation themselves, including the runtime needed by Logging.
+if(MEMORY_ENABLE_SANITIZER)
+  foreach(
+    _target IN
+    ITEMS MemoryCudaCachingAllocatorRuntimeTests MemoryGpuShimBenchPhase0 MemoryGpuShimChurn
+          MemoryGpuShimContentionPhase8 MemoryGpuShimContentionPhase8Lockwait
+          MemoryGpuShimContentionPhase8Spin
+  )
+    memory_configure_sanitizer(${_target} MEMORY)
+  endforeach()
+endif()

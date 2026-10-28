@@ -26,6 +26,23 @@ load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 
 bazel_skylib_workspace()
 
+# WORKSPACE repositories need rules_cc's feature probes and compatibility
+# layer explicitly; Bzlmod's extension repositories are not visible here.
+http_archive(
+    name = "bazel_features",
+    sha256 = "9390b391a68d3b24aef7966bce8556d28003fe3f022a5008efc7807e8acaaf1a",
+    strip_prefix = "bazel_features-1.36.0",
+    urls = ["https://github.com/bazel-contrib/bazel_features/releases/download/v1.36.0/bazel_features-v1.36.0.tar.gz"],
+)
+
+load("@bazel_features//:deps.bzl", "bazel_features_deps")
+
+bazel_features_deps()
+
+load("@rules_cc//cc:extensions.bzl", "compatibility_proxy_repo")
+
+compatibility_proxy_repo()
+
 # =============================================================================
 # CUDA Toolkit — @local_config_cuda wraps the installed CUDA toolkit.
 # Path mirrors the default NVIDIA GPU Computing Toolkit install on Windows.
