@@ -45,45 +45,23 @@ jobs:
 
       - name: Build pinned BuildCache
         shell: bash
-        run: python .github/scripts/install_buildcache.py --prefix "$RUNNER_TEMP/buildcache-tool"
+        run: python .github/scripts/install_buildcache.py --install-prefix "$RUNNER_TEMP/buildcache-tool"
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMEMORY_ENABLE_CACHE=ON
-          -DMEMORY_CACHE_BACKEND=buildcache
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=OFF
-          -DMEMORY_GPU_BACKEND=none
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Release
+          --cache=ON
+          --cache-backend=buildcache
+          --testing=ON
+          --benchmark=OFF
+          --gpu-backend=none
 
-      - name: Verify BuildCache is the compiler launcher
-        shell: bash
-        run: |
-          cmake --build build --target Memory -- -t commands > build/compile-commands.txt
-          if ! grep -Ei 'buildcache(\.exe)?"? .* (-c |/c |/Fo)' build/compile-commands.txt; then
-            echo "::error::BuildCache is missing from the generated compiler commands"
-            exit 1
-          fi
-
-      - name: Build
-        run: cmake --build build --parallel 4
-
-      - name: Rebuild from cache
-        run: cmake --build build --clean-first --parallel 4
-
-      - name: Verify cache hits
-        shell: bash
-        run: |
-          buildcache --show-stats > build/cache-stats.txt
-          cat build/cache-stats.txt
-          if ! grep -E '(Direct|Local|Remote) hits: +[1-9]' build/cache-stats.txt; then
-            echo "::error::The clean rebuild did not produce any BuildCache hits"
-            exit 1
-          fi
+      - name: Verify launcher and clean rebuild cache hits
+        run: python Scripts/setup.py verifycache --build-dir build --target Memory --parallel 4
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure --no-tests=error --timeout 300
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release --test-timeout 300
 
       - name: Report cache statistics
         if: always()

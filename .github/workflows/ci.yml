@@ -50,17 +50,17 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=${{ matrix.build_type }}
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=ON
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
   # ---------------------------------------------------------------------------
   # Linux CPU allocators. Every flag the Linux build can honor:
@@ -119,18 +119,18 @@ jobs:
       - name: Build and install Profiler
         if: matrix.allocator == 'profiler'
         run: >
-          cmake -S profiler -B profiler_build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/profiler_install
-          -DPROFILER_GPU_BACKEND=none
-          -DPROFILER_ENABLE_TESTING=OFF
-          -DPROFILER_ENABLE_EXAMPLES=OFF
-          -DPROFILER_ENABLE_BENCHMARKS=OFF
-          -DPROFILER_ENABLE_INSTALL=ON
-          -DBUILD_SHARED_LIBS=OFF
-          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-          && cmake --build profiler_build
-          && cmake --install profiler_build
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir profiler --build-dir profiler_build --generator Ninja
+          --build-type=Release
+          --install-prefix=${{ github.workspace }}/profiler_install
+          --profiler-gpu-backend=none
+          --profiler-testing=OFF
+          --profiler-examples=OFF
+          --profiler-benchmark=OFF
+          --profiler-install=ON
+          --shared=OFF
+          --position-independent-code=ON
+          && python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir profiler_build
+          && python3 "${{ github.workspace }}/Scripts/setup.py" install --build-dir profiler_build
 
       - name: Configure
         env:
@@ -141,48 +141,48 @@ jobs:
           case "$ALLOCATOR" in
             tbb)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=OFF
-                -DMEMORY_ENABLE_TBB=ON
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                --mimalloc=OFF
+                --tbb=ON
+                --mimalloc-stats=OFF
               )
               ;;
             native)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=OFF
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                --mimalloc=OFF
+                --tbb=OFF
+                --mimalloc-stats=OFF
               )
               ;;
             mimalloc-stats)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=ON
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=ON
               )
               ;;
             numa)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
-                -DMEMORY_ENABLE_NUMA=ON
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=OFF
+                --numa=ON
               )
               ;;
             memkind)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
-                -DMEMORY_ENABLE_MEMKIND=ON
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=OFF
+                --memkind=ON
               )
               ;;
             profiler)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
-                -DMEMORY_ENABLE_PROFILER=ON
-                -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install"
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=OFF
+                --profiler=ON
+                --prefix-path="${{ github.workspace }}/profiler_install"
               )
               ;;
             *)
@@ -190,13 +190,13 @@ jobs:
               exit 1
               ;;
           esac
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DMEMORY_GPU_BACKEND=none \
-            -DMEMORY_ENABLE_TESTING=ON \
-            -DMEMORY_ENABLE_BENCHMARK=OFF \
-            -DMEMORY_ENABLE_COVERAGE=ON \
-            -DMEMORY_ENABLE_EXTERNAL=OFF \
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja \
+            --build-type=Debug \
+            --gpu-backend=none \
+            --testing=ON \
+            --benchmark=OFF \
+            --coverage=ON \
+            --external=OFF \
             "${extra[@]}" 2>&1 | tee configure.log
 
       - name: Verify allocator configuration
@@ -207,10 +207,10 @@ jobs:
           python3 Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
       - name: Collect coverage
         run: coverage-tool --build=build --compiler=gcc
@@ -260,18 +260,18 @@ jobs:
       - name: Build and install Profiler
         if: matrix.allocator == 'profiler'
         run: >
-          cmake -S profiler -B profiler_build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/profiler_install
-          -DPROFILER_GPU_BACKEND=none
-          -DPROFILER_ENABLE_TESTING=OFF
-          -DPROFILER_ENABLE_EXAMPLES=OFF
-          -DPROFILER_ENABLE_BENCHMARKS=OFF
-          -DPROFILER_ENABLE_INSTALL=ON
-          -DBUILD_SHARED_LIBS=OFF
-          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-          && cmake --build profiler_build
-          && cmake --install profiler_build
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir profiler --build-dir profiler_build --generator Ninja
+          --build-type=Release
+          --install-prefix=${{ github.workspace }}/profiler_install
+          --profiler-gpu-backend=none
+          --profiler-testing=OFF
+          --profiler-examples=OFF
+          --profiler-benchmark=OFF
+          --profiler-install=ON
+          --shared=OFF
+          --position-independent-code=ON
+          && python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir profiler_build
+          && python3 "${{ github.workspace }}/Scripts/setup.py" install --build-dir profiler_build
 
       - name: Configure
         env:
@@ -282,41 +282,41 @@ jobs:
           case "$ALLOCATOR" in
             tbb)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=OFF
-                -DMEMORY_ENABLE_TBB=ON
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
-                -DCMAKE_PREFIX_PATH="$(brew --prefix tbb)"
+                --mimalloc=OFF
+                --tbb=ON
+                --mimalloc-stats=OFF
+                --prefix-path="$(brew --install-prefix tbb)"
               )
               ;;
             native)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=OFF
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                --mimalloc=OFF
+                --tbb=OFF
+                --mimalloc-stats=OFF
               )
               ;;
             mimalloc-stats)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=ON
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=ON
               )
               ;;
             metal)
               extra+=(
-                -DMEMORY_GPU_BACKEND=metal
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
+                --gpu-backend=metal
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=OFF
               )
               ;;
             profiler)
               extra+=(
-                -DMEMORY_ENABLE_MIMALLOC=ON
-                -DMEMORY_ENABLE_TBB=OFF
-                -DMEMORY_ENABLE_MIMALLOC_STATS=OFF
-                -DMEMORY_ENABLE_PROFILER=ON
-                -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install"
+                --mimalloc=ON
+                --tbb=OFF
+                --mimalloc-stats=OFF
+                --profiler=ON
+                --prefix-path="${{ github.workspace }}/profiler_install"
               )
               ;;
             *)
@@ -324,12 +324,12 @@ jobs:
               exit 1
               ;;
           esac
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DMEMORY_GPU_BACKEND=none \
-            -DMEMORY_ENABLE_TESTING=ON \
-            -DMEMORY_ENABLE_BENCHMARK=ON \
-            -DMEMORY_ENABLE_EXTERNAL=OFF \
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja \
+            --build-type=Release \
+            --gpu-backend=none \
+            --testing=ON \
+            --benchmark=ON \
+            --external=OFF \
             "${extra[@]}" 2>&1 | tee configure.log
 
       - name: Verify allocator configuration
@@ -338,10 +338,10 @@ jobs:
         run: python3 Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
   # ---------------------------------------------------------------------------
   # Windows allocators: TBB (built from source when no system TBB is
@@ -369,31 +369,31 @@ jobs:
           $extra = @()
           if ($env:ALLOCATOR -eq "tbb") {
             $extra = @(
-              "-DMEMORY_ENABLE_MIMALLOC=OFF",
-              "-DMEMORY_ENABLE_TBB=ON",
-              "-DMEMORY_ENABLE_MIMALLOC_STATS=OFF"
+              "--mimalloc=OFF",
+              "--tbb=ON",
+              "--mimalloc-stats=OFF"
             )
           } elseif ($env:ALLOCATOR -eq "native") {
             $extra = @(
-              "-DMEMORY_ENABLE_MIMALLOC=OFF",
-              "-DMEMORY_ENABLE_TBB=OFF",
-              "-DMEMORY_ENABLE_MIMALLOC_STATS=OFF"
+              "--mimalloc=OFF",
+              "--tbb=OFF",
+              "--mimalloc-stats=OFF"
             )
           } elseif ($env:ALLOCATOR -eq "mimalloc-stats") {
             $extra = @(
-              "-DMEMORY_ENABLE_MIMALLOC=ON",
-              "-DMEMORY_ENABLE_TBB=OFF",
-              "-DMEMORY_ENABLE_MIMALLOC_STATS=ON"
+              "--mimalloc=ON",
+              "--tbb=OFF",
+              "--mimalloc-stats=ON"
             )
           } else {
             Write-Error "unknown allocator: $env:ALLOCATOR"
             exit 1
           }
-          cmake -S . -B build `
-            -DMEMORY_GPU_BACKEND=none `
-            -DMEMORY_ENABLE_TESTING=ON `
-            -DMEMORY_ENABLE_BENCHMARK=ON `
-            -DMEMORY_ENABLE_EXTERNAL=OFF `
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir . --build-dir build `
+            --gpu-backend=none `
+            --testing=ON `
+            --benchmark=ON `
+            --external=OFF `
             @extra *> configure.log
           if ($LASTEXITCODE -ne 0) { Get-Content configure.log; exit $LASTEXITCODE }
           Get-Content configure.log
@@ -405,10 +405,10 @@ jobs:
         run: python Scripts/verify_allocator_config.py configure.log build
 
       - name: Build
-        run: cmake --build build --config Release
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build --build-type Release
 
       - name: Test
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release
 
   # ---------------------------------------------------------------------------
   # Windows Profiler. Linux and macOS enable Profiler inside their allocator
@@ -435,17 +435,17 @@ jobs:
       - name: Build and install Profiler
         shell: pwsh
         run: |
-          cmake -S profiler -B profiler_build -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/profiler_install" -DPROFILER_GPU_BACKEND=none -DPROFILER_ENABLE_TESTING=OFF -DPROFILER_ENABLE_EXAMPLES=OFF -DPROFILER_ENABLE_BENCHMARKS=OFF -DPROFILER_ENABLE_INSTALL=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir profiler --build-dir profiler_build --install-prefix="${{ github.workspace }}/profiler_install" --profiler-gpu-backend=none --profiler-testing=OFF --profiler-examples=OFF --profiler-benchmark=OFF --profiler-install=ON --shared=OFF --position-independent-code=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build profiler_build --config Release
+          python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir profiler_build --build-type Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --install profiler_build --config Release
+          python3 "${{ github.workspace }}/Scripts/setup.py" install --build-dir profiler_build --build-type Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure Memory against the installed Profiler
         shell: pwsh
         run: |
-          cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ github.workspace }}/profiler_install" -DMEMORY_GPU_BACKEND=none -DMEMORY_ENABLE_PROFILER=ON -DMEMORY_ENABLE_TESTING=ON -DMEMORY_ENABLE_BENCHMARK=ON *> configure.log
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir . --build-dir build --prefix-path="${{ github.workspace }}/profiler_install" --gpu-backend=none --profiler=ON --testing=ON --benchmark=ON *> configure.log
           if ($LASTEXITCODE -ne 0) { Get-Content configure.log; exit $LASTEXITCODE }
           Get-Content configure.log
 
@@ -458,10 +458,10 @@ jobs:
           }
 
       - name: Build
-        run: cmake --build build --config Release
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build --build-type Release
 
       - name: Test
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release
 
   # ---------------------------------------------------------------------------
   # Linux CUDA: builds and runs the Memory test suite against a real CUDA
@@ -483,17 +483,17 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMEMORY_GPU_BACKEND=cuda
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Release
+          --gpu-backend=cuda
+          --testing=ON
+          --benchmark=ON
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --verbose --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --verbose
 
   # ---------------------------------------------------------------------------
   # Linux HIP: builds and runs the Memory test suite against a real ROCm
@@ -516,17 +516,17 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMEMORY_GPU_BACKEND=hip
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Release
+          --gpu-backend=hip
+          --testing=ON
+          --benchmark=ON
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --verbose --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --verbose
 
   # ---------------------------------------------------------------------------
   # macOS CPU: AppleClang, Release. Metal is the GPU backend on this
@@ -546,17 +546,17 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Release
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=ON
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
   # ---------------------------------------------------------------------------
   # Windows CPU: MSVC, Release. HIP is Unix-only and CUDA-on-Windows is not
@@ -573,16 +573,16 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir . --build-dir build
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=ON
 
       - name: Build
-        run: cmake --build build --config Release
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build --build-type Release
 
       - name: Test
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release
 
   # ---------------------------------------------------------------------------
   # Compiler cache & Icecc: exercises MEMORY_ENABLE_CACHE / MEMORY_CACHE_BACKEND
@@ -662,19 +662,19 @@ jobs:
           USE_ICECC: ${{ matrix.icecc }}
         run: |
           set -euo pipefail
-          extra=(-DMEMORY_ENABLE_ICECC="$USE_ICECC")
+          extra=(--icecc="$USE_ICECC")
           if [ "$BACKEND" != "none" ]; then
-            extra+=(-DMEMORY_ENABLE_CACHE=ON -DMEMORY_CACHE_BACKEND="$BACKEND")
+            extra+=(--cache=ON --cache-backend="$BACKEND")
           fi
           # Release defaults to LTO, which Memory rejects with sccache.
           if [ "$BACKEND" = "sccache" ]; then
-            extra+=(-DMEMORY_LTO_MODE=off)
+            extra+=(--lto-mode=off)
           fi
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DMEMORY_GPU_BACKEND=none \
-            -DMEMORY_ENABLE_TESTING=ON \
-            -DMEMORY_ENABLE_BENCHMARK=OFF \
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja \
+            --build-type=Release \
+            --gpu-backend=none \
+            --testing=ON \
+            --benchmark=OFF \
             "${extra[@]}"
 
       - name: Configure (Windows)
@@ -685,32 +685,32 @@ jobs:
         run: |
           $extra = @()
           if ($env:BACKEND -ne "none") {
-            $extra = @("-DMEMORY_ENABLE_CACHE=ON", "-DMEMORY_CACHE_BACKEND=$env:BACKEND")
+            $extra = @("--cache=ON", "--cache-backend=$env:BACKEND")
           }
           if ($env:BACKEND -eq "sccache") {
-            $extra += "-DMEMORY_LTO_MODE=off"
+            $extra += "--lto-mode=off"
           }
-          cmake -S . -B build `
-            -DMEMORY_GPU_BACKEND=none `
-            -DMEMORY_ENABLE_TESTING=ON `
-            -DMEMORY_ENABLE_BENCHMARK=OFF `
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir . --build-dir build `
+            --gpu-backend=none `
+            --testing=ON `
+            --benchmark=OFF `
             @extra
 
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        run: cmake --build build --config Release
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build --build-type Release
 
       - name: Test (Linux/macOS)
         if: runner.os != 'Windows'
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
       - name: Test (Windows)
         if: runner.os == 'Windows'
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release
 
   # ---------------------------------------------------------------------------
   # Bazel: builds/tests the whole tree (CPU-only default backend), cross-platform.
@@ -739,10 +739,10 @@ jobs:
             bazel-${{ runner.os }}-
 
       - name: Build
-        run: bazel build //...
+        run: python3 "${{ github.workspace }}/Scripts/setup_bazel.py" build --compiler=default --compilation-mode=fastbuild --target=//...
 
       - name: Test
-        run: bazel test //... --test_output=errors
+        run: python3 "${{ github.workspace }}/Scripts/setup_bazel.py" test --compiler=default --compilation-mode=fastbuild --target=//... --test-output=errors
 
   # ---------------------------------------------------------------------------
   # Sanitizers: Clang, CPU backend, Debug. Types the hosted toolchain can run:
@@ -791,16 +791,16 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=OFF
-          -DMEMORY_ENABLE_SANITIZER=ON
-          -DMEMORY_SANITIZER_TYPE=${{ matrix.sanitizer }}
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Debug
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=OFF
+          --sanitizer=ON
+          --sanitizer-types=${{ matrix.sanitizer }}
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test
         env:
@@ -808,11 +808,11 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/Scripts/suppressions/lsan_suppressions.txt
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           TSAN_OPTIONS: halt_on_error=1:abort_on_error=1
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
   # ---------------------------------------------------------------------------
   # Valgrind memcheck. Linux only: MEMORY_ENABLE_VALGRIND turns mimalloc off
-  # (mimalloc's reserved address space crashes Valgrind) and ctest -T memcheck
+  # (mimalloc's reserved address space crashes Valgrind) and ctest --memcheck
   # uses the suppression file and the 20x timeout multiplier. macOS hosted
   # runners have no Valgrind.
   # ---------------------------------------------------------------------------
@@ -833,18 +833,18 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=OFF
-          -DMEMORY_ENABLE_VALGRIND=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Debug
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=OFF
+          --valgrind=ON
 
       - name: Build
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Test under Valgrind
-        run: ctest --test-dir build -T memcheck --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --memcheck
 
   # ---------------------------------------------------------------------------
   # cppcheck: static analysis of src/ via Scripts/helpers/cppcheck.py.
@@ -910,7 +910,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install ninja llvm
-          LLVM_PREFIX="$(brew --prefix llvm)"
+          LLVM_PREFIX="$(brew --install-prefix llvm)"
           echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
           echo "CC=${LLVM_PREFIX}/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=${LLVM_PREFIX}/bin/clang++" >> "$GITHUB_ENV"
@@ -929,37 +929,37 @@ jobs:
       - name: Configure (Linux/macOS)
         if: matrix.os != 'windows-latest'
         run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=OFF
-          -DMEMORY_ENABLE_COVERAGE=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --source-dir . --build-dir build --generator Ninja
+          --build-type=Debug
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=OFF
+          --coverage=ON
 
       - name: Configure (Windows)
         if: matrix.os == 'windows-latest'
         run: >
-          cmake -S . -B build
-          -DMEMORY_GPU_BACKEND=none
-          -DMEMORY_ENABLE_TESTING=ON
-          -DMEMORY_ENABLE_BENCHMARK=OFF
-          -DMEMORY_ENABLE_COVERAGE=ON
+          python3 "${{ github.workspace }}/Scripts/setup.py" config --compiler=default --generator=default --source-dir . --build-dir build
+          --gpu-backend=none
+          --testing=ON
+          --benchmark=OFF
+          --coverage=ON
 
       - name: Build (Linux/macOS)
         if: matrix.os != 'windows-latest'
-        run: cmake --build build
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build
 
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
-        run: cmake --build build --config Release
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" build --build-dir build --build-type Release
 
       - name: Test (Linux/macOS)
         if: matrix.os != 'windows-latest'
-        run: ctest --test-dir build --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build
 
       - name: Test (Windows)
         if: matrix.os == 'windows-latest'
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: python3 "${{ github.workspace }}/Scripts/setup.py" test --build-dir . --build-dir build --build-type Release
 
       - name: Collect coverage
         run: >
