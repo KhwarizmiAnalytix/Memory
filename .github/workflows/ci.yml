@@ -586,10 +586,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Compiler cache & Icecc: exercises MEMORY_ENABLE_CACHE / MEMORY_CACHE_BACKEND
-  # (ccache, sccache) and MEMORY_ENABLE_ICECC across Linux, macOS, and Windows.
-  # BuildCache runs in buildcache.yml. Icecream has no Windows port, so
-  # there is no windows-icecc leg. ICECC=no forces the icecc launcher to fall
-  # back to local compilation instead of requiring a scheduler/cluster.
+  # (ccache, sccache, buildcache) and MEMORY_ENABLE_ICECC across Linux, macOS,
+  # and Windows. Icecream has no Windows port, so there is no windows-icecc leg.
+  # ICECC=no forces the icecc launcher to fall back to local compilation instead
+  # of requiring a scheduler/cluster.
   # ---------------------------------------------------------------------------
   cache-icecc:
     name: Cache & Icecc / ${{ matrix.name }}
@@ -631,6 +631,18 @@ jobs:
             os: windows-latest
             backend: sccache
             icecc: "OFF"
+          - name: linux-buildcache
+            os: ubuntu-latest
+            backend: buildcache
+            icecc: "OFF"
+          - name: macos-buildcache
+            os: macos-latest
+            backend: buildcache
+            icecc: "OFF"
+          - name: windows-buildcache
+            os: windows-latest
+            backend: buildcache
+            icecc: "OFF"
     env:
       ICECC: 'no'
     steps:
@@ -654,6 +666,16 @@ jobs:
         if: matrix.backend == 'sccache'
         with:
           version: v0.12.0
+
+      - name: Set BuildCache directory
+        if: matrix.backend == 'buildcache'
+        shell: bash
+        run: echo "BUILDCACHE_DIR=$RUNNER_TEMP/buildcache-data" >> "$GITHUB_ENV"
+
+      - name: Install BuildCache
+        if: matrix.backend == 'buildcache'
+        shell: bash
+        run: python3 .github/scripts/install_buildcache.py --install-prefix "$RUNNER_TEMP/buildcache-tool"
 
       - name: Configure (Linux/macOS)
         if: runner.os != 'Windows'
