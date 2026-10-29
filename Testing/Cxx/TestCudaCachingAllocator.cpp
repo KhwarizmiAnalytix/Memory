@@ -771,7 +771,10 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
     ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_a));
     ASSERT_EQ(cudaSuccess, cudaStreamCreate(&stream_b));
 
-    auto&      cache   = caching_allocator_for_device(0);
+    auto& cache = caching_allocator_for_device(0);
+    // The process-wide cache survives test repetitions, and CUDA/HIP may recycle
+    // destroyed stream handles. Start cold before measuring driver allocations.
+    cache.empty_cache();
     auto const drivers = cache.stats().driver_allocations.load();
 
     {
@@ -790,6 +793,7 @@ MEMORYTEST_F(CudaCachingAllocator, data_ptr_uses_allocation_stream_pool)
     }
     EXPECT_EQ(drivers + 2, cache.stats().driver_allocations.load());
 
+    cache.empty_cache();
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_a));
     EXPECT_EQ(cudaSuccess, cudaStreamDestroy(stream_b));
     LOGGING_LOG_INFO("data_ptr allocates and frees on the given CUDA stream");
