@@ -34,8 +34,9 @@ def main():
             str(source / "src"),
             "-B",
             str(build),
-            "-G",
-            "Ninja",
+            # Visual Studio generators discover the Windows SDK and MSVC without
+            # a developer shell. Ninja requires that environment to be set up.
+            *([] if os.name == "nt" else ["-G", "Ninja"]),
             "-DCMAKE_BUILD_TYPE=Release",
             # CI uses local storage; avoid runner-specific OpenSSL DLLs.
             "-DDISABLE_SSL=ON",
@@ -47,7 +48,17 @@ def main():
         check=True,
     )
     subprocess.run(
-        ["cmake", "--build", str(build), "--target", "buildcache", "--parallel", "4"],
+        [
+            "cmake",
+            "--build",
+            str(build),
+            "--config",
+            "Release",
+            "--target",
+            "buildcache",
+            "--parallel",
+            "4",
+        ],
         check=True,
     )
     executable = "buildcache.exe" if os.name == "nt" else "buildcache"
