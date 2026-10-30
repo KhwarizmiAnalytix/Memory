@@ -675,7 +675,7 @@ jobs:
       - name: Install BuildCache
         if: matrix.backend == 'buildcache'
         shell: bash
-        run: python3 .github/scripts/install_buildcache.py --install-prefix "$RUNNER_TEMP/buildcache-tool"
+        run: python3 .github/scripts/install_buildcache.py --prefix "$RUNNER_TEMP/buildcache-tool"
 
       - name: Configure (Linux/macOS)
         if: runner.os != 'Windows'
