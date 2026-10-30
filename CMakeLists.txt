@@ -330,6 +330,15 @@ if(MEMORY_ENABLE_MIMALLOC)
 
   list(APPEND MEMORY_DEPENDENCY_INCLUDE_DIRS "${_tp_mimalloc}/mimalloc/include")
 
+  # Xcode requires the same sources in every configuration. mimalloc otherwise
+  # switches between separate sources in Debug and static.c in Release.
+  if(CMAKE_GENERATOR STREQUAL "Xcode" AND TARGET mimalloc-static)
+    get_target_property(_memory_mimalloc_imported mimalloc-static IMPORTED)
+    if(NOT _memory_mimalloc_imported)
+      set_property(TARGET mimalloc-static PROPERTY SOURCES "${_tp_mimalloc}/mimalloc/src/static.c")
+    endif()
+  endif()
+
   # MinGW: mimalloc links Windows system libs as bare names; patch to -l<name>.
   if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64") AND TARGET mimalloc-static)
     set(_mi_win_syslibs psapi shell32 user32 advapi32 bcrypt)

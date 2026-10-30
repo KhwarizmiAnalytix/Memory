@@ -222,8 +222,14 @@ MEMORYTEST(FlatPtrMap, failed_growth_leaves_the_map_unchanged)
         m.emplace(key(static_cast<std::uintptr_t>(i)), i);
     }
     size_t const capacity_before = m.capacity();
-    g_fail_next_new              = true;
-    EXPECT_THROW(m.emplace(key(1000), 1000), std::bad_alloc);
+    // GoogleTest's assertion setup can allocate a string proxy in MSVC Debug.
+    // Arm the hook inside the statement so only the map growth can consume it.
+    EXPECT_THROW(
+        {
+            g_fail_next_new = true;
+            m.emplace(key(1000), 1000);
+        },
+        std::bad_alloc);
     g_fail_next_new = false;
     EXPECT_EQ(m.size(), 32U);
     EXPECT_EQ(m.capacity(), capacity_before);
