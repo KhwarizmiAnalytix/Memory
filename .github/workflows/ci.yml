@@ -767,6 +767,59 @@ jobs:
         run: python3 "${{ github.workspace }}/Scripts/setup_bazel.py" test --compiler=default --compilation-mode=fastbuild --target=//... --test-output=errors
 
   # ---------------------------------------------------------------------------
+  # Bazel GPU: same build/test coverage as CPU, on the existing GPU fleet.
+  # CUDA requires the toolkit (CUDA_PATH/CUDA_HOME or /usr/local/cuda);
+  # HIP requires ROCm (ROCM_PATH/HIP_PATH or /opt/rocm).
+  # ---------------------------------------------------------------------------
+  bazel-gpu:
+    name: Bazel / Linux / ${{ matrix.backend }}
+    if: vars.GPU_RUNNERS_AVAILABLE == 'true'
+    runs-on: [self-hosted, linux, gpu, '${{ matrix.runner_label }}']
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: cuda
+            runner_label: cuda
+          - backend: hip
+            runner_label: rocm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Cache Bazel
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bazel
+          key: bazel-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'BUILD.bazel', 'bazel/**') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ matrix.backend }}-
+
+      - name: Verify CUDA device is visible
+        if: matrix.backend == 'cuda'
+        run: nvidia-smi
+
+      - name: Verify ROCm device is visible
+        if: matrix.backend == 'hip'
+        run: rocm-smi
+
+      - name: Build
+        run: >
+          python3 "${{ github.workspace }}/Scripts/setup_bazel.py" build
+          --compiler=default --compilation-mode=fastbuild --target=//...
+          --gpu-backend=${{ matrix.backend }}
+
+      - name: Test
+        run: >
+          python3 "${{ github.workspace }}/Scripts/setup_bazel.py" test
+          --compiler=default --compilation-mode=fastbuild --target=//...
+          --gpu-backend=${{ matrix.backend }} --test-output=errors
+
+  # ---------------------------------------------------------------------------
   # Sanitizers: Clang, CPU backend, Debug. Types the hosted toolchain can run:
   #   address, undefined, thread — Ubuntu and macOS
   #   leak                       — Ubuntu only (Apple Clang rejects -fsanitize=leak)

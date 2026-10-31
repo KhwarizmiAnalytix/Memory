@@ -1,7 +1,8 @@
-# @local_config_cuda overlay for NVIDIA CUDA Toolkit (Windows, x86-64).
+# @local_config_cuda overlay for NVIDIA CUDA Toolkit (Linux/Windows, x86-64).
 # Provides the :cuda cc_library that BUILD.bazel selects when
-# --define=memory_gpu_backend=cuda is passed.  Path is set by the
-# new_local_repository in WORKSPACE.bazel.
+# --define=memory_gpu_backend=cuda is passed. See cuda_repository.bzl for
+# toolkit discovery. Linux links the driver stub and runs against the
+# installed NVIDIA driver; the stub is not included in runtime runfiles.
 package(default_visibility = ["//visibility:public"])
 
 # cuda.lib — driver API stubs (cuInit, cuMemAddressReserve, cuMemCreate, …).
@@ -10,7 +11,10 @@ package(default_visibility = ["//visibility:public"])
 cc_import(
     name = "cuda_driver_import",
     hdrs = [],
-    interface_library = "lib/x64/cuda.lib",
+    interface_library = select({
+        "@platforms//os:windows": "lib/x64/cuda.lib",
+        "//conditions:default": "lib64/stubs/libcuda.so",
+    }),
     system_provided = True,
 )
 
@@ -18,8 +22,18 @@ cc_import(
 cc_import(
     name = "cudart_import",
     hdrs = [],
-    interface_library = "lib/x64/cudart.lib",
-    system_provided = True,  # cudart64_*.dll ships with the CUDA toolkit installer
+    interface_library = select({
+        "@platforms//os:windows": "lib/x64/cudart.lib",
+        "//conditions:default": None,
+    }),
+    shared_library = select({
+        "@platforms//os:windows": None,
+        "//conditions:default": "lib64/libcudart.so",
+    }),
+    system_provided = select({
+        "@platforms//os:windows": True,  # cudart64_*.dll is on PATH
+        "//conditions:default": False,
+    }),
 )
 
 cc_library(

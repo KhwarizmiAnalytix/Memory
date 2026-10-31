@@ -30,14 +30,19 @@ local_path_override(
 new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
 local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
 
-# CUDA Toolkit — @local_config_cuda wraps the installed CUDA toolkit.
-# Path mirrors the default NVIDIA GPU Computing Toolkit install on Windows.
-# Update the path if the toolkit version changes.
-new_local_repository(
-    name = "local_config_cuda",
-    path = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2",
-    build_file = "//bazel:cuda.BUILD",
-)
+# CUDA Toolkit — discover CUDA_PATH/CUDA_HOME, nvcc on PATH, or the
+# conventional Linux/Windows install location.
+cuda_repository = use_repo_rule("//bazel:cuda_repository.bzl", "cuda_repository")
+
+cuda_repository(name = "local_config_cuda")
+
+# HIP/ROCm — @local_config_hip wraps a system-installed ROCm SDK on Unix, or
+# fails analysis with a clear message (Windows, or no SDK found) the moment
+# --define=memory_gpu_backend=hip is actually selected. Mirrors
+# Cmake/hip.cmake's WIN32 guard and "HIP not found" FATAL_ERROR.
+hip_repository = use_repo_rule("//bazel:hip_repository.bzl", "hip_repository")
+
+hip_repository(name = "local_config_hip")
 
 # TBB — system-installed oneTBB, found via TBB_ROOT / TBB_DIR / TBBROOT.
 # Mirrors cmake/tbb_memory.cmake's find_package(TBB) pattern: no vendored

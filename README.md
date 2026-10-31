@@ -414,6 +414,7 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 | **macOS CPU** | macOS, AppleClang | Release, CPU backend, mimalloc |
 | **Windows CPU** | Windows, MSVC | Release, CPU backend, mimalloc |
 | **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
+| **Bazel GPU** | Self-hosted NVIDIA and AMD GPUs | Build and test `//...` with CUDA and HIP when `GPU_RUNNERS_AVAILABLE` is `true` |
 | **Sanitizers** | Ubuntu and macOS, Clang | ASan, UBSan, and TSan. LeakSanitizer on Ubuntu. Debug, CPU backend |
 | **Valgrind** | Ubuntu, gcc | Debug CPU tests under memcheck (`MEMORY_ENABLE_VALGRIND=ON`) |
 | **cppcheck** | Ubuntu | Static analysis of `src/`; errors fail the job |
