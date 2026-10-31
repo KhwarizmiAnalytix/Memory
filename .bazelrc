@@ -12,8 +12,8 @@ common --enable_platform_specific_config
 common --incompatible_autoload_externally=-@rules_android
 
 # C++20 by default (mirrors MEMORY_CXX_STANDARD=20 in CMakeLists.txt).
-# MSVC takes /std:c++20, not -std=c++20 — unlike memory_copts()/xsigma_copts()
-# (bazel/xsigma.bzl), which already select() this per target, this applies to
+# MSVC takes /std:c++20, not -std=c++20 — unlike memory_copts()
+# (bazel/memory.bzl), which already select() this per target, this applies to
 # every target including third-party deps, so it must be split per OS too.
 build:linux --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
 build:macos --cxxopt=-std=c++20 --host_cxxopt=-std=c++20

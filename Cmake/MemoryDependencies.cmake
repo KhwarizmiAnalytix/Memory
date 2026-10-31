@@ -147,14 +147,15 @@ function(memory_setup_logging)
   endif()
   set(LOGGING_ENABLE_TESTING OFF CACHE BOOL "Logging tests build only standalone" FORCE)
   set(LOGGING_ENABLE_EXAMPLES OFF CACHE BOOL "Logging examples build only standalone" FORCE)
+  set(LOGGING_ENABLE_BENCHMARK OFF CACHE BOOL "Logging benchmarks build only standalone" FORCE)
   # Logging consumes fmt headers; its optional module target is unnecessary and
   # clang-cl cannot scan its imports with CMake's Ninja generator.
   set(FMT_MODULE OFF)
-  # Forward tool flags so Logging inherits Memory's build settings.
-  foreach(_mem_log_feat IN ITEMS CACHE ICECC CLANGTIDY FIX IWYU SANITIZER COVERAGE SPELL VALGRIND)
-    set(LOGGING_ENABLE_${_mem_log_feat} "${MEMORY_ENABLE_${_mem_log_feat}}"
-        CACHE BOOL "Configured by Memory" FORCE)
+  # Keep dependency tooling disabled; only distributed compilation follows Memory.
+  foreach(_mem_log_feat IN ITEMS CACHE CLANGTIDY FIX IWYU SANITIZER COVERAGE SPELL VALGRIND)
+    set(LOGGING_ENABLE_${_mem_log_feat} OFF CACHE BOOL "Disabled by Memory" FORCE)
   endforeach()
+  set(LOGGING_ENABLE_ICECC "${MEMORY_ENABLE_ICECC}" CACHE BOOL "Configured by Memory" FORCE)
   foreach(_mem_log_setting IN ITEMS CACHE_BACKEND SANITIZER_TYPE LINKER_CHOICE LTO_MODE)
     set(LOGGING_${_mem_log_setting} "${MEMORY_${_mem_log_setting}}"
         CACHE STRING "Configured by Memory" FORCE)

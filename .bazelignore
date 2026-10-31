@@ -6,6 +6,5 @@
 ThirdParty/Logging
 ThirdParty/Profiler
 ThirdParty/benchmark
-ThirdParty/fmt
 ThirdParty/googletest
 ThirdParty/mimalloc
