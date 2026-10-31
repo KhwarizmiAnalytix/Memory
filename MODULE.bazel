@@ -36,7 +36,7 @@ local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl"
 new_local_repository(
     name = "local_config_cuda",
     path = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2",
-    build_file = "//ThirdParty:cuda.BUILD",
+    build_file = "//bazel:cuda.BUILD",
 )
 
 # TBB — system-installed oneTBB, found via TBB_ROOT / TBB_DIR / TBBROOT.
@@ -50,7 +50,7 @@ tbb_repository(name = "tbb")
 new_local_repository(
     name = "mimalloc",
     path = "ThirdParty/mimalloc",
-    build_file = "//ThirdParty:mimalloc.BUILD",
+    build_file = "//bazel:mimalloc.BUILD",
 )
 
 # Google Test / Benchmark — vendored nested submodules (ThirdParty/)
