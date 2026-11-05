@@ -1,0 +1,130 @@
+@PACKAGE_INIT@
+
+# Memory CMake configuration file
+# Enables: find_package(Memory REQUIRED)
+
+include(CMakeFindDependencyMacro)
+
+# Logging is a required sibling dependency -- Memory's public headers call
+# Logging's LOGGING_CHECK/LOGGING_THROW/LOGGING_LOG_* macros directly
+# (<logging.h>), so Logging::Logging must be resolvable before
+# MemoryTargets.cmake is loaded.
+if(NOT TARGET Logging::Logging)
+  find_dependency(Logging)
+endif()
+
+# Profiler is an optional sibling dependency: only part of Memory's link
+# interface when this package was built with MEMORY_ENABLE_PROFILER=ON and a
+# Profiler::Profiler target was actually available at that time.
+set(Memory_HAS_PROFILER @MEMORY_HAS_PROFILER_BUILD@)
+if(Memory_HAS_PROFILER AND NOT TARGET Profiler::Profiler)
+  find_dependency(Profiler)
+endif()
+
+# Static packages only: libMemory.a does not absorb its PRIVATE allocator/runtime
+# dependencies, so consumers must link them. Memory/CMakeLists.txt links the
+# local wrapper targets through $<BUILD_INTERFACE:...> (they have no installed
+# identity), so recreate them here and attach them LINK_ONLY below. CUDA::* and
+# hip::host are real package targets already named in MemoryTargets.cmake.
+set(Memory_STATIC @MEMORY_PACKAGE_STATIC@)
+set(_memory_static_deps "")
+if(Memory_STATIC)
+  set(_memory_gpu_backend "@MEMORY_GPU_BACKEND@")
+  if(_memory_gpu_backend STREQUAL "cuda")
+    find_dependency(CUDAToolkit)
+  elseif(_memory_gpu_backend STREQUAL "hip")
+    find_dependency(hip)
+  endif()
+
+  set(_memory_mimalloc "@MEMORY_PACKAGE_MIMALLOC@")
+  if(_memory_mimalloc)
+    if(NOT TARGET Mimalloc::mimalloc)
+      list(GET _memory_mimalloc 0 _memory_mimalloc_target)
+      if(NOT TARGET ${_memory_mimalloc_target})
+        # A vendored build installs mimalloc's own package into this prefix.
+        find_dependency(mimalloc CONFIG HINTS "${PACKAGE_PREFIX_DIR}")
+      endif()
+      add_library(Mimalloc::mimalloc INTERFACE IMPORTED)
+      target_link_libraries(Mimalloc::mimalloc INTERFACE ${_memory_mimalloc})
+    endif()
+    list(APPEND _memory_static_deps Mimalloc::mimalloc)
+  endif()
+
+  if(@MEMORY_PACKAGE_TBB@)
+    if(NOT TARGET Tbb::tbbmalloc)
+      find_dependency(TBB COMPONENTS tbbmalloc)
+      add_library(Tbb::tbbmalloc INTERFACE IMPORTED)
+      target_link_libraries(Tbb::tbbmalloc INTERFACE TBB::tbbmalloc)
+    endif()
+    list(APPEND _memory_static_deps Tbb::tbbmalloc)
+  endif()
+
+  if(@MEMORY_PACKAGE_NUMA@)
+    if(NOT TARGET Numa::numa)
+      include("${CMAKE_CURRENT_LIST_DIR}/FindNuma.cmake")
+      if(NOT Numa_FOUND)
+        set(Memory_FOUND FALSE)
+        set(Memory_NOT_FOUND_MESSAGE "Memory (static) requires libnuma, which was not found")
+        return()
+      endif()
+      add_library(Numa::numa INTERFACE IMPORTED)
+      target_include_directories(Numa::numa INTERFACE ${Numa_INCLUDE_DIR})
+      target_link_libraries(Numa::numa INTERFACE ${Numa_LIBRARIES})
+    endif()
+    list(APPEND _memory_static_deps Numa::numa)
+  endif()
+endif()
+
+if(NOT TARGET Memory::Memory)
+  include("${CMAKE_CURRENT_LIST_DIR}/MemoryTargets.cmake")
+endif()
+
+foreach(_memory_dep IN LISTS _memory_static_deps)
+  set_property(
+    TARGET Memory::Memory APPEND PROPERTY INTERFACE_LINK_LIBRARIES "$<LINK_ONLY:${_memory_dep}>"
+  )
+endforeach()
+unset(_memory_static_deps)
+
+# MemoryTargets.cmake's INTERFACE_LINK_LIBRARIES does not list Logging::Logging /
+# Profiler::Profiler: Memory/CMakeLists.txt links them through
+# $<BUILD_INTERFACE:...> because both are normally built in-tree
+# (submodule/FetchContent, not find_package()), and a non-IMPORTED, non-exported
+# target in a dependent's link interface makes install(EXPORT MemoryTargets)
+# fail outright ("which requires target Logging that is not in any export
+# set"). Re-attach them here now that find_dependency() above has guaranteed
+# real (IMPORTED) targets exist, so consumers of installed Memory::Memory still
+# get the transitive link Memory's public headers require.
+set_property(TARGET Memory::Memory APPEND PROPERTY INTERFACE_LINK_LIBRARIES Logging::Logging)
+if(Memory_HAS_PROFILER)
+  set_property(TARGET Memory::Memory APPEND PROPERTY INTERFACE_LINK_LIBRARIES Profiler::Profiler)
+endif()
+
+# Report optional backend/allocator selection to downstream packages.
+set(Memory_HAS_TBB @MEMORY_ENABLE_TBB@)
+set(Memory_HAS_MIMALLOC @MEMORY_ENABLE_MIMALLOC@)
+set(Memory_HAS_NUMA @MEMORY_ENABLE_NUMA@)
+set(Memory_HAS_MEMKIND @MEMORY_ENABLE_MEMKIND@)
+set(Memory_GPU_BACKEND @MEMORY_GPU_BACKEND@)
+
+if(NOT Memory_FIND_QUIETLY)
+  message(STATUS "Found Memory: ${PACKAGE_PREFIX_DIR}")
+  message(STATUS "  GPU backend: ${Memory_GPU_BACKEND}")
+  if(Memory_HAS_PROFILER)
+    message(STATUS "  Profiler support: enabled")
+  endif()
+  if(Memory_HAS_TBB)
+    message(STATUS "  TBB support: enabled")
+  endif()
+  if(Memory_HAS_MIMALLOC)
+    message(STATUS "  mimalloc support: enabled")
+  endif()
+  if(Memory_HAS_NUMA)
+    message(STATUS "  NUMA support: enabled")
+  endif()
+  if(Memory_HAS_MEMKIND)
+    message(STATUS "  memkind support: enabled")
+  endif()
+endif()
+
+check_required_components(Memory)

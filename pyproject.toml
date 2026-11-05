@@ -7,14 +7,29 @@ description = "Memory allocation library"
 python_version = "3.12"
 disallow_untyped_defs = false
 ignore_missing_imports = true
+exclude = ["ThirdParty/"]
+
+[[tool.mypy.overrides]]
+module = "Testing.*"
+ignore_errors = true
 
 [tool.pyrefly]
 line_length = 88
+project_excludes = ["ThirdParty/**"]
 
 [tool.black]
 line-length = 88
 target-version = ['py312']
+exclude = '''
+/(
+    ThirdParty
+)/
+'''
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+exclude = ["ThirdParty", "ThirdParty/*"]
+
+[tool.lint-tool]
+import-allowlist = ["psutil", "colorama", "helpers", "coverage_tool"]

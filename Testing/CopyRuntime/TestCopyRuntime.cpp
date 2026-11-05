@@ -61,6 +61,18 @@ void* operator new(std::size_t n)
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 void* operator new[](std::size_t n) { return ::operator new(n); }
+// get_temporary_buffer allocates with nothrow new and frees with the sized
+// delete above. Both must use malloc/free once Valgrind stops replacing this
+// executable's operator new; otherwise the sized delete is a mismatched free.
+// The failure hook stays on the throwing operator new.
+void* operator new(std::size_t n, std::nothrow_t const&) noexcept
+{
+    return std::malloc(n ? n : 1);
+}
+void* operator new[](std::size_t n, std::nothrow_t const&) noexcept
+{
+    return ::operator new(n, std::nothrow);
+}
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
@@ -897,6 +909,7 @@ TEST_F(CopyFailureTest, SetupFailureAfterAdmissionCancelsReservationWithoutWaiti
     EXPECT_NO_THROW(
         (void)allocator<float>::copy_async_retained(pair.source, pair.destination, stream));
     EXPECT_EQ(1U, service().pending_count());  // slot was free: exactly one admission
+    service().reset();  // release pending op while releases is still in scope
 }
 
 TEST_F(CopyFailureTest, EventRecordFailureWithIdleStreamIsProvenSafeAndRolledBack)

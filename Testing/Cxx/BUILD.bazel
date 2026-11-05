@@ -80,3 +80,18 @@ cc_binary(
         "@com_google_benchmark//:benchmark_main",
     ],
 )
+
+# Compile public GPU-facing headers with no vendor runtime on the include path.
+cc_library(
+    name = "MemoryConsumerNoVendorHeaders",
+    srcs = ["ConsumerNoVendorHeaders.cpp"],
+    copts = memory_copts(),
+    local_defines = [
+        "MEMORY_STATIC_DEFINE",
+        "MEMORY_HAS_CUDA=1",
+        "MEMORY_HAS_HIP=0",
+        "MEMORY_HAS_METAL=0",
+        "MEMORY_HAS_PROFILER=0",
+    ],
+    deps = ["//:memory_headers_only", "@logging//:Logging"],
+)

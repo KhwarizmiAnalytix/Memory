@@ -13,7 +13,7 @@ include_guard(GLOBAL)
 
 # Guard against multiple inclusions for performance Set default build type with caching for
 # performance
-if(NOT CMAKE_BUILD_TYPE)
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
   message("CMAKE_BUILD_TYPE not set - defaulting to Release")
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
   set_property(

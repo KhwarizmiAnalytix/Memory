@@ -26,8 +26,6 @@ TEST_F(TestPhase2CopySync, CpuCopySynchronous)
     std::vector<float> src(size_floats, 3.14f);
     std::vector<float> dst(size_floats, 0.0f);
 
-    execution_context ctx_cpu = execution_context::cpu();
-
     // Synchronous copy should return with data visible immediately
     allocator<float>::copy_sync(
         src.data(), size_floats, dst.data(),

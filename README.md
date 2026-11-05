@@ -345,10 +345,30 @@ Memory/
 | Option | Default | Purpose |
 |--------|---------|---------|
 | **`MEMORY_GPU_BACKEND`** | `none` | `cuda`, `hip`, `metal`, or `none` (CPU-only). Sets `MEMORY_HAS_CUDA`, `MEMORY_HAS_HIP`, `MEMORY_HAS_METAL` |
-| `MEMORY_CXX_STANDARD` | 20 | C++ version: 11, 17, 20, 23 |
+| `MEMORY_CXX_STANDARD` | 20 | C++ version: 17, 20, 23 |
 | `MEMORY_ENABLE_TESTING` | ON | Build tests |
 | `MEMORY_ENABLE_BENCHMARK` | ON | Build benchmarks |
 | `MEMORY_ENABLE_MIMALLOC` | ON | Use mimalloc for CPU |
+
+CMake requires version 3.24 or newer. Compiler minimums follow the selected
+standard, matching LinearAlgebra:
+
+| C++ standard | GCC | LLVM Clang | AppleClang | MSVC |
+| --- | --- | --- | --- | --- |
+| 17 | 9.1 | 9 | 11 | 19.14 |
+| 20 | 10 | 11 | 13 | 19.29 |
+| 23 | 11 | 17 | 15 | 19.34 |
+
+Compiler requirements are checked on every configure. Tests default to ON
+for standalone builds and follow `BUILD_TESTING` when the host sets it;
+`BUILD_TESTING=OFF` disables this project's tests even if its own testing
+option is ON. Coverage and sanitizers apply to this project's targets,
+and disable LTO while enabled. Compiler caches and Icecream are configured
+per target; an explicitly selected cache must be installed.
+
+Run CMake configuration regression checks with
+`python3 Testing/CMake/check_configurations.py`.
+
 
 ### Optional Features
 
@@ -358,7 +378,8 @@ Memory/
 | `MEMORY_ENABLE_NUMA` | OFF | NUMA support; per-allocation node binding stays off unless `cpu::memory_allocator::set_numa_placement(true)` |
 | `MEMORY_ENABLE_MIMALLOC_STATS` | OFF | Runtime stats reporting |
 | `MEMORY_ENABLE_COVERAGE` | OFF | Coverage instrumentation |
-| `MEMORY_ENABLE_SANITIZER` | OFF | Sanitizer (address/memory/thread/undefined) |
+| `MEMORY_ENABLE_SANITIZER` | OFF | Sanitizer (`address`, `undefined`, `thread`, `leak`, `memory`) |
+| `MEMORY_ENABLE_VALGRIND` | OFF | Run the test suite under Valgrind memcheck |
 
 **See `CMakeLists.txt` for complete list**
 
@@ -386,16 +407,23 @@ See `bazel/memory.bzl` and root `.bazelrc` for available flags.
 
 | Job | Where | What it checks |
 |-----|--------|----------------|
-| **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none` |
-| **macOS CPU** | macOS, AppleClang | Release, CPU backend |
-| **Windows CPU** | Windows, MSVC | Release, CPU backend |
+| **Linux CPU** | Ubuntu, gcc and clang | Release, plus one Debug build per compiler. `MEMORY_GPU_BACKEND=none`, mimalloc on |
+| **Linux allocators** | Ubuntu, gcc | TBB, native malloc, mimalloc stats, NUMA (`libnuma`), memkind, and Profiler |
+| **macOS allocators** | macOS, AppleClang | TBB, native malloc, mimalloc stats, Metal, and Profiler. Runs after the sanitizers |
+| **Windows allocators** | Windows, MSVC | TBB, native `_aligned_malloc`, and mimalloc stats |
+| **macOS CPU** | macOS, AppleClang | Release, CPU backend, mimalloc |
+| **Windows CPU** | Windows, MSVC | Release, CPU backend, mimalloc |
 | **Bazel** | Ubuntu, macOS, Windows | `bazel build //...` and `bazel test //...` (CPU backend) |
-| **Sanitizers** | Ubuntu and macOS, Clang | ASan and UBSan, Debug, CPU backend |
+| **Bazel GPU** | Self-hosted NVIDIA and AMD GPUs | Build and test `//...` with CUDA and HIP when `GPU_RUNNERS_AVAILABLE` is `true` |
+| **Sanitizers** | Ubuntu and macOS, Clang | ASan, UBSan, and TSan. LeakSanitizer on Ubuntu. Debug, CPU backend |
+| **Valgrind** | Ubuntu, gcc | Debug CPU tests under memcheck (`MEMORY_ENABLE_VALGRIND=ON`) |
+| **cppcheck** | Ubuntu | Static analysis of `src/`; errors fail the job |
 | **Coverage** | Ubuntu, macOS, Windows | Instrumented CPU-backend tests; HTML report uploaded as `coverage-html-<os>` |
+| **Windows Profiler** | Windows, MSVC | `MEMORY_ENABLE_PROFILER=ON` against an installed Profiler |
 | **Linux CUDA** | Self-hosted NVIDIA GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 | **Linux HIP** | Self-hosted AMD GPU | Release tests when `GPU_RUNNERS_AVAILABLE` is `true` |
 
-Hosted jobs exercise the CPU allocator. CUDA and HIP run on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) only while the repository variable `GPU_RUNNERS_AVAILABLE` is `true`. Metal stays a local Apple build.
+Hosted jobs exercise every allocator flag the platform accepts. Linux adds NUMA, memkind, and Profiler. macOS adds Metal and Profiler. Windows uses `_aligned_malloc` for the native allocator, builds TBB from source when it is not already installed, and has its own Profiler job. Sanitizer jobs cover AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer on Ubuntu and macOS, plus LeakSanitizer on Ubuntu. MemorySanitizer stays local: it needs a C++ standard library built with `-fsanitize=memory`, which the hosted images do not ship. Valgrind and cppcheck run on Ubuntu. CUDA and HIP stay on labeled self-hosted runners (`self-hosted`, `linux`, `gpu`, plus `cuda` or `rocm`) and run only while `GPU_RUNNERS_AVAILABLE` is `true`.
 
 ### Coverage
 
@@ -424,7 +452,40 @@ pip install "git+https://github.com/KhwarizmiAnalytix/coverage-tool.git"
 coverage-tool --build=build --compiler=gcc
 ```
 
-Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. The reported percentage is CPU-backend coverage; CUDA, HIP, and Metal paths are outside that number.
+Open `build/coverage_report/html/index.html`. On macOS pass `--compiler=clang` (Homebrew LLVM, so `llvm-cov` matches the compiler). On Windows pass `--compiler=msvc` and install OpenCppCoverage first. Codecov merges the default mimalloc build with the Linux allocator builds, so TBB, native malloc, mimalloc stats, NUMA, and memkind are included. macOS Metal, CUDA, and HIP stay outside that Linux upload.
+
+---
+
+## Performance vs PyTorch
+
+`Testing/Cxx/BenchmarkPyTorchComparisonCpu.cpp` and `BenchmarkPyTorchComparisonGpu.cpp` build against
+LibTorch (`-DMEMORY_ENABLE_LIBTORCH=ON`, `CMAKE_PREFIX_PATH` pointed at a `torch` install) and compare
+Memory's allocators against PyTorch's at two levels: the raw allocator core, and the owning buffer
+object (`data_ptr<float>` vs a full tensor). Figures below are median time per allocate/free pair;
+speedup = PyTorch / Memory. Both sides are warm (cache already populated); GPU numbers are host
+submission time, not GPU-side completion time. Full methodology, caveats, and reproduce steps are in
+the linked baseline docs.
+
+**CPU** ([Apple M4 Pro, mimalloc, mobile LibTorch 2.13.0](Docs/baselines/cpu_pytorch_2026-10-06.md)):
+
+| Operation | Size | Memory | PyTorch | Speedup |
+|---|---|---:|---:|---:|
+| Raw allocator core | 64 B | 5.4 ns | 14.8 ns | 2.74× |
+| Raw allocator core | 1 MiB | 222 ns | 232 ns | 1.04× |
+| Owning buffer | 16 floats | 6.9 ns | 78.9 ns | 11.36× |
+| Owning buffer | 256 Ki floats | 220 ns | 301 ns | 1.37× |
+
+**GPU/CUDA** ([Windows, RTX 4060 Ti, CUDA 13.2, Clang-as-CUDA-compiler](Docs/baselines/gpu_cuda_pytorch_2026-10-11.md)):
+
+| Level | Size | Memory | PyTorch | Speedup |
+|---|---|---:|---:|---:|
+| Raw allocator core | 4 KiB | 96 ns | 380 ns | 3.96× |
+| Raw allocator core | 4 MiB | 95 ns | 382 ns | 4.02× |
+| Owning buffer | 16 floats | 77 ns | 850 ns | 11.04× |
+| Owning buffer | 256 Ki floats | 73 ns | 907 ns | 12.42× |
+
+One host and one GPU each; not a claim about every platform or driver combination. HIP/ROCm and
+multi-GPU comparisons are not run (no hardware).
 
 ---
 
@@ -484,3 +545,29 @@ A: Allocators throw `std::bad_alloc`. Call `gpu::empty_cache(device_index)` to f
 - Read the [design and implementation plan](Docs/memory_runtime_implementation_plan.md) for architecture, status and next work
 - Enable `-DMEMORY_HAS_PROFILER=1` to monitor memory usage
 - Use `gpu::memory_stats()` and `gpu::memory_snapshot()` for profiling
+
+### Reproducing CI with the setup helper
+
+CI and local builds use the documented dotted actions and named options from
+`python Scripts/setup.py --help`:
+
+```sh
+python Scripts/setup.py config.build.test.release.ninja.clang --build-dir build
+python Scripts/setup.py install.release --build-dir build --install-prefix install
+python Scripts/setup.py config.build.test --build-dir build-debug --compiler clang-cl --build-type Debug --testing on --benchmark off
+```
+
+Only declared options are accepted. Tool commands, raw build-system arguments,
+and a `--` argument separator are rejected. Paths, backend selections, GPU
+architectures, test filters, and installation settings have named options in
+the usage text. `--source-dir` selects a dependency or installed-package consumer
+project. `verifycache --build-dir build --target TARGET` checks the launcher and
+clean-rebuild cache hits. `verifytoolchain` checks the compiler selected by Ninja.
+Run Windows Ninja builds in a Visual Studio developer environment.
+
+Bazel CI uses the same action style and the options listed by
+`python Scripts/setup_bazel.py --help`, for example:
+
+```sh
+python Scripts/setup_bazel.py build.test --target //Testing/... --compiler default --test-output errors
+```

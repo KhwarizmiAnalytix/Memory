@@ -89,9 +89,8 @@ bool retained_operation_service::enqueue(copy_token const& token, size_t bytes, 
         }
         if (quarantine_full_locked())
         {
-            throw std::runtime_error(
-                "retained_operation_service: quarantine budget exhausted; "
-                "recover_quarantined() or raise set_max_quarantined()");
+            throw std::runtime_error("retained_operation_service: quarantine budget exhausted; "
+                                     "recover_quarantined() or raise set_max_quarantined()");
         }
         if (max_pending_ == 0 || pending_n_ < max_pending_)
         {
@@ -99,9 +98,8 @@ bool retained_operation_service::enqueue(copy_token const& token, size_t bytes, 
         }
         if (!blocking)
         {
-            throw std::runtime_error(
-                "retained_operation_service: max pending operations reached; "
-                "call poll() to drain or set_max_pending(0) for unlimited");
+            throw std::runtime_error("retained_operation_service: max pending operations reached; "
+                                     "call poll() to drain or set_max_pending(0) for unlimited");
         }
         // Nothing polls in the background: reap our own capacity, then sleep until
         // a limit change, shutdown or a short interval.
@@ -416,7 +414,7 @@ void retained_operation_service::reset() noexcept
         copy_token op_token;
         {
             std::lock_guard<std::mutex> const lock(mu_);
-            auto const it = std::find_if(
+            auto const                        it = std::find_if(
                 ops_.begin(), ops_.end(), [](op_entry const& op) { return !op.quarantined; });
             if (it == ops_.end())
             {

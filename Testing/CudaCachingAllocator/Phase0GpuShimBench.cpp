@@ -23,6 +23,7 @@ std::atomic<bool>   g_count{false};
 std::atomic<size_t> g_news{0};
 }  // namespace
 
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 void* operator new(std::size_t n)
 {
     if (g_count.load(std::memory_order_relaxed))
@@ -37,6 +38,7 @@ void* operator new(std::size_t n)
 }
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+#endif
 
 namespace rt = fake_runtime;
 using memory::gpu::cuda_caching_allocator;
@@ -77,11 +79,14 @@ phase0::result run(
     snap const b         = take();
     g_count              = false;
     double const ops     = static_cast<double>(warmup + samples * batch);
-    r.counters           = {{"heap_allocs_per_op", (b.heap - a.heap) / ops},
-                            {"driver_malloc_per_op", (b.malloc_calls - a.malloc_calls) / ops},
-                            {"cudaGetDevice_per_op", (b.get_device - a.get_device) / ops},
-                            {"event_create_per_op", (b.ev_create - a.ev_create) / ops},
-                            {"event_record_per_op", (b.ev_record - a.ev_record) / ops}};
+    r.counters           = {
+        {"driver_malloc_per_op", (b.malloc_calls - a.malloc_calls) / ops},
+        {"cudaGetDevice_per_op", (b.get_device - a.get_device) / ops},
+        {"event_create_per_op", (b.ev_create - a.ev_create) / ops},
+        {"event_record_per_op", (b.ev_record - a.ev_record) / ops}};
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+    r.counters.insert(r.counters.begin(), {"heap_allocs_per_op", (b.heap - a.heap) / ops});
+#endif
     return r;
 }
 }  // namespace
@@ -98,6 +103,9 @@ static int run_main(int argc, char** argv)
     rep.note("fake_driver", "cudaMalloc/cudaFree are malloc/free; events never block; driver latency excluded");
     rep.note("quick", quick ? "yes (reduced samples; not baseline-grade)" : "no");
     rep.note("single_thread", "lock contention is not measured here (task 8.1)");
+#if defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+    rep.note("heap_allocations", "unavailable: sanitizer owns global allocation operators");
+#endif
 
     double const res = phase0::timer_resolution_ns();
 

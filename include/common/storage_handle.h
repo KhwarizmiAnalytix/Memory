@@ -41,14 +41,18 @@ class MEMORY_VISIBILITY storage_handle
 public:
     storage_handle() noexcept = default;
 
-    storage_handle(void*         ptr,
-                   std::size_t   nbytes,
-                   deleter_fn    del,
-                   void*         ctx,
-                   device        dev,
-                   allocation_id id) noexcept
-        : ptr_(ptr), nbytes_(nbytes), deleter_(del), ctx_(ctx), dev_(dev), id_(id)
-    {}
+    storage_handle(
+        void*              ptr,
+        std::size_t        nbytes,
+        deleter_fn         del,
+        void*              ctx,
+        device             dev,
+        storage_provenance provenance,
+        allocation_id      id) noexcept
+        : ptr_(ptr), nbytes_(nbytes), deleter_(del), ctx_(ctx), dev_(dev), provenance_(provenance),
+          id_(id)
+    {
+    }
 
     ~storage_handle() noexcept
     {
@@ -59,12 +63,8 @@ public:
     }
 
     storage_handle(storage_handle&& o) noexcept
-        : ptr_(o.ptr_),
-          nbytes_(o.nbytes_),
-          deleter_(o.deleter_),
-          ctx_(o.ctx_),
-          dev_(o.dev_),
-          id_(o.id_)
+        : ptr_(o.ptr_), nbytes_(o.nbytes_), deleter_(o.deleter_), ctx_(o.ctx_), dev_(o.dev_),
+          provenance_(o.provenance_), id_(o.id_)
     {
         o.zero_out();
     }
@@ -77,12 +77,13 @@ public:
             {
                 deleter_(ctx_, ptr_, nbytes_);
             }
-            ptr_     = o.ptr_;
-            nbytes_  = o.nbytes_;
-            deleter_ = o.deleter_;
-            ctx_     = o.ctx_;
-            dev_     = o.dev_;
-            id_      = o.id_;
+            ptr_        = o.ptr_;
+            nbytes_     = o.nbytes_;
+            deleter_    = o.deleter_;
+            ctx_        = o.ctx_;
+            dev_        = o.dev_;
+            provenance_ = o.provenance_;
+            id_         = o.id_;
             o.zero_out();
         }
         return *this;
@@ -91,11 +92,12 @@ public:
     storage_handle(storage_handle const&)            = delete;
     storage_handle& operator=(storage_handle const&) = delete;
 
-    void*         get()     const noexcept { return ptr_;     }
-    std::size_t   nbytes()  const noexcept { return nbytes_;  }
-    device        dev()     const noexcept { return dev_;     }
-    allocation_id id()      const noexcept { return id_;      }
-    bool          empty()   const noexcept { return ptr_ == nullptr; }
+    void*              get() const noexcept { return ptr_; }
+    std::size_t        nbytes() const noexcept { return nbytes_; }
+    device             dev() const noexcept { return dev_; }
+    storage_provenance provenance() const noexcept { return provenance_; }
+    allocation_id      id() const noexcept { return id_; }
+    bool               empty() const noexcept { return ptr_ == nullptr; }
 
     // Disarm: returns the raw pointer and zeros the handle so the destructor
     // becomes a no-op.  The caller is responsible for freeing the memory.
@@ -109,33 +111,36 @@ public:
 private:
     MEMORY_FORCE_INLINE void zero_out() noexcept
     {
-        ptr_     = nullptr;
-        nbytes_  = 0;
-        deleter_ = nullptr;
-        ctx_     = nullptr;
-        dev_     = device{};
-        id_      = allocation_id{};
+        ptr_        = nullptr;
+        nbytes_     = 0;
+        deleter_    = nullptr;
+        ctx_        = nullptr;
+        dev_        = device{};
+        provenance_ = storage_provenance::adopted;
+        id_         = allocation_id{};
     }
 
     // 48-byte layout (64-bit platforms):
-    //   [ 0.. 7] ptr_      (8 B, pointer)
-    //   [ 8..15] nbytes_   (8 B, size_t)
-    //   [16..23] deleter_  (8 B, fn ptr)
-    //   [24..31] ctx_      (8 B, void*)
-    //   [32..35] dev_      (4 B: device_enum 1B + pad 1B + int16_t 2B)
-    //   [36..39] implicit padding (align allocation_id to 8)
-    //   [40..47] id_       (8 B, uint64_t)
-    void*         ptr_{nullptr};
-    std::size_t   nbytes_{0};
-    deleter_fn    deleter_{nullptr};
-    void*         ctx_{nullptr};
-    device        dev_{};
-    allocation_id id_{};
+    //   [ 0.. 7] ptr_         (8 B, pointer)
+    //   [ 8..15] nbytes_      (8 B, size_t)
+    //   [16..23] deleter_     (8 B, fn ptr)
+    //   [24..31] ctx_         (8 B, void*)
+    //   [32..35] dev_         (4 B: device_enum 1B + pad 1B + int16_t 2B)
+    //   [36..36] provenance_  (1 B, enum)
+    //   [37..39] implicit padding (align allocation_id to 8)
+    //   [40..47] id_          (8 B, uint64_t)
+    void*       ptr_{nullptr};
+    std::size_t nbytes_{0};
+    deleter_fn  deleter_{nullptr};
+    void*       ctx_{nullptr};
+    device      dev_{};
+    // Conservative default: an empty/default-constructed handle is treated as
+    // `adopted` so no code mistakes "no storage" for a provenance shortcut.
+    storage_provenance provenance_{storage_provenance::adopted};
+    allocation_id      id_;
 };
 
-static_assert(sizeof(storage_handle) == 48,
-    "storage_handle must be exactly 48 bytes (plan §4.2)");
-
+static_assert(sizeof(storage_handle) == 48, "storage_handle must be exactly 48 bytes (plan §4.2)");
 
 // ---------------------------------------------------------------------------
 // Factory functions
@@ -147,24 +152,21 @@ static_assert(sizeof(storage_handle) == 48,
 // GPU: calls caching_allocator_for_device() exactly once; wires gpu_free_fn as
 // the deleter (looks up the allocation stream from the cache block and frees —
 // plan §2.10, R1). 0 registry lookups at free; the handle is self-freeing.
-MEMORY_API storage_handle allocate_bytes(std::size_t     nbytes,
-                                          std::size_t     alignment,
-                                          execution_context ctx);
+MEMORY_API storage_handle
+allocate_bytes(std::size_t nbytes, std::size_t alignment, execution_context ctx);
 
 // Wrap foreign memory in a storage_handle with a mandatory explicit deleter.
 // Throws std::invalid_argument if ptr, nbytes, or del is null/zero.
-inline storage_handle adopt_bytes(void*       ptr,
-                                   std::size_t nbytes,
-                                   device      dev,
-                                   deleter_fn  del,
-                                   void*       del_ctx)
+inline storage_handle adopt_bytes(
+    void* ptr, std::size_t nbytes, device dev, deleter_fn del, void* del_ctx)
 {
     if (!ptr || !nbytes || !del)
     {
         throw std::invalid_argument(
             "adopt_bytes: ptr, nbytes, and deleter must all be non-null/non-zero");
     }
-    return storage_handle(ptr, nbytes, del, del_ctx, dev, next_allocation_id());
+    return storage_handle(
+        ptr, nbytes, del, del_ctx, dev, storage_provenance::adopted, next_allocation_id());
 }
 
 }  // namespace memory

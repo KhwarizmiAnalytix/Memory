@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <utility>
 
-#include <include/util/exception.h>
+#include "include/util/exception.h"
 
 #include "common/device.h"
 #include "common/memory_macros.h"

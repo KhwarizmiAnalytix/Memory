@@ -43,14 +43,13 @@ struct data_ptr
 {
     using allocator_t = allocator<value_t>;
     MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(value_t, allocator_t::alignment_bytes);
-    using stream_t    = typename allocator_t::stream_t;
+    using stream_t = typename allocator_t::stream_t;
 
     MEMORY_FORCE_INLINE data_ptr() = default;
 
     // Allocate from execution context (preferred API).
     // Zero size: empty storage (no memory, invalid allocation_id).
-    MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx)
-        : stream_(ctx.stream)
+    MEMORY_FORCE_INLINE data_ptr(size_t size, execution_context ctx) : stream_(ctx.stream)
     {
         detail::validate_context_stream(ctx);  // an ambiguous null stream is rejected (4.3)
         handle_ = allocate_bytes(size * sizeof(value_t), allocator_t::alignment_bytes, ctx);
@@ -81,8 +80,8 @@ struct data_ptr
     {
         if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy_sync(data, size, this->data(), type, type,
-                                   device_index, device_index, stream);
+            allocator_t::copy_sync(
+                data, size, this->data(), type, type, device_index, device_index, stream);
         }
     }
 
@@ -98,8 +97,8 @@ struct data_ptr
     {
         if (data != nullptr && !handle_.empty() && size != 0)
         {
-            allocator_t::copy_sync(data, size, this->data(), from_type, to_type,
-                                   from_index, to_index, stream);
+            allocator_t::copy_sync(
+                data, size, this->data(), from_type, to_type, from_index, to_index, stream);
         }
     }
 
@@ -118,7 +117,7 @@ struct data_ptr
     {
     }
 
-    data_ptr(data_ptr const&) = delete;
+    data_ptr(data_ptr const&)            = delete;
     data_ptr& operator=(data_ptr const&) = delete;
 
     MEMORY_FORCE_INLINE data_ptr(data_ptr&& rhs) noexcept
@@ -133,8 +132,8 @@ struct data_ptr
         {
             return *this;
         }
-        handle_ = std::move(rhs.handle_);
-        stream_ = rhs.stream_;
+        handle_     = std::move(rhs.handle_);
+        stream_     = rhs.stream_;
         rhs.stream_ = nullptr;
         return *this;
     }
@@ -158,22 +157,20 @@ struct data_ptr
     // Deep copy, complete on return (plan 4.6): see the copying constructors.
     MEMORY_FORCE_INLINE data_ptr clone() const
     {
-        if (handle_.empty()) return {};
-        return data_ptr(data(), size(), handle_.dev().type,
-                        static_cast<int>(handle_.dev().index), stream_);
+        if (handle_.empty())
+            return {};
+        return data_ptr(
+            data(), size(), handle_.dev().type, static_cast<int>(handle_.dev().index), stream_);
     }
 
     // Accessors — all derived from handle_ and stream_.
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data()  const
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* data() const
     {
         return static_cast<value_t*>(handle_.get());
     }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get()   const { return data(); }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* get() const { return data(); }
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* begin() const { return data(); }
-    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end()   const
-    {
-        return data() + size();
-    }
+    DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* end() const { return data() + size(); }
 
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE size_t size() const
     {
@@ -183,30 +180,25 @@ struct data_ptr
     // handle (default-constructed, moved-from or zero-size) has nothing to misalign.
     DATA_PTR_GPU_CALLABLE MEMORY_FORCE_INLINE bool is_aligned() const
     {
-        return handle_.empty() ||
-               (reinterpret_cast<std::uintptr_t>(handle_.get()) &
-                (allocator_t::alignment_bytes - 1)) == 0;
+        return handle_.empty() || (reinterpret_cast<std::uintptr_t>(handle_.get()) &
+                                   (allocator_t::alignment_bytes - 1)) == 0;
     }
 
-    MEMORY_FORCE_INLINE int          device_index() const
-    {
-        return static_cast<int>(handle_.dev().index);
-    }
-    MEMORY_FORCE_INLINE device_enum  device()  const { return handle_.dev().type;  }
-    MEMORY_FORCE_INLINE stream_t     stream()  const { return static_cast<stream_t>(stream_); }
+    MEMORY_FORCE_INLINE int device_index() const { return static_cast<int>(handle_.dev().index); }
+    MEMORY_FORCE_INLINE device_enum       device() const { return handle_.dev().type; }
+    MEMORY_FORCE_INLINE stream_t          stream() const { return static_cast<stream_t>(stream_); }
     MEMORY_FORCE_INLINE execution_context context() const
     {
-        return execution_context{handle_.dev().type,
-                                 static_cast<int>(handle_.dev().index),
-                                 stream_};
+        return execution_context{
+            handle_.dev().type, static_cast<int>(handle_.dev().index), stream_};
     }
 
     MEMORY_FORCE_INLINE allocation_id id() const { return handle_.id(); }
 
     MEMORY_FORCE_INLINE void record_stream(stream_t stream) const
     {
-        allocator_t::record_stream(data(), handle_.dev().type,
-                                   static_cast<int>(handle_.dev().index), stream);
+        allocator_t::record_stream(
+            data(), handle_.dev().type, static_cast<int>(handle_.dev().index), stream);
     }
 
     // Grant retained_ptr<T> access to handle_ and stream_ for the promotion
@@ -253,14 +245,11 @@ private:
 // sizeof(Src) must equal sizeof(Dst); element counts must match.  The caller
 // must keep both data_ptrs alive until token.wait() returns.
 template <typename Src, typename Dst>
-MEMORY_FORCE_INLINE copy_token copy_async(
-    data_ptr<Src> const&                from,
-    data_ptr<Dst>&                      to,
-    typename allocator<Src>::stream_t   stream)
+MEMORY_FORCE_INLINE copy_token
+copy_async(data_ptr<Src> const& from, data_ptr<Dst>& to, typename allocator<Src>::stream_t stream)
 {
     static_assert(
-        sizeof(Src) == sizeof(Dst),
-        "copy_async: source and destination element sizes must match");
+        sizeof(Src) == sizeof(Dst), "copy_async: source and destination element sizes must match");
     if (from.size() != to.size())
     {
         throw std::invalid_argument("copy_async: element count mismatch between endpoints");
@@ -282,9 +271,12 @@ MEMORY_FORCE_INLINE copy_token copy_async(
 
 template <typename value_t>
 MEMORY_FORCE_INLINE data_view<value_t>::data_view(data_ptr<value_t> const& owner) noexcept
-    : data_view(owner.data(), owner.size(),
-                storage_ref<value_t>{owner.data(), owner.id(), owner.handle_.dev()},
-                owner.stream())
+    : data_view(
+          owner.data(),
+          owner.size(),
+          storage_ref<value_t>{
+              owner.data(), owner.id(), owner.handle_.dev(), owner.handle_.provenance()},
+          owner.stream())
 {
 }
 

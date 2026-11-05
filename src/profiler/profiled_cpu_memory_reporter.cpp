@@ -31,8 +31,10 @@ namespace memory
 {
 namespace
 {
+#if MEMORY_HAS_PROFILER
 constexpr int16_t kCpuDeviceType  = 0;  // profiler::device_enum::CPU
 constexpr int16_t kCpuDeviceIndex = -1;
+#endif
 }  // namespace
 
 profiled_cpu_memory_reporter& cpu_memory_reporter()

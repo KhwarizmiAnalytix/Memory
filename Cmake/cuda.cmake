@@ -168,7 +168,7 @@ if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
   endif()
 else()
   # Clang as CUDA compiler: match Memory's C++ standard.
-  # MEMORY_CXX_STANDARD is set before include(cuda); CMAKE_CXX_STANDARD may still
+  # MEMORY_CXX_STANDARD is set before include("${MEMORY_SOURCE_DIR}/Cmake/cuda.cmake"); CMAKE_CXX_STANDARD may still
   # be a CLI/cache value (e.g. CI's -DCMAKE_CXX_STANDARD=17) because Memory only
   # applies MEMORY_CXX_STANDARD to CMAKE_CXX_STANDARD after this include. Preferring
   # MEMORY_CXX_STANDARD keeps CUDA TUs on C++20 (needed for gtest u16string_view /

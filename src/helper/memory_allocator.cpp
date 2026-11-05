@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>  // for std::memset
+#include <limits>
 
 #include "include/util/exception.h"
 
@@ -39,7 +40,7 @@
 
 #ifdef _MSC_VER
 #pragma push_macro("__TBB_NO_IMPLICIT_LINKAGE")
-#define __TBB_NO_IMPLICIT_LINKAGE 1  // NOLINT(bugprone-reserved-identifier)
+#define __TBB_NO_IMPLICIT_LINKAGE 1
 #endif
 
 #include <tbb/scalable_allocator.h>
@@ -63,7 +64,7 @@
 #include <mimalloc.h>
 #endif
 
-//#include <logger.h>
+// #include <logger.h>
 
 namespace memory::cpu::memory_allocator
 {
@@ -144,8 +145,10 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
         return malloc(nbytes);  // malloc is aligned for max_align_t (16 bytes on 64-bit)
     }
     void* ptr = nullptr;
-    // cppcheck-suppress memleak ; ptr is returned to the caller
+    // ptr is returned to the caller on success; posix_memalign leaves it
+    // untouched on failure, so there is no leak on either path.
     int status = posix_memalign(&ptr, alignment, nbytes);
+    // cppcheck-suppress memleak
     return MEMORY_UNLIKELY(status != 0) ? nullptr : ptr;
 #endif
 }
@@ -153,16 +156,19 @@ MEMORY_FORCE_INLINE void* allocate_raw(std::size_t nbytes, std::size_t alignment
 
 void* allocate(std::size_t nbytes, std::size_t alignment, init_policy_enum init)
 {
-    LOGGING_CHECK(
-        static_cast<std::ptrdiff_t>(nbytes) > 0,
-        "cpu allocate() called with negative or zero size: {}",
-        nbytes);
+    LOGGING_CHECK(nbytes > 0, "cpu allocate() called with zero size: {}", nbytes);
 
     LOGGING_CHECK(
         is_valid_alignment(alignment),
         "cpu allocate() called with invalid alignment: {} (must be power of 2 >= {})",
         alignment,
         sizeof(void*));
+
+    // Reject impossible object sizes before sanitizer or platform allocators see them.
+    if (nbytes > static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()))
+    {
+        return nullptr;
+    }
 
     void* ptr = allocate_raw(nbytes, alignment);
     // cppcheck-suppress syntaxError
@@ -336,7 +342,8 @@ void mi_cdecl log_mimalloc_stats_line(const char* msg, void* /*arg*/)
 void stats_print() noexcept
 {
 #if MEMORY_HAS_MIMALLOC && MEMORY_HAS_MIMALLOC_STATS
-    mi_stats_merge();  // fold this thread's counters into the process totals
+    // mi_stats_print_out aggregates heap counters itself. The deprecated
+    // mi_stats_merge() is declared in this mimalloc's header and has no definition.
     mi_stats_print_out(&log_mimalloc_stats_line, nullptr);
 #endif
 }

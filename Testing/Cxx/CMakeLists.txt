@@ -2,7 +2,7 @@
 # Memory Library C++
 # Tests
 # =============================================================================
-include(MemoryDependencies)
+include("${MEMORY_SOURCE_DIR}/Cmake/MemoryDependencies.cmake")
 
 memory_setup_gtest()
 
@@ -17,7 +17,9 @@ add_subdirectory(
   "${CMAKE_CURRENT_BINARY_DIR}/CudaCachingAllocator"
 )
 
-file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp")
+file(GLOB_RECURSE test_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     "${CMAKE_CURRENT_SOURCE_DIR}/Test*.cpp"
+)
 
 set(TestFiles)
 foreach(_test_source IN ITEMS ${test_sources})
@@ -55,19 +57,41 @@ endforeach()
 # Task 2.6 exit: public L2/L3 headers must compile with a GPU backend selected and no
 # vendor runtime header reachable. Deliberately inherits no CUDA/HIP include directories.
 add_library(MemoryConsumerNoVendorHeaders OBJECT ConsumerNoVendorHeaders.cpp)
+if(NOT TARGET Logging::Logging)
+  message(FATAL_ERROR "MemoryConsumerNoVendorHeaders requires Logging::Logging "
+                      "(memory_setup_logging() should have provided it earlier).")
+endif()
 target_include_directories(
   MemoryConsumerNoVendorHeaders
-  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
-          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging/include/logger"
-          "${CMAKE_CURRENT_SOURCE_DIR}/../../ThirdParty/Logging"
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../include"
+    # Pulled from the real target rather than hardcoded, so this tracks
+    # whatever Logging::Logging exposes PUBLIC (its own include/logger and
+    # repo-root dirs, plus magic_enum's include dir -- string_util.h is a
+    # public Logging header that includes <magic_enum/magic_enum.hpp>
+    # directly; see LOGGING_MAGICENUM_INCLUDE_DIR in
+    # ThirdParty/Logging/CMakeLists.txt). Deliberately not linking
+    # Logging::Logging itself (which would also pull in its compile
+    # definitions/link libraries) -- this target only wants its include dirs.
+    "$<TARGET_PROPERTY:Logging::Logging,INTERFACE_INCLUDE_DIRECTORIES>"
 )
 target_compile_features(MemoryConsumerNoVendorHeaders PRIVATE cxx_std_20)
 target_compile_definitions(
   MemoryConsumerNoVendorHeaders PRIVATE MEMORY_STATIC_DEFINE MEMORY_HAS_CUDA=1 MEMORY_HAS_HIP=0
-                                       MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
+                                        MEMORY_HAS_METAL=0 MEMORY_HAS_PROFILER=0
 )
 
 add_executable(MemoryCxxTests ${TestFiles})
+if(MEMORY_ENABLE_COVERAGE)
+  memory_configure_coverage(MemoryCxxTests)
+endif()
+if(MEMORY_ENABLE_SANITIZER)
+  memory_configure_sanitizer(MemoryCxxTests MEMORY)
+endif()
+if(MEMORY_ENABLE_SANITIZER AND MEMORY_SANITIZER_TYPE MATCHES "(^|,)(thread|leak)(,|$)")
+  # TSan and LSan provide their own replaceable allocation operators.
+  target_compile_definitions(MemoryCxxTests PRIVATE MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE=1)
+endif()
 
 # Testing/ (sources + generated *Test.h) and third-party includes match the Memory::Memory
 # interface. Memory's own include/ root must come first: some third-party deps (e.g. Profiler)
@@ -108,6 +132,9 @@ target_link_libraries(MemoryCxxTests PRIVATE Gtest::gtest Gtest::gtest_main Memo
 if(MEMORY_DEPENDENCY_LIBS)
   target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS})
 endif()
+if(MEMORY_DEPENDENCY_LIBS_PRIVATE)
+  target_link_libraries(MemoryCxxTests PRIVATE ${MEMORY_DEPENDENCY_LIBS_PRIVATE})
+endif()
 # Logging::Logging is a required PUBLIC dep of Memory::Memory.
 
 set_target_properties(
@@ -120,6 +147,14 @@ add_test(NAME MemoryCxxTests COMMAND MemoryCxxTests
 )
 
 set_tests_properties(MemoryCxxTests PROPERTIES TIMEOUT 120 LABELS "Memory;Unit")
+if(MEMORY_ENABLE_SANITIZER AND MEMORY_SANITIZER_TYPE MATCHES "(^|,)address(,|$)")
+  # Oversized-allocation tests expect bad_alloc, so let the allocator report failure.
+  # Match CI while retaining any other ASan options supplied by the caller.
+  set_property(
+    TEST MemoryCxxTests APPEND PROPERTY ENVIRONMENT_MODIFICATION
+                                        "ASAN_OPTIONS=string_append::allocator_may_return_null=1"
+  )
+endif()
 
 if(COMMAND memory_set_target_output_directories)
   memory_set_target_output_directories(MemoryCxxTests)
@@ -128,7 +163,7 @@ endif()
 if(MEMORY_ENABLE_BENCHMARK)
   # --- Google Benchmark setup ---
   memory_setup_benchmark()
-  _create_third_party_interface_targets(
+  memory_create_third_party_interface_targets(
     "Benchmark::benchmark=benchmark::benchmark|benchmark"
     "Benchmark::benchmark_main=benchmark::benchmark_main|benchmark_main"
   )
@@ -162,6 +197,18 @@ if(MEMORY_ENABLE_BENCHMARK)
     # -lmkl_rt instead of the full component set (ScaLAPACK/BLACS/CDFT), which
     # would pull in MPI symbols that may not be installed.
     set(MKL_LINK "sdl")
+    # LibTorch's CUDA detection (Caffe2/public/cuda.cmake) asserts
+    # CMAKE_CUDA_COMPILER_VERSION == CUDAToolkit_VERSION unconditionally; that
+    # assumption holds for nvcc but not for this project's Clang-as-CUDA-compiler
+    # setup (Cmake/cuda.cmake), where CMAKE_CUDA_COMPILER_VERSION is Clang's own
+    # version, not the toolkit's (Memory's own cuda.cmake narrows the equivalent
+    # check to CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA" for the same reason).
+    # Shadow it with a directory-local regular variable (not touching the cache)
+    # so Torch's check reads the toolkit version here, matching what Memory
+    # already decided is the correct comparison for a Clang CUDA compiler.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MEMORY_GPU_BACKEND STREQUAL "cuda")
+      set(CMAKE_CUDA_COMPILER_VERSION "${CUDAToolkit_VERSION}")
+    endif()
     find_package(Torch QUIET)
     unset(MKL_LINK)
     set(CMAKE_MODULE_PATH "${_saved_module_path}")
@@ -195,6 +242,23 @@ if(MEMORY_ENABLE_BENCHMARK)
       endforeach()
       unset(_mkl_link_dirs)
       unset(_mkl_ver_libs)
+      # LibTorch's CUDA/CPU targets (Caffe2Targets.cmake) export
+      # INTERFACE_COMPILE_OPTIONS of literal MSVC flags (/permissive-, /EHsc,
+      # /bigobj, /Z7), baked in at LibTorch's own MSVC build time with no
+      # compiler-ID guard. clang++'s GNU-style driver does not parse slash
+      # switches at all (it tries to open them as files), so any target
+      # linking these imported targets fails to compile. Blank the property
+      # on the imported targets themselves post-find_package: Clang already
+      # defaults to strict conformance and exception support, so nothing
+      # here is load-bearing for a Clang consumer.
+      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        foreach(_torch_target IN ITEMS c10 c10_cuda torch_cpu torch_cuda)
+          if(TARGET ${_torch_target})
+            set_property(TARGET ${_torch_target} PROPERTY INTERFACE_COMPILE_OPTIONS "")
+          endif()
+        endforeach()
+        unset(_torch_target)
+      endif()
     else()
       message(STATUS "LibTorch not found — BenchmarkPyTorchComparison skipped "
                      "(add install dir to CMAKE_PREFIX_PATH to enable)"
@@ -216,6 +280,12 @@ if(MEMORY_ENABLE_BENCHMARK)
     set(target_name "benchmark_memory_${bench_suffix_lower}")
 
     add_executable(${target_name} "${_bench_source}")
+    if(MEMORY_ENABLE_COVERAGE)
+      memory_configure_coverage(${target_name})
+    endif()
+    if(MEMORY_ENABLE_SANITIZER)
+      memory_configure_sanitizer(${target_name} MEMORY)
+    endif()
     target_include_directories(
       ${target_name} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                              "${CMAKE_CURRENT_BINARY_DIR}/.."
@@ -231,6 +301,9 @@ if(MEMORY_ENABLE_BENCHMARK)
     )
     if(MEMORY_DEPENDENCY_LIBS)
       target_link_libraries(${target_name} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
+    endif()
+    if(MEMORY_DEPENDENCY_LIBS_PRIVATE)
+      target_link_libraries(${target_name} PRIVATE ${MEMORY_DEPENDENCY_LIBS_PRIVATE})
     endif()
     # Same Logging visibility as MemoryCxxTests (via Memory::Memory + MEMORY_DEPENDENCY_LIBS).
     if(COMMAND memory_set_target_output_directories)
@@ -263,6 +336,22 @@ if(MEMORY_ENABLE_BENCHMARK)
           TARGET ${target_name} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                                    ${_torch_dlls} $<TARGET_FILE_DIR:${target_name}>
         )
+        if(TARGET torch_cuda)
+          # torch_cuda's own INTERFACE_LINK_LIBRARIES carries this exact
+          # -INCLUDE: flag (Caffe2Targets.cmake) to force-reference a CUDA
+          # symbol and pull in the static initializer that registers the real
+          # CUDAHooks implementation; without it the linker drops the
+          # otherwise-unreferenced registration object, and
+          # torch::cuda::is_available() silently returns false (falls back to
+          # the CPU-only stub hooks) even though the CUDA driver and cudart
+          # both work fine. It is not reaching this target through the normal
+          # target_link_libraries(torch) graph, so add it directly; confirmed
+          # by a minimal out-of-tree repro (device_count 0 without it, 1 with
+          # it, same binary otherwise).
+          target_link_options(${target_name} PRIVATE
+                               "-Wl,-INCLUDE:?warp_size@cuda@at@@YAHXZ"
+          )
+        endif()
       endif()
       message(STATUS "${target_name}: LibTorch comparison benchmark ENABLED")
     endif()
@@ -274,6 +363,12 @@ if(MEMORY_ENABLE_BENCHMARK)
     string(TOLOWER "${_p0}" _p0_lower)
     set(_p0_target "benchmark_memory_${_p0_lower}")
     add_executable(${_p0_target} "${CMAKE_CURRENT_SOURCE_DIR}/${_p0}.cpp")
+    if(MEMORY_ENABLE_COVERAGE)
+      memory_configure_coverage(${_p0_target})
+    endif()
+    if(MEMORY_ENABLE_SANITIZER)
+      memory_configure_sanitizer(${_p0_target} MEMORY)
+    endif()
     target_include_directories(
       ${_p0_target} PRIVATE "${_memory_include_root}" "${CMAKE_CURRENT_SOURCE_DIR}/.."
                             "${CMAKE_CURRENT_BINARY_DIR}/.."
@@ -287,6 +382,9 @@ if(MEMORY_ENABLE_BENCHMARK)
     target_link_libraries(${_p0_target} PRIVATE Memory::Memory)
     if(MEMORY_DEPENDENCY_LIBS)
       target_link_libraries(${_p0_target} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
+    endif()
+    if(MEMORY_DEPENDENCY_LIBS_PRIVATE)
+      target_link_libraries(${_p0_target} PRIVATE ${MEMORY_DEPENDENCY_LIBS_PRIVATE})
     endif()
     if(COMMAND memory_set_target_output_directories)
       memory_set_target_output_directories(${_p0_target})

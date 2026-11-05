@@ -21,8 +21,8 @@ namespace memory
 
 std::string effective_config_json([[maybe_unused]] int device)
 {
-    auto&             svc = retained_operation_service::instance();
-    std::string       out = "{\"retained_service\":{\"max_pending\":";
+    auto const& svc = retained_operation_service::instance();
+    std::string out = "{\"retained_service\":{\"max_pending\":";
     out += std::to_string(svc.max_pending());
     out += ",\"max_quarantined\":" + std::to_string(svc.max_quarantined());
     out += ",\"max_quarantined_bytes\":" + std::to_string(svc.max_quarantined_bytes());
@@ -32,7 +32,8 @@ std::string effective_config_json([[maybe_unused]] int device)
     out += ",\"gpu_cache\":{\"device\":" + std::to_string(device);
     out += ",\"memory_fraction\":" + std::to_string(cache.memory_fraction());
     out += ",\"max_cached_bytes\":" + std::to_string(cache.max_cached_bytes());
-    out += std::string(",\"expandable_segments\":") + (cache.expandable_segments() ? "true" : "false");
+    out +=
+        std::string(",\"expandable_segments\":") + (cache.expandable_segments() ? "true" : "false");
     out += "}";
 #endif
     out += "}";

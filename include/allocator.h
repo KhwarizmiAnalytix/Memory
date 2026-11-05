@@ -29,11 +29,11 @@
 #include <type_traits>  // for is_same_v
 
 #include "common/copy_token.h"         // for copy_token
-#include "common/device.h"            // for device_enum
-#include "common/execution_context.h" // for execution_context
-#include "common/memory_macros.h"     // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
-#include "common/retained_ptr.h"      // for retained_ptr
+#include "common/device.h"             // for device_enum
+#include "common/execution_context.h"  // for execution_context
+#include "common/memory_macros.h"      // MEMORY_ALIGNMENT, MEMORY_DELETE_CLASS, MEMORY_FORCE_INLINE
 #include "common/retained_operation_service.h"
+#include "common/retained_ptr.h"      // for retained_ptr
 #include "helper/memory_allocator.h"  // for cpu::memory_allocator
 
 #include "common/transfer.h"  // byte copy router, token driver operations
@@ -138,7 +138,7 @@ public:
 
     using stream_t = stream_handle_t;
 
-    static constexpr size_type scalar_size    = sizeof(value_type);
+    static constexpr size_type scalar_size     = sizeof(value_type);
     static constexpr size_type alignment_bytes = alignment;
     static constexpr size_type alignment_size  = alignment / scalar_size;
     static constexpr size_type alignment_mask  = alignment_size - 1;
@@ -167,6 +167,11 @@ public:
 
         pointer         ptr    = nullptr;
         size_type const nbytes = checked_byte_count(n, scalar_size);
+        // Contiguous objects cannot exceed the range representable by pointer differences.
+        if (nbytes > static_cast<size_type>(std::numeric_limits<difference_type>::max()))
+        {
+            throw std::bad_alloc();
+        }
 
         if (type == device_enum::CPU)
         {
@@ -516,8 +521,8 @@ public:
             return;
         }
 
-        copy_token token = copy_async(from, n, to, stream, from_type, to_type,
-                                      from_index, to_index);
+        copy_token token =
+            copy_async(from, n, to, stream, from_type, to_type, from_index, to_index);
         token.wait();  // this copy's event, not the stream or the device
     }
 
@@ -556,18 +561,18 @@ public:
     //      safety is never inferred from the error code.
     template <bool track_gpu_streams>
     MEMORY_FORCE_INLINE static copy_token copy_async_impl(
-        const_pointer from,
-        size_type     n,
-        pointer       to,
-        stream_t      stream,
-        device_enum   from_type,
-        device_enum   to_type,
-        int           from_index,
-        int           to_index,
+        const_pointer         from,
+        size_type             n,
+        pointer               to,
+        stream_t              stream,
+        device_enum           from_type,
+        device_enum           to_type,
+        int                   from_index,
+        int                   to_index,
         std::shared_ptr<void> retained,
-        bool          register_with_service,
-        bool          wait_for_admission = true,
-        size_type     retained_bytes     = 0)
+        bool                  register_with_service,
+        bool                  wait_for_admission = true,
+        size_type             retained_bytes     = 0)
     {
         // Phase 1.
         if (n == 0)
@@ -580,12 +585,12 @@ public:
         // Use is_gpu_device (enum-based) rather than is_active_gpu_device
         // (compile-time backend check) so the selection is based on whether the
         // endpoint IS a GPU device, not on which backend happens to be compiled in.
-        device_enum gpu_dev = (is_gpu_device(to_type) ? to_type : from_type);
-        int         gpu_idx = (is_gpu_device(to_type) ? to_index : from_index);
+        device_enum       gpu_dev = (is_gpu_device(to_type) ? to_type : from_type);
+        int               gpu_idx = (is_gpu_device(to_type) ? to_index : from_index);
         execution_context ctx;
         ctx.dev.type  = gpu_dev;
-        ctx.dev.index = gpu_idx;
-        ctx.stream       = stream;
+        ctx.dev.index = static_cast<std::int16_t>(gpu_idx);
+        ctx.stream    = stream;
         copy_token token(ctx);
         if (retained)
         {
@@ -640,9 +645,9 @@ public:
     // Supported deleters: nullptr (no-op), lambda, std::function.
     // Throws std::invalid_argument if ptr is null or count is zero.
     MEMORY_FORCE_INLINE static retained_ptr<T> allocate_adopted(
-        pointer                                            ptr,
-        size_type                                          count,
-        execution_context                                  ctx,
+        pointer                                                   ptr,
+        size_type                                                 count,
+        execution_context                                         ctx,
         std::function<void(T*, size_t, execution_context const&)> deleter)
     {
         if (ptr == nullptr || count == 0)
@@ -653,9 +658,8 @@ public:
 
         if (!deleter)
         {
-            throw std::invalid_argument(
-                "allocate_adopted: an explicit deleter is required; "
-                "pass a no-op lambda to adopt without taking ownership");
+            throw std::invalid_argument("allocate_adopted: an explicit deleter is required; "
+                                        "pass a no-op lambda to adopt without taking ownership");
         }
 
         return retained_ptr<T>::adopt(ptr, count, ctx, std::move(deleter));
@@ -678,7 +682,8 @@ public:
     {
         if (from.empty() || to.empty())
         {
-            throw std::invalid_argument("copy_async_retained: source and destination must be non-empty");
+            throw std::invalid_argument(
+                "copy_async_retained: source and destination must be non-empty");
         }
 
         if (from.size() != to.size())
@@ -696,14 +701,20 @@ public:
         auto holder = std::allocate_shared<retained_holder>(
             detail::recycled_allocator<retained_holder>{}, retained_holder{from, to});
         return copy_async_impl<false>(
-            from.data(), from.size(), to.data(), stream,
-            from.ctx().device_type(), to.ctx().device_type(),
-            from.ctx().device_index(), to.ctx().device_index(),
-            std::static_pointer_cast<void>(holder), true, wait_for_admission, from.size());
+            from.data(),
+            from.size(),
+            to.data(),
+            stream,
+            from.ctx().device_type(),
+            to.ctx().device_type(),
+            from.ctx().device_index(),
+            to.ctx().device_index(),
+            std::static_pointer_cast<void>(holder),
+            true,
+            wait_for_admission,
+            from.size());
     }
 
-    // SIMD loop peeling is not a memory concern; it moves to Vectorization (plan 4.6, task 2.7).
-    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type first_aligned(const_pointer array, size_type size)
     {
         if constexpr ((alignment % scalar_size) != 0)
@@ -723,7 +734,6 @@ public:
         return (first < size) ? first : size;
     }
 
-    [[deprecated("use the Vectorization library; this forwarder is removed next release")]]
     MEMORY_FORCE_INLINE static size_type last_aligned(
         size_type aligned_start, size_type size, size_type simd_stride)
     {

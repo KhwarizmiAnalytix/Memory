@@ -21,6 +21,8 @@
 #include "common/data_ptr.h"
 #include "common/data_view.h"
 #include "common/device.h"
+#include "common/execution_context.h"
+#include "common/retained_ptr.h"
 
 using namespace memory;
 
@@ -157,6 +159,83 @@ MEMORYTEST(DataView, borrow_has_invalid_id)
 MEMORYTEST(DataView, default_constructed_has_invalid_id)
 {
     data_view<int> view;
+    EXPECT_FALSE(view.id().valid());
+    END_TEST();
+}
+
+MEMORYTEST(DataView, data_ptr_view_is_allocated_provenance)
+{
+    data_ptr<int>  owned(4, device_enum::CPU);
+    data_view<int> view(owned);
+    EXPECT_EQ(view.provenance(), storage_provenance::allocated);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, borrow_is_adopted_provenance)
+{
+    int            raw[4] = {0, 1, 2, 3};
+    data_view<int> view   = data_view<int>::borrow(raw, 4, device_enum::CPU);
+    EXPECT_EQ(view.provenance(), storage_provenance::adopted);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, default_constructed_is_adopted_provenance)
+{
+    data_view<int> view;
+    EXPECT_EQ(view.provenance(), storage_provenance::adopted);
+    END_TEST();
+}
+
+// Vectorization design plan §6: a retained_ref leaf's data_view must carry the
+// retained_ptr's own allocation identity and provenance, not borrow()'s
+// always-invalid/adopted defaults, so the overlap classifier can take the
+// `allocated` shortcut for materialized product/temporary leaves too.
+MEMORYTEST(DataView, views_retained_ptr_allocated)
+{
+    auto rp      = memory::make_retained<int>(4, execution_context::cpu());
+    rp.data()[0] = 7;
+    data_view<int> view(rp);
+    EXPECT_EQ(rp.data(), view.data());
+    EXPECT_EQ(4U, view.size());
+    EXPECT_EQ(7, view.data()[0]);
+    EXPECT_EQ(rp.base(), view.base());
+    EXPECT_EQ(rp.identity().alloc_id, view.id().value);
+    EXPECT_EQ(view.provenance(), storage_provenance::allocated);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, views_retained_ptr_adopted)
+{
+    int* raw = new int[4]{};
+    auto rp  = retained_ptr<int>::adopt(
+        raw,
+        4,
+        execution_context::cpu(),
+        [](int* p, size_t, execution_context const&) { delete[] p; });
+    data_view<int> view(rp);
+    EXPECT_EQ(rp.data(), view.data());
+    EXPECT_EQ(view.provenance(), storage_provenance::adopted);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, views_retained_ptr_slice_keeps_allocation_base_and_id)
+{
+    auto           rp    = memory::make_retained<int>(8, execution_context::cpu());
+    auto           slice = rp.slice(2, 4);
+    data_view<int> view(slice);
+    EXPECT_EQ(slice.data(), view.data());  // the slice's own window
+    EXPECT_EQ(rp.base(), view.base());     // the allocation's base, not the slice's
+    EXPECT_EQ(rp.identity().alloc_id, view.id().value);
+    EXPECT_EQ(view.provenance(), storage_provenance::allocated);
+    END_TEST();
+}
+
+MEMORYTEST(DataView, views_empty_retained_ptr)
+{
+    retained_ptr<int> rp;
+    data_view<int>    view(rp);
+    EXPECT_EQ(view.data(), nullptr);
+    EXPECT_EQ(view.size(), 0U);
     EXPECT_FALSE(view.id().valid());
     END_TEST();
 }
