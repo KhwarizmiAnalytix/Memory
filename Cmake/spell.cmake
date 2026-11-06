@@ -10,11 +10,11 @@
 # option(XXX_ENABLE_SPELL "Enable spell checking for XXX" OFF)
 # mark_as_advanced(XXX_ENABLE_SPELL)
 # if(XXX_ENABLE_SPELL)
-#   include(spell)
+#   include("${MEMORY_SOURCE_DIR}/Cmake/spell.cmake")
 # endif()
 
 # Skip spell checking for third-party libraries
-get_filename_component(_spell_dir_name "${CMAKE_CURRENT_SOURCE_DIR}" NAME)
+get_filename_component(_spell_dir_name "${MEMORY_SOURCE_DIR}" NAME)
 if(_spell_dir_name STREQUAL "ThirdParty"
    OR CMAKE_CURRENT_SOURCE_DIR MATCHES ".*/ThirdParty/.*"
    OR CMAKE_CURRENT_SOURCE_DIR MATCHES ".*/third_party/.*"
@@ -53,7 +53,7 @@ else()
   message(STATUS "Found codespell: ${CODESPELL_EXECUTABLE}")
 
   set(_spell_args)
-  set(_spell_ignore_file "${CMAKE_SOURCE_DIR}/Scripts/suppressions/spell_suppressions.txt")
+  set(_spell_ignore_file "${MEMORY_SOURCE_DIR}/Scripts/suppressions/spell_suppressions.txt")
   if(NOT EXISTS "${_spell_ignore_file}")
     message(FATAL_ERROR "Spell suppression file not found: ${_spell_ignore_file}")
   endif()
@@ -63,12 +63,19 @@ else()
   # Always skip vendored trees. `ThirdParty` alone only matches a directory
   # *entry* during os.walk; `*ThirdParty*` also matches full paths if codespell
   # is pointed at a ThirdParty file or the walk starts inside that tree.
+  #
+  # Also skip generated Python tool caches (.mypy_cache, __pycache__,
+  # .pytest_cache, .ruff_cache): any local run of mypy/pytest/ruff against
+  # Scripts/ repopulates these at the repo root, and their JSON/pickle data
+  # routinely trips codespell on tokens that are not misspellings in any
+  # source file (e.g. "asend", "NotIn") — a build-breaking false positive
+  # unrelated to anything this repository's own code or docs contain.
   set(_spell_skip
-      ".git,.augment,.github,.vscode,.mypy_cache,build,Build,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,*3rdparty*"
+      ".git,.augment,.github,.vscode,build,Build,build_*,build-*,.venv*,venv*,bazel-*,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,*3rdparty*,.mypy_cache,__pycache__,.pytest_cache,.ruff_cache,*.mypy_cache*,*__pycache__*,*.pytest_cache*,*.ruff_cache*"
   )
   list(APPEND _spell_args "--skip=${_spell_skip}")
 
-  set(CODESPELL_CONFIG_FILE "${CMAKE_CURRENT_SOURCE_DIR}/.codespellrc")
+  set(CODESPELL_CONFIG_FILE "${MEMORY_SOURCE_DIR}/.codespellrc")
   if(EXISTS ${CODESPELL_CONFIG_FILE})
     message(STATUS "Using codespell configuration: ${CODESPELL_CONFIG_FILE}")
   endif()
@@ -78,16 +85,16 @@ else()
 
   add_custom_target(
     spell_check_${_spell_dir_lower}
-    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} include src
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} ${MEMORY_SOURCE_DIR}
+    WORKING_DIRECTORY ${MEMORY_SOURCE_DIR}
     COMMENT "Running spell check for ${_spell_dir_name}..."
     VERBATIM
   )
 
   add_custom_target(
     spell_check_build_${_spell_dir_lower} ALL
-    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} include src
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMAND ${CODESPELL_EXECUTABLE} ${_spell_args} ${MEMORY_SOURCE_DIR}
+    WORKING_DIRECTORY ${MEMORY_SOURCE_DIR}
     COMMENT "Running spell check for ${_spell_dir_name} during build..."
     VERBATIM
   )

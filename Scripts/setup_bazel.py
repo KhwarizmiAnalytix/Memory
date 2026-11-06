@@ -31,8 +31,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Optional
+
+from helpers import cppcheck as cppcheck_helper
 
 try:
     import colorama
@@ -54,7 +57,12 @@ except ImportError:  # Bazel CI jobs may not pip-install colorama
 
 
 def print_status(message: str, status: str = "INFO") -> None:
-    colors = {"INFO": COLOR_CYAN, "SUCCESS": COLOR_GREEN, "WARNING": COLOR_YELLOW, "ERROR": COLOR_RED}
+    colors = {
+        "INFO": COLOR_CYAN,
+        "SUCCESS": COLOR_GREEN,
+        "WARNING": COLOR_YELLOW,
+        "ERROR": COLOR_RED,
+    }
     print(f"{colors.get(status, COLOR_WHITE)}[{status}]{COLOR_RESET} {message}")
 
 
@@ -105,7 +113,11 @@ def _merge_dotted_segments(parts: list[str]) -> list[str]:
         if pl[i] == "sanitizer" and i + 1 < len(pl) and pl[i + 1] in _SANITIZER_NAMES:
             out.append(f"sanitizer.{pl[i + 1]}")
             i += 2
-        elif pl[i] == "lto" and i + 1 < len(pl) and pl[i + 1] in ("off", "thin", "full", "ipo", "auto"):
+        elif (
+            pl[i] == "lto"
+            and i + 1 < len(pl)
+            and pl[i + 1] in ("off", "thin", "full", "ipo", "auto")
+        ):
             out.append(f"lto.{pl[i + 1]}")
             i += 2
         elif pl[i] == "linker" and i + 1 < len(pl):
@@ -122,7 +134,7 @@ class MemoryBazelConfiguration:
 
     def __init__(self, args: list[str]) -> None:
         self.args = args
-        self.build_type = "debug"
+        self.build_type = "fastbuild"
         self.cxx_standard: Optional[str] = None
         self.targets: list[str] = ["//..."]
         self.run_tests = False
@@ -132,6 +144,8 @@ class MemoryBazelConfiguration:
         self.run_coverage = False
         self.timing_data: dict[str, float] = {}
         self.slow_phase_warn_seconds: float = 60.0
+        self.output_root: Optional[str] = None
+        self.test_output: Optional[str] = None
         self.use_batch: bool = False
         self.verbose_tests = False
         self.subprocess_timeout: int = 600
@@ -147,7 +161,9 @@ class MemoryBazelConfiguration:
         # --- Memory Bazel --define flags (bazel/BUILD.bazel config_settings) ---
 
         # MEMORY_GPU_BACKEND: none (default), cuda, hip, metal.
-        self.gpu_backend: Optional[str] = None  # None → no --define added (stays "none")
+        self.gpu_backend: Optional[str] = (
+            None  # None → no --define added (stays "none")
+        )
 
         # MEMORY_ENABLE_TBB: off by default; token 'tbb' enables it.
         self.enable_tbb: bool = False
@@ -192,10 +208,12 @@ class MemoryBazelConfiguration:
         self.benchmark: bool = False
 
         # --- Genuinely N/A for Bazel ---
-        self.icecc: bool = False    # icecc is distcc-style; Bazel uses --spawn_strategy
+        self.icecc: bool = False  # icecc is distcc-style; Bazel uses --spawn_strategy
         self.examples: bool = False  # no separate examples targets in this Bazel build
-        self.cache: bool = False     # use --disk_cache / --remote_cache directly
-        self.sanitizer: Optional[str] = None  # no sanitizer --config in this repo's .bazelrc
+        self.cache: bool = False  # use --disk_cache / --remote_cache directly
+        self.sanitizer: Optional[str] = (
+            None  # no sanitizer --config in this repo's .bazelrc
+        )
 
         self._parse_arguments()
         self._apply_defaults()
@@ -214,8 +232,22 @@ class MemoryBazelConfiguration:
         for arg in self.args:
             arg_lower = arg.lower()
 
-            if arg_lower in ("clang", "gcc") or "clang" in arg_lower or "gcc" in arg_lower or "g++" in arg_lower:
-                if arg_lower not in ("clangtidy", "clang-tidy", "clang_tidy", "cppcheck"):
+            if arg_lower in ("default", "msvc", "clang-cl"):
+                self._set_compiler(arg_lower)
+                continue
+
+            if (
+                arg_lower in ("clang", "gcc")
+                or "clang" in arg_lower
+                or "gcc" in arg_lower
+                or "g++" in arg_lower
+            ):
+                if arg_lower not in (
+                    "clangtidy",
+                    "clang-tidy",
+                    "clang_tidy",
+                    "cppcheck",
+                ):
                     self._set_compiler(arg_lower)
                     continue
 
@@ -252,7 +284,9 @@ class MemoryBazelConfiguration:
                     "WARNING",
                 )
             elif arg_lower.startswith("lto"):
-                self.lto_mode = arg_lower.split(".", 1)[1] if "." in arg_lower else "thin"
+                self.lto_mode = (
+                    arg_lower.split(".", 1)[1] if "." in arg_lower else "thin"
+                )
             elif arg_lower.startswith("linker."):
                 self.linker = arg_lower.split(".", 1)[1]
             elif arg_lower == "spell":
@@ -287,9 +321,16 @@ class MemoryBazelConfiguration:
                 self.run_clean = True
             elif arg_lower == "config":
                 self.run_config = True
+            else:
+                raise ValueError(f"Unrecognized Bazel action or feature: {arg}")
 
     def _set_compiler(self, arg: str) -> None:
-        if "clang" in arg and arg not in ("clang-cl",):
+        if arg == "default":
+            self.compiler = self.compiler_c = self.compiler_cxx = None
+        elif arg in ("msvc", "clang-cl"):
+            self.compiler = arg
+            self.compiler_c = self.compiler_cxx = "cl" if arg == "msvc" else "clang-cl"
+        elif "clang" in arg and arg not in ("clang-cl",):
             self.compiler = "clang"
             self.compiler_c = arg
             self.compiler_cxx = arg.replace("clang", "clang++")
@@ -303,11 +344,15 @@ class MemoryBazelConfiguration:
                 self.compiler_cxx = arg.replace("gcc", "g++")
 
     def _apply_defaults(self) -> None:
-        if not self.compiler:
-            self.compiler = "clang"
-            self.compiler_c = "clang"
-            self.compiler_cxx = "clang++"
-        print_status(f"Using default compiler: {self.compiler.upper()}", "INFO")
+        """Bazel selects the compiler and fastbuild unless explicitly overridden."""
+
+    def _prefix(self) -> list[str]:
+        prefix = bazel_prefix()
+        if self.use_batch:
+            prefix.append("--batch")
+        if self.output_root:
+            prefix.append("--output_user_root=" + self.output_root)
+        return prefix
 
     def _config_flags(self) -> list[str]:
         """Flags that select *which build configuration* Bazel resolves.
@@ -326,8 +371,15 @@ class MemoryBazelConfiguration:
             flags.extend(["-c", "opt"])
         elif self.build_type == "relwithdebinfo":
             flags.extend(["-c", "opt", "--copt=-g"])
-        else:
+        elif self.build_type == "debug":
             flags.extend(["-c", "dbg"])
+        elif self.build_type == "fastbuild":
+            flags.extend(["-c", "fastbuild"])
+        else:
+            raise ValueError(
+                f"Unrecognized build type {self.build_type!r}; "
+                "expected debug, release, relwithdebinfo, or fastbuild"
+            )
 
         if self.compiler_c:
             flags.append(f"--repo_env=CC={self.compiler_c}")
@@ -353,8 +405,10 @@ class MemoryBazelConfiguration:
 
         if self.cxx_standard:
             std_version = self.cxx_standard.replace("cxx", "")
-            flags.append(f"--cxxopt=-std=c++{std_version}")
-            flags.append(f"--host_cxxopt=-std=c++{std_version}")
+            standard = (
+                "/std:c++" if self.system == "Windows" else "-std=c++"
+            ) + std_version
+            flags.extend(["--cxxopt=" + standard, "--host_cxxopt=" + standard])
 
         # linker: -fuse-ld=<value> (Linux/macOS Clang; no-op note on Windows).
         if self.linker:
@@ -384,43 +438,35 @@ class MemoryBazelConfiguration:
 
     def build_bazel_command(self, action: str) -> list[str]:
         """Build the Bazel command with all configurations."""
-        cmd = bazel_prefix()
-        if self.use_batch:
-            cmd.append("--batch")
+        cmd = self._prefix()
         cmd.append(action)
         cmd.extend(self._config_flags())
         if action == "test" and self.valgrind:
             if self.system == "Windows":
-                print_status("valgrind: not available on Windows; --run_under ignored.", "WARNING")
+                print_status(
+                    "valgrind: not available on Windows; --run_under ignored.",
+                    "WARNING",
+                )
             else:
                 cmd.append("--run_under=valgrind")
-        cmd.extend(self.targets)
+        if action in ("test", "coverage"):
+            cmd.append(
+                "--test_output="
+                + (self.test_output or ("all" if self.verbose_tests else "errors"))
+            )
+        if action == "coverage":
+            cmd += ["--combined_report=lcov", "--nocache_test_results"]
+        if self.verbose_tests:
+            cmd.append("--verbose_failures")
+        cmd.extend(["--", *self.targets])
         return cmd
 
-    def _kill_stale_bazel_processes(self) -> None:
-        """Force-kill any stale Bazel server processes holding the output base lock."""
-        print_status("Killing any stale Bazel server processes...", "INFO")
-        for proc_name in ["bazel-real.exe", "bazel.exe"]:
-            try:
-                result = subprocess.run(
-                    ["taskkill", "/F", "/IM", proc_name], capture_output=True, timeout=10, check=False
-                )
-                if result.returncode == 0:
-                    print_status(f"Killed stale process: {proc_name}", "WARNING")
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-
-    def _shutdown_bazel_for_batch(self) -> None:
-        if not self.use_batch:
-            return
-        print_status("Running `bazel shutdown` before `--batch` (avoids startup-option mismatch).", "INFO")
-        try:
-            subprocess.run(bazel_prefix() + ["shutdown"], capture_output=True, text=True, timeout=120, check=False)
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-
     def _on_off(self, condition: bool) -> str:
-        return f"{COLOR_GREEN}ON{COLOR_RESET}" if condition else f"{COLOR_RED}OFF{COLOR_RESET}"
+        return (
+            f"{COLOR_GREEN}ON{COLOR_RESET}"
+            if condition
+            else f"{COLOR_RED}OFF{COLOR_RESET}"
+        )
 
     def _na(self) -> str:
         return f"{COLOR_YELLOW}N/A{COLOR_RESET}"
@@ -436,9 +482,14 @@ class MemoryBazelConfiguration:
 
         print(f"\n{COLOR_CYAN}Compiler & Build Tool:{COLOR_RESET}")
         self._pf("Platform", self.system)
-        self._pf("Compiler", (self.compiler or "clang").upper())
+        self._pf("Compiler", (self.compiler or "default").upper())
         self._pf("Build type", self.build_type.upper())
-        self._pf("Cxx standard", self.cxx_standard.replace("cxx", "C++") if self.cxx_standard else "C++20 (default)")
+        self._pf(
+            "Cxx standard",
+            self.cxx_standard.replace("cxx", "C++")
+            if self.cxx_standard
+            else "C++20 (default)",
+        )
 
         print(f"\n{COLOR_CYAN}Memory module (Bazel --define flags):{COLOR_RESET}")
         self._pf("GPU backend", (self.gpu_backend or "none").upper())
@@ -452,7 +503,11 @@ class MemoryBazelConfiguration:
         self._pf("Testing", self._on_off(self.run_tests))
 
         print(f"\n{COLOR_CYAN}Bazel build options:{COLOR_RESET}")
-        self._pf("Valgrind", self._on_off(self.valgrind) + (" (Linux/macOS: --run_under=valgrind)" if self.valgrind else ""))
+        self._pf(
+            "Valgrind",
+            self._on_off(self.valgrind)
+            + (" (Linux/macOS: --run_under=valgrind)" if self.valgrind else ""),
+        )
         self._pf("Linker", self.linker if self.linker else "default")
         lto_label = self.lto_mode if self.lto_mode else "off"
         self._pf("LTO", lto_label)
@@ -461,7 +516,11 @@ class MemoryBazelConfiguration:
         print(f"\n{COLOR_CYAN}Analysis / quality tools (post-build):{COLOR_RESET}")
         self._pf("Benchmark", self._on_off(self.benchmark))
         self._pf("Spell", self._on_off(self.spell))
-        self._pf("Clang-tidy", self._on_off(self.clangtidy) + (" (+fix)" if self.clangtidy and self.fix else ""))
+        self._pf(
+            "Clang-tidy",
+            self._on_off(self.clangtidy)
+            + (" (+fix)" if self.clangtidy and self.fix else ""),
+        )
         self._pf("Iwyu", self._on_off(self.iwyu))
         self._pf("Cppcheck", self._on_off(self.cppcheck))
 
@@ -471,7 +530,11 @@ class MemoryBazelConfiguration:
         self._pf("Cache token", self._na() + " (use --disk_cache/--remote_cache)")
 
         if self.run_build or self.run_tests or self.run_coverage:
-            action = "test" if self.run_tests else ("coverage" if self.run_coverage else "build")
+            action = (
+                "test"
+                if self.run_tests
+                else ("coverage" if self.run_coverage else "build")
+            )
             cmd = self.build_bazel_command(action)
             print(f"\n{COLOR_CYAN}Bazel Command:{COLOR_RESET}")
             print(f"  {' '.join(cmd)}")
@@ -479,7 +542,13 @@ class MemoryBazelConfiguration:
         print("\n" + "=" * 80 + "\n")
 
     def config(self) -> None:
-        """Handle config action (summary already printed by execute())."""
+        """Analyze the selected configuration without deleting build artifacts."""
+        if self.run_config and not (
+            self.run_build or self.run_tests or self.run_coverage
+        ):
+            cmd = self.build_bazel_command("build")
+            cmd.insert(cmd.index("--"), "--nobuild")
+            subprocess.run(cmd, check=True, timeout=self.subprocess_timeout)
 
     def run_tools(self) -> None:
         """Run post-build analysis / quality tools requested via tokens."""
@@ -509,12 +578,24 @@ class MemoryBazelConfiguration:
     def _run_spell(self) -> None:
         codespell = shutil.which("codespell")
         if codespell is None:
-            print_status("spell: codespell not found on PATH (pip install codespell).", "WARNING")
+            print_status(
+                "spell: codespell not found on PATH (pip install codespell).", "WARNING"
+            )
             return
         workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+        ignore_words = os.path.join(
+            workspace_root, "Scripts", "suppressions", "spell_suppressions.txt"
+        )
+        skip_patterns = (
+            ".git,.augment,.github,.vscode,build,Build,build_*,build-*,.venv*,venv*,"
+            "bazel-*,Cmake,ThirdParty,third_party,3rdparty,*ThirdParty*,*third_party*,"
+            "*3rdparty*,.mypy_cache,__pycache__,.pytest_cache,.ruff_cache,*.mypy_cache*,"
+            "*__pycache__*,*.pytest_cache*,*.ruff_cache*,*.pb.*,*.lock"
+        )
         cmd = [
             codespell,
-            "--skip=*.git,bazel-*,ThirdParty,*.pb.*,*.lock",
+            f"--ignore-words={ignore_words}",
+            f"--skip={skip_patterns}",
             "--quiet-level=2",
             workspace_root,
         ]
@@ -526,7 +607,9 @@ class MemoryBazelConfiguration:
             if result.returncode == 0:
                 print_status(f"Spell check passed ({elapsed:.2f}s)", "SUCCESS")
             else:
-                print_status(f"Spell check found issues (exit {result.returncode})", "WARNING")
+                print_status(
+                    f"Spell check found issues (exit {result.returncode})", "WARNING"
+                )
         except subprocess.TimeoutExpired:
             print_status("Spell check timed out.", "WARNING")
 
@@ -536,29 +619,31 @@ class MemoryBazelConfiguration:
             print_status("cppcheck: not found on PATH.", "WARNING")
             return
         workspace_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-        # Scan only first-party directories; exclude vendored ThirdParty/ trees.
-        first_party_dirs = [
-            d for d in ("include", "Testing", "Scripts", "bazel")
-            if os.path.isdir(os.path.join(workspace_root, d))
-        ]
-        scan_targets = [os.path.join(workspace_root, d) for d in first_party_dirs] or [workspace_root]
-        cmd = [
-            cppcheck,
-            "--enable=warning,style,performance",
-            "--suppress=missingIncludeSystem",
-            "--quiet",
-            "--error-exitcode=1",
-            *scan_targets,
-        ]
-        print_status(f"Running cppcheck: {' '.join(cmd)}", "INFO")
         try:
             start_time = time.time()
-            result = subprocess.run(cmd, check=False, timeout=300)
+            with tempfile.TemporaryDirectory(prefix="memory-cppcheck-") as temp_dir:
+                output_file = os.path.join(temp_dir, "cppcheck_output.log")
+                cmd = cppcheck_helper.build_cppcheck_command(
+                    workspace_root, output_file
+                )
+                cmd[0] = cppcheck
+                print_status(f"Running cppcheck: {' '.join(cmd)}", "INFO")
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    cwd=workspace_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                exit_code = cppcheck_helper.process_cppcheck_results(
+                    result, output_file
+                )
             elapsed = time.time() - start_time
-            if result.returncode == 0:
+            if exit_code == 0:
                 print_status(f"cppcheck passed ({elapsed:.2f}s)", "SUCCESS")
             else:
-                print_status(f"cppcheck found issues (exit {result.returncode})", "WARNING")
+                print_status(f"cppcheck found errors (exit {exit_code})", "WARNING")
         except subprocess.TimeoutExpired:
             print_status("cppcheck timed out.", "WARNING")
 
@@ -573,7 +658,7 @@ class MemoryBazelConfiguration:
         print_status("Cleaning Bazel build artifacts...", "INFO")
         try:
             start_time = time.time()
-            subprocess.run(bazel_prefix() + ["clean", "--expunge"], check=True, timeout=300)
+            subprocess.run(self._prefix() + ["clean"], check=True, timeout=300)
             elapsed = time.time() - start_time
             self.timing_data["clean"] = elapsed
             print_status(f"Clean completed successfully ({elapsed:.2f}s)", "SUCCESS")
@@ -588,7 +673,6 @@ class MemoryBazelConfiguration:
         if not self.run_build:
             return
         print_status("Starting Bazel build...", "INFO")
-        self._shutdown_bazel_for_batch()
         cmd = self.build_bazel_command("build")
         print_status(f"Running: {' '.join(cmd)}", "INFO")
         try:
@@ -598,23 +682,24 @@ class MemoryBazelConfiguration:
             self.timing_data["build"] = elapsed
             print_status(f"Build completed successfully ({elapsed:.2f}s)", "SUCCESS")
             if elapsed > self.slow_phase_warn_seconds:
-                print_status(f"Build took longer than {self.slow_phase_warn_seconds:.0f}s.", "WARNING")
+                print_status(
+                    f"Build took longer than {self.slow_phase_warn_seconds:.0f}s.",
+                    "WARNING",
+                )
         except subprocess.CalledProcessError as e:
             print_status(f"Build failed with exit code {e.returncode}", "ERROR")
             sys.exit(1)
         except subprocess.TimeoutExpired:
-            print_status(f"Build timed out (exceeded {self.subprocess_timeout}s)", "ERROR")
+            print_status(
+                f"Build timed out (exceeded {self.subprocess_timeout}s)", "ERROR"
+            )
             sys.exit(1)
 
     def test(self) -> None:
         if not self.run_tests:
             return
         print_status("Running Bazel tests...", "INFO")
-        self._shutdown_bazel_for_batch()
         cmd = self.build_bazel_command("test")
-        cmd.append("--test_output=all" if self.verbose_tests else "--test_output=errors")
-        if self.verbose_tests:
-            cmd.append("--verbose_failures")
         print_status(f"Running: {' '.join(cmd)}", "INFO")
         try:
             start_time = time.time()
@@ -622,23 +707,28 @@ class MemoryBazelConfiguration:
             elapsed = time.time() - start_time
             self.timing_data["test"] = elapsed
             if result.returncode == 0:
-                print_status(f"Tests completed successfully ({elapsed:.2f}s)", "SUCCESS")
+                print_status(
+                    f"Tests completed successfully ({elapsed:.2f}s)", "SUCCESS"
+                )
             elif result.returncode == 4:
-                print_status(f"No test targets found ({elapsed:.2f}s)", "WARNING")
+                print_status("No test targets found", "ERROR")
+                sys.exit(4)
             else:
-                print_status(f"Tests failed with exit code {result.returncode}", "ERROR")
+                print_status(
+                    f"Tests failed with exit code {result.returncode}", "ERROR"
+                )
                 sys.exit(1)
         except subprocess.TimeoutExpired:
-            print_status(f"Tests timed out (exceeded {self.subprocess_timeout}s)", "ERROR")
+            print_status(
+                f"Tests timed out (exceeded {self.subprocess_timeout}s)", "ERROR"
+            )
             sys.exit(1)
 
     def coverage(self) -> None:
         if not self.run_coverage:
             return
         print_status("Running Bazel coverage...", "INFO")
-        self._shutdown_bazel_for_batch()
         cmd = self.build_bazel_command("coverage")
-        cmd.append("--test_output=all" if self.verbose_tests else "--test_output=errors")
         print_status(f"Running: {' '.join(cmd)}", "INFO")
         try:
             start_time = time.time()
@@ -646,19 +736,30 @@ class MemoryBazelConfiguration:
             elapsed = time.time() - start_time
             self.timing_data["coverage"] = elapsed
             if result.returncode == 0:
-                print_status(f"Coverage completed successfully ({elapsed:.2f}s)", "SUCCESS")
+                print_status(
+                    f"Coverage completed successfully ({elapsed:.2f}s)", "SUCCESS"
+                )
                 dat_path = self._build_llvm_coverage_report(start_time)
                 if dat_path is None:
                     dat_path = self._resolve_coverage_dat_path()
-                print_status(f"Coverage report (LCOV): {dat_path}", "INFO")
+                if not os.path.isfile(dat_path) or not self._valid_lcov(dat_path):
+                    raise RuntimeError(
+                        "Coverage tests passed, but no nonempty LCOV report was produced"
+                    )
+                print_status(f"Coverage report (LCOV): {dat_path}", "SUCCESS")
                 self._generate_coverage_html(dat_path)
             elif result.returncode == 4:
-                print_status(f"No coverage targets found ({elapsed:.2f}s)", "WARNING")
+                print_status("No test targets found", "ERROR")
+                sys.exit(4)
             else:
-                print_status(f"Coverage failed with exit code {result.returncode}", "ERROR")
+                print_status(
+                    f"Coverage failed with exit code {result.returncode}", "ERROR"
+                )
                 sys.exit(1)
         except subprocess.TimeoutExpired:
-            print_status(f"Coverage timed out (exceeded {self.subprocess_timeout}s)", "ERROR")
+            print_status(
+                f"Coverage timed out (exceeded {self.subprocess_timeout}s)", "ERROR"
+            )
             sys.exit(1)
 
     def _bazel_info(self, key: str, fallback: str, match_config: bool = False) -> str:
@@ -669,15 +770,26 @@ class MemoryBazelConfiguration:
         match_config=True so this resolves the *same* configuration as the
         build/test/coverage command that was just run, not a sibling one.
         """
-        cmd = bazel_prefix() + ["info"]
+        cmd = self._prefix() + ["info"]
         if match_config:
             cmd.extend(self._config_flags())
         cmd.append(key)
         try:
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(
+                cmd, check=True, capture_output=True, text=True, timeout=60
+            )
             return result.stdout.strip()
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             return fallback
+
+    @staticmethod
+    def _valid_lcov(path: str) -> bool:
+        with open(path, encoding="utf-8") as report:
+            return any(line.startswith("SF:") for line in report)
 
     def _resolve_coverage_dat_path(self) -> str:
         """Resolve Bazel's own (known-empty; see coverage() docstring below) LCOV report."""
@@ -691,54 +803,56 @@ class MemoryBazelConfiguration:
         .profraw data — it's only Bazel's own downstream report merging that's
         broken (its bundled collect_cc_coverage.sh never populates the
         runtime_objects_list.txt manifest entry llvm-cov needs). The raw files
-        land under the output base's sandbox stash, which Bazel keeps around
-        for sandbox reuse rather than deleting immediately.
+        land under the configured output path's testlogs tree. Older Bazel
+        versions may instead retain them in the sandbox stash.
         """
+        output_path = self._bazel_info("output_path", "", match_config=True)
         output_base = self._bazel_info("output_base", "")
-        if not output_base:
-            return []
-        stash_root = os.path.join(output_base, "sandbox", "sandbox_stash", "TestRunner")
-        if not os.path.isdir(stash_root):
-            return []
+        search_roots = []
+        if output_path:
+            search_roots.append(os.path.join(output_path, "testlogs", "_coverage"))
+        if output_base:
+            search_roots.append(
+                os.path.join(output_base, "sandbox", "sandbox_stash", "TestRunner")
+            )
+
         profraw_files = []
-        for root, _dirs, files in os.walk(stash_root):
-            if "_coverage" not in root:
+        for search_root in search_roots:
+            if not os.path.isdir(search_root):
                 continue
-            for name in files:
-                if not name.endswith(".profraw"):
-                    continue
-                path = os.path.join(root, name)
-                try:
-                    if os.path.getmtime(path) >= since:
-                        profraw_files.append(path)
-                except OSError:
-                    continue
-        return profraw_files
+            for root, _, files in os.walk(search_root):
+                for name in files:
+                    if not name.endswith(".profraw"):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        if os.path.getmtime(path) >= since:
+                            profraw_files.append(path)
+                    except OSError:
+                        continue
+        return sorted(profraw_files)
 
     def _find_coverage_test_binaries(self) -> list[str]:
         """Resolve bazel-bin paths for every cc_test target covered by this run."""
         targets_expr = " + ".join(self.targets)
         try:
             query_result = subprocess.run(
-                bazel_prefix()
+                self._prefix()
                 + [
                     "query",
                     f"kind(cc_test, {targets_expr})",
                     "--output=label",
-                    # `query` doesn't inherit .bazelrc's "build --enable_workspace" the
-                    # way build/test/coverage do (query only inherits "common", not
-                    # "build"). This repo mixes bzlmod (MODULE.bazel: rules_cc,
-                    # platforms, bazel_skylib) with WORKSPACE-registered local_repository/
-                    # new_local_repository deps (ThirdParty/* submodules) — querying
-                    # without this flag fails to resolve those with "unknown repo" errors.
-                    "--enable_workspace",
                 ],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=120,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             return []
 
         bazel_bin = self._bazel_info("bazel-bin", "", match_config=True)
@@ -751,7 +865,11 @@ class MemoryBazelConfiguration:
             if not label.startswith("//"):
                 continue
             pkg, _, name = label[2:].partition(":")
-            binaries.append(os.path.join(bazel_bin, pkg, name))
+            binaries.append(
+                os.path.join(
+                    bazel_bin, pkg, name + (".exe" if self.system == "Windows" else "")
+                )
+            )
         return binaries
 
     def _build_llvm_coverage_report(self, since: float) -> Optional[str]:
@@ -760,6 +878,9 @@ class MemoryBazelConfiguration:
         Mirrors setup.py's CMake coverage dispatch: only the Clang path is
         implemented here, matching this repo's default toolchain.
         """
+        # None means Bazel autoconfigures CC/CXX. That may be GCC, and llvm-cov
+        # only reads Clang's profraw instrumentation, so only an explicit Clang
+        # selection continues.
         if self.compiler != "clang":
             print_status(
                 f"Bazel coverage HTML generation is only implemented for Clang "
@@ -808,7 +929,10 @@ class MemoryBazelConfiguration:
                 timeout=self.subprocess_timeout,
             )
             if merge_result.returncode != 0:
-                print_status(f"llvm-profdata merge failed: {merge_result.stderr.strip()}", "WARNING")
+                print_status(
+                    f"llvm-profdata merge failed: {merge_result.stderr.strip()}",
+                    "WARNING",
+                )
                 return None
 
             export_cmd = [
@@ -825,10 +949,15 @@ class MemoryBazelConfiguration:
             for binary in binaries:
                 export_cmd += ["-object", binary]
             export_result = subprocess.run(
-                export_cmd, capture_output=True, text=True, timeout=self.subprocess_timeout
+                export_cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.subprocess_timeout,
             )
             if export_result.returncode != 0:
-                print_status(f"llvm-cov export failed: {export_result.stderr.strip()}", "WARNING")
+                print_status(
+                    f"llvm-cov export failed: {export_result.stderr.strip()}", "WARNING"
+                )
                 return None
 
             # llvm-cov reports source paths as seen at compile time, i.e. under the
@@ -838,7 +967,10 @@ class MemoryBazelConfiguration:
             lcov_text = export_result.stdout
             if workspace_root:
                 lcov_text = re.sub(
-                    r"^SF:.*?/execroot/_main/", f"SF:{workspace_root}/", lcov_text, flags=re.MULTILINE
+                    r"^SF:.*?/execroot/_main/",
+                    f"SF:{workspace_root}/",
+                    lcov_text,
+                    flags=re.MULTILINE,
                 )
             with open(dat_path, "w", encoding="utf-8") as f:
                 f.write(lcov_text)
@@ -851,7 +983,10 @@ class MemoryBazelConfiguration:
     def _generate_coverage_html(self, dat_path: str) -> None:
         """Convert the Bazel LCOV coverage report into an HTML report via genhtml."""
         if not os.path.isfile(dat_path):
-            print_status(f"Coverage LCOV file not found at {dat_path}; skipping HTML report", "WARNING")
+            print_status(
+                f"Coverage LCOV file not found at {dat_path}; skipping HTML report",
+                "WARNING",
+            )
             return
         genhtml = shutil.which("genhtml")
         if genhtml is None:
@@ -873,11 +1008,20 @@ class MemoryBazelConfiguration:
             "inconsistent,corrupt,unsupported",
         ]
         try:
-            subprocess.run(cmd, check=True, timeout=self.subprocess_timeout, capture_output=True, text=True)
+            subprocess.run(
+                cmd,
+                check=True,
+                timeout=self.subprocess_timeout,
+                capture_output=True,
+                text=True,
+            )
             index_html = os.path.abspath(os.path.join(html_dir, "index.html"))
             print_status(f"Coverage HTML report: {index_html}", "SUCCESS")
         except subprocess.CalledProcessError as e:
-            print_status(f"Failed to generate HTML coverage report: {(e.stderr or '').strip()[-500:]}", "WARNING")
+            print_status(
+                f"Failed to generate HTML coverage report: {(e.stderr or '').strip()[-500:]}",
+                "WARNING",
+            )
         except subprocess.TimeoutExpired as e:
             print_status(f"Failed to generate HTML coverage report: {e}", "WARNING")
 
@@ -899,12 +1043,7 @@ class MemoryBazelConfiguration:
         """Execute the build pipeline."""
         self.print_configuration_summary()
         self.config()
-        if self.run_config and (self.run_build or self.run_tests or self.run_coverage):
-            print_status("Config requested: forcing clean build (bazel clean --expunge).", "INFO")
-            self.run_clean = True
         self.clean()
-        if self.run_build or self.run_tests or self.run_coverage:
-            self._kill_stale_bazel_processes()
         # `bazel coverage` requires instrumented compilation (different flags than a
         # plain build/test) and already builds + tests everything itself, so a
         # preceding plain build/test would just be wasted, non-reusable work.
@@ -936,7 +1075,9 @@ def parse_args(args: list[str]) -> list[str]:
         if arg.startswith("--linker."):
             processed.append(f"linker.{arg.split('.', 1)[1].lower()}")
             continue
-        if re.search(r"[/\\]", arg) and re.search(r"[Cc]lang|[Gg][Cc][Cc]|[Gg]\+\+", arg):
+        if re.search(r"[/\\]", arg) and re.search(
+            r"[Cc]lang|[Gg][Cc][Cc]|[Gg]\+\+", arg
+        ):
             processed.append(arg)
             continue
         if "." in arg and not arg.startswith("--"):
@@ -980,25 +1121,37 @@ def print_help() -> None:
     print("  cuda           - --define=memory_gpu_backend=cuda")
     print("  hip            - --define=memory_gpu_backend=hip")
     print("  metal          - --define=memory_gpu_backend=metal  (Apple only)")
-    print("  tbb            - --define=memory_enable_tbb=true  (requires TBB_ROOT env var)")
+    print(
+        "  tbb            - --define=memory_enable_tbb=true  (requires TBB_ROOT env var)"
+    )
     print("  nomimalloc     - --define=memory_enable_mimalloc=false (default: enabled)")
     print("  numa           - --define=memory_enable_numa=true")
     print("  memkind        - --define=memory_enable_memkind=true")
-    print("  profiler       - --define=memory_enable_profiler=true (disabled in .bazelrc)")
+    print(
+        "  profiler       - --define=memory_enable_profiler=true (disabled in .bazelrc)"
+    )
     print("  shared         - --define=build_shared_libs=true")
     print("  static         - Bazel's own default (no define needed)")
     print("\nBazel build options:")
     print("  valgrind       - --run_under=valgrind on test command (Linux/macOS)")
     print("  linker.<val>   - --linkopt=-fuse-ld=<val>  e.g. linker.lld (Linux/macOS)")
-    print("  lto[.<mode>]   - -flto[=thin|full] via --copt/--linkopt (Linux/macOS Clang)")
+    print(
+        "  lto[.<mode>]   - -flto[=thin|full] via --copt/--linkopt (Linux/macOS Clang)"
+    )
     print("                   modes: thin (default), full, off")
     print("\nAnalysis / quality tools (post-build subprocess steps):")
     print("  spell          - Run codespell on source files (pip install codespell)")
-    print("  clangtidy      - Print Bazel aspect invocation hint (aspect .bzl setup needed)")
+    print(
+        "  clangtidy      - Print Bazel aspect invocation hint (aspect .bzl setup needed)"
+    )
     print("  fix            - Combined with clangtidy: apply clang-tidy fixes")
     print("  cppcheck       - Run cppcheck on src/ (requires cppcheck on PATH)")
-    print("  iwyu           - Print Bazel aspect invocation hint (aspect .bzl setup needed)")
-    print("  benchmark      - Print hint: add --test_tag_filters=benchmark to run benchmarks")
+    print(
+        "  iwyu           - Print Bazel aspect invocation hint (aspect .bzl setup needed)"
+    )
+    print(
+        "  benchmark      - Print hint: add --test_tag_filters=benchmark to run benchmarks"
+    )
     print("\nN/A for Bazel (use Bazel flags directly):")
     print("  icecc          - Use --spawn_strategy=remote instead")
     print("  examples       - No separate examples targets in this Bazel build")
@@ -1020,30 +1173,18 @@ def print_help() -> None:
 
 
 def main() -> None:
-    if len(sys.argv) == 2 and sys.argv[1] == "--help":
-        print_help()
-        return
-
-    if len(sys.argv) < 2:
-        print_status("No build configuration specified. Use --help for usage information.", "ERROR")
-        sys.exit(1)
+    from helpers.cli import dispatch_bazel
 
     try:
-        arg_list = parse_args(sys.argv[1:])
-        print_status(f"Starting Bazel build for {platform.system()}", "INFO")
-        config = MemoryBazelConfiguration(arg_list)
-
-        if not (config.run_build or config.run_tests or config.run_clean or config.run_config or config.run_coverage):
-            config.run_build = True
-
-        config.execute()
-        print_status("Build process completed successfully!", "SUCCESS")
-
+        sys.exit(
+            dispatch_bazel(
+                sys.argv[1:],
+                configuration_factory=MemoryBazelConfiguration,
+                parse_legacy=parse_args,
+            )
+        )
     except KeyboardInterrupt:
-        print_status("\nBuild process interrupted by user", "WARNING")
-        sys.exit(1)
-    except Exception as e:
-        print_status(f"An unexpected error occurred: {e}", "ERROR")
+        print_status("Build interrupted", "ERROR")
         sys.exit(1)
 
 

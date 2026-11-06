@@ -19,8 +19,16 @@
 
 #include "gpu/metal/metal_buffer_allocator.h"
 
+#include "common/memory_macros.h"
+
+// INFINITY must be visible before Metal.h (MTLAccelerationStructureTypes.h
+// uses it in a struct initializer; LLVM clang does not auto-include <math.h>).
+#include <cmath>
+
+MEMORY_SUPPRESS_DEPRECATED_BEGIN
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+MEMORY_SUPPRESS_DEPRECATED_END
 
 #include "gpu/metal/metal_caching_allocator.h"
 

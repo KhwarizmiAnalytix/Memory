@@ -20,9 +20,10 @@
 #include <cstdint>  // for uintptr_t
 #include <cstdlib>  // for size_t
 #include <cstring>  // for memset
-#include <vector>   // for vector
+#include <limits>
+#include <vector>  // for vector
 
-#include <include/logging.h>
+#include "include/logging.h"
 
 #include "MemoryTest.h"               // for MEMORYTEST, END_TEST, IsAligned
 #include "helper/memory_allocator.h"  // for free, allocate, usable_size
@@ -156,7 +157,7 @@ MEMORYTEST(MemoryPortTest, HugeAllocationReturnsNullptr)
 {
     LOGGING_LOG_INFO("Testing memory port huge allocation failure...");
 
-    void* ptr = cpu::memory_allocator::allocate(static_cast<std::size_t>(-1) / 2, 64);
+    void* ptr = cpu::memory_allocator::allocate(std::numeric_limits<std::size_t>::max(), 64);
     EXPECT_EQ(ptr, nullptr);
 
     LOGGING_LOG_INFO("Memory port huge allocation failure tests completed successfully");

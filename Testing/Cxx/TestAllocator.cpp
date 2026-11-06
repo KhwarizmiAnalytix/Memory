@@ -88,9 +88,10 @@ MEMORYTEST(Allocator, FreeNullptrIsNoOp)
 MEMORYTEST(Allocator, AllocateHugeSizeThrowsBadAlloc)
 {
     using alloc_t = allocator<char>;
-    // Larger than any real system can satisfy -- forces the underlying
-    // backend to return nullptr, which allocate() converts to bad_alloc.
-    EXPECT_THROW(alloc_t::allocate(static_cast<size_t>(-1) / 2, device_enum::CPU), std::bad_alloc);
+    // This cannot describe a valid C++ object and must be rejected before the
+    // request reaches a platform allocator or sanitizer runtime.
+    EXPECT_THROW(
+        alloc_t::allocate(std::numeric_limits<size_t>::max(), device_enum::CPU), std::bad_alloc);
     END_TEST();
 }
 
@@ -322,11 +323,10 @@ MEMORYTEST(Allocator, IsActiveGpuDevice)
 // be rejected, not silently dispatched into the compiled allocator.
 MEMORYTEST(Allocator, AllocateWrongCompiledGpuLabelThrows)
 {
-    using alloc_t = allocator<float>;
 #if MEMORY_HAS_CUDA
-    EXPECT_THROW(alloc_t::allocate(4, device_enum::HIP), std::invalid_argument);
+    EXPECT_THROW(allocator<float>::allocate(4, device_enum::HIP), std::invalid_argument);
 #elif MEMORY_HAS_HIP
-    EXPECT_THROW(alloc_t::allocate(4, device_enum::CUDA), std::invalid_argument);
+    EXPECT_THROW(allocator<float>::allocate(4, device_enum::CUDA), std::invalid_argument);
 #endif
     END_TEST();
 }

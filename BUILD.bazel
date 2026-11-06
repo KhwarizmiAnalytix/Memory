@@ -1,6 +1,12 @@
 # Standalone Memory library (KhwarizmiAnalytix/Memory). Public headers live under
 # include/, implementation files under src/. Include root is include/ (e.g. "allocator.h", "common/data_ptr.h").
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_shared_library")
+load("@rules_cc//cc:cc_static_library.bzl", "cc_static_library")
+load("//bazel:distribution.bzl", "memory_distribution")
+load("@rules_pkg//pkg:install.bzl", "pkg_install")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
+load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//bazel:memory.bzl", "memory_copts", "memory_defines", "memory_linkopts")
 
 package(default_visibility = ["//visibility:public"])
@@ -66,8 +72,12 @@ cc_library(
         "//conditions:default": [],
     }),
     defines = memory_defines() + select({
-        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
+        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE"],
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
+    }),
+    local_defines = select({
+        "//bazel:shared_libs": ["MEMORY_BUILDING_DLL"],
+        "//conditions:default": [],
     }),
     includes = ["include"],
     deps = ["@logging//:Logging"] + select({
@@ -100,8 +110,12 @@ cc_library(
     }),
     copts = memory_copts(),
     defines = memory_defines() + select({
-        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE", "MEMORY_BUILDING_DLL"],
+        "//bazel:shared_libs": ["MEMORY_SHARED_DEFINE"],
         "//conditions:default": ["MEMORY_STATIC_DEFINE"],
+    }),
+    local_defines = select({
+        "//bazel:shared_libs": ["MEMORY_BUILDING_DLL"],
+        "//conditions:default": [],
     }),
     includes = ["include"],
     linkopts = memory_linkopts() + select({
@@ -118,10 +132,8 @@ cc_library(
         "//bazel:enable_numa": ["-lnuma"],
         "//conditions:default": [],
     }),
-    linkstatic = select({
-        "//bazel:shared_libs": False,
-        "//conditions:default": True,
-    }),
+    # Explicit distribution targets below own shared-library linking.
+    linkstatic = True,
     deps = [
         "@logging//:Logging",
     ] + select({
@@ -154,3 +166,76 @@ cc_library(
     deps = [":memory_lib"],
     visibility = ["//visibility:public"],
 )
+
+# Merge Memory and all compiled dependencies into the standalone static archive.
+# Imported system libraries remain explicit dependencies in MemoryConfig.cmake.
+cc_static_library(
+    name = "memory_static_archive",
+    deps = [":memory_lib"],
+    tags = ["manual"],
+)
+
+cc_shared_library(
+    name = "memory_shared_library",
+    deps = [":memory_lib"],
+    shared_lib_name = select({
+        "@platforms//os:windows": "Memory.dll",
+        "@platforms//os:macos": "libMemory.dylib",
+        "//conditions:default": "libMemory.so",
+    }),
+    tags = ["manual"],
+)
+
+memory_distribution(
+    name = "memory_distribution",
+    library = select({
+        "//bazel:shared_libs": ":memory_shared_library",
+        "//conditions:default": ":memory_static_archive",
+    }),
+    implementation = ":memory_lib",
+    shared = select({
+        "//bazel:shared_libs": True,
+        "//conditions:default": False,
+    }),
+)
+
+pkg_files(
+    name = "memory_installed_hdrs",
+    srcs = [":memory_hdrs"],
+    prefix = "include",
+    strip_prefix = strip_prefix.from_pkg("include"),
+)
+
+pkg_files(
+    name = "memory_installed_libs",
+    srcs = [":memory_distribution"],
+    strip_prefix = strip_prefix.from_pkg("distribution"),
+)
+
+pkg_tar(
+    name = "memory_pkg_tar",
+    srcs = [":memory_installed_hdrs", ":memory_installed_libs"],
+)
+
+pkg_install(
+    name = "install",
+    srcs = [":memory_installed_hdrs", ":memory_installed_libs"],
+)
+
+# Standalone shims compile real implementation files without linking Memory or
+# importing a vendor runtime. Keep this header surface free of backend defines.
+cc_library(
+    name = "memory_headers_only",
+    hdrs = [":memory_hdrs"],
+    includes = ["include"],
+    visibility = ["//Testing:__subpackages__"],
+)
+
+exports_files([
+    "src/helper/pinned_memory_allocator.cpp",
+    "src/retained_operation_service.cpp",
+    "src/transfer.cpp",
+    "src/common/allocation_id.cpp",
+    "src/gpu/cuda_caching_allocator.cpp",
+    "src/profiler/unified_memory_stats.cpp",
+])

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Memory CMake Build Configuration Script.
 
 Design follows KhwarizmiAnalytix/XSigma's Scripts/setup.py (dotted-token CLI,
@@ -16,10 +15,10 @@ Usage:
 """
 
 import glob
+import importlib.util
 import os
 import platform
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -35,12 +34,19 @@ try:
 except ImportError:  # Windows CLI smoke and some CI jobs skip pip install
 
     class Fore:  # pylint: disable=too-few-public-methods
-        CYAN = GREEN = YELLOW = RED = WHITE = ""
+        BLUE = CYAN = GREEN = YELLOW = RED = WHITE = ""
 
     class Style:  # pylint: disable=too-few-public-methods
         RESET_ALL = ""
 
-from helpers import build as build_helper, config as config_helper, cppcheck as cppcheck_helper, test as test_helper
+
+from helpers import (
+    build as build_helper,
+    cli as cli_helper,
+    config as config_helper,
+    cppcheck as cppcheck_helper,
+    test as test_helper,
+)
 
 DEBUG_FLAG = False
 
@@ -52,7 +58,8 @@ class ErrorLogger:
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(exist_ok=True)
         self.log_file = (
-            self.log_dir / f"memory_build_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            self.log_dir
+            / f"memory_build_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         )
         self.errors = []
 
@@ -101,7 +108,10 @@ class SummaryReporter:
 
     def add_cppcheck_report(self, log_file: str, exit_code: int):
         if not os.path.exists(log_file):
-            self.reports["cppcheck"] = {"status": "not_run", "message": "Cppcheck was not executed"}
+            self.reports["cppcheck"] = {
+                "status": "not_run",
+                "message": "Cppcheck was not executed",
+            }
             return
         try:
             with open(log_file, encoding="utf-8") as f:
@@ -122,12 +132,20 @@ class SummaryReporter:
                 "log_file": log_file,
             }
         except Exception as e:
-            self.reports["cppcheck"] = {"status": "error", "message": f"Failed to parse cppcheck results: {e}"}
+            self.reports["cppcheck"] = {
+                "status": "error",
+                "message": f"Failed to parse cppcheck results: {e}",
+            }
 
     def add_valgrind_report(self, build_path: str, exit_code: int):
-        valgrind_logs = glob.glob(os.path.join(build_path, "Testing", "Temporary", "MemoryChecker.*.log"))
+        valgrind_logs = glob.glob(
+            os.path.join(build_path, "Testing", "Temporary", "MemoryChecker.*.log")
+        )
         if not valgrind_logs:
-            self.reports["valgrind"] = {"status": "not_run", "message": "Valgrind was not executed or no logs found"}
+            self.reports["valgrind"] = {
+                "status": "not_run",
+                "message": "Valgrind was not executed or no logs found",
+            }
             return
         try:
             memory_leaks = 0
@@ -135,8 +153,16 @@ class SummaryReporter:
             for log_file in valgrind_logs:
                 with open(log_file, encoding="utf-8") as f:
                     content = f.read()
-                memory_leaks += sum(int(m) for m in re.findall(r"definitely lost: (\d+)", content) if int(m) > 0)
-                memory_errors += sum(int(m) for m in re.findall(r"ERROR SUMMARY: (\d+) errors", content) if int(m) > 0)
+                memory_leaks += sum(
+                    int(m)
+                    for m in re.findall(r"definitely lost: (\d+)", content)
+                    if int(m) > 0
+                )
+                memory_errors += sum(
+                    int(m)
+                    for m in re.findall(r"ERROR SUMMARY: (\d+) errors", content)
+                    if int(m) > 0
+                )
             self.reports["valgrind"] = {
                 "status": "completed",
                 "exit_code": exit_code,
@@ -145,7 +171,10 @@ class SummaryReporter:
                 "log_files": valgrind_logs,
             }
         except Exception as e:
-            self.reports["valgrind"] = {"status": "error", "message": f"Failed to parse valgrind results: {e}"}
+            self.reports["valgrind"] = {
+                "status": "error",
+                "message": f"Failed to parse valgrind results: {e}",
+            }
 
     def add_coverage_report(self, build_path: str, exit_code: int):
         """Parse the coverage-tool JSON report and extract summary metrics."""
@@ -155,9 +184,14 @@ class SummaryReporter:
             os.path.join(build_path, "coverage_report", "coverage_summary.json"),
             os.path.join(build_path, "coverage_report", "coverage.json"),
         ]
-        coverage_json = next((p for p in coverage_json_paths if os.path.exists(p)), None)
+        coverage_json = next(
+            (p for p in coverage_json_paths if os.path.exists(p)), None
+        )
         if not coverage_json:
-            self.reports["coverage"] = {"status": "not_run", "message": "Coverage report not found"}
+            self.reports["coverage"] = {
+                "status": "not_run",
+                "message": "Coverage report not found",
+            }
             return
         try:
             with open(coverage_json, encoding="utf-8") as f:
@@ -172,10 +206,14 @@ class SummaryReporter:
                     "line_coverage_percent": metrics.get("line_coverage_percent", 0.0),
                     "total_functions": metrics.get("total_functions", 0),
                     "covered_functions": metrics.get("covered_functions", 0),
-                    "function_coverage_percent": metrics.get("function_coverage_percent", 0.0),
+                    "function_coverage_percent": metrics.get(
+                        "function_coverage_percent", 0.0
+                    ),
                     "total_regions": metrics.get("total_regions", 0),
                     "covered_regions": metrics.get("covered_regions", 0),
-                    "region_coverage_percent": metrics.get("region_coverage_percent", 0.0),
+                    "region_coverage_percent": metrics.get(
+                        "region_coverage_percent", 0.0
+                    ),
                     "report_file": coverage_json,
                 }
             elif "summary" in coverage_data:
@@ -197,9 +235,15 @@ class SummaryReporter:
                     "report_file": coverage_json,
                 }
             else:
-                self.reports["coverage"] = {"status": "error", "message": "Coverage JSON format not recognized"}
+                self.reports["coverage"] = {
+                    "status": "error",
+                    "message": "Coverage JSON format not recognized",
+                }
         except Exception as e:
-            self.reports["coverage"] = {"status": "error", "message": f"Failed to parse coverage results: {e}"}
+            self.reports["coverage"] = {
+                "status": "error",
+                "message": f"Failed to parse coverage results: {e}",
+            }
 
     def display_summary(self):
         if not self.reports:
@@ -253,12 +297,22 @@ class SummaryReporter:
             print_status(f"Covered Lines:  {covered_lines}", "INFO")
             print_status(
                 f"Coverage:       {coverage_percent:.2f}%",
-                "SUCCESS" if coverage_percent >= 95.0 else "WARNING" if coverage_percent >= 80.0 else "ERROR",
+                "SUCCESS"
+                if coverage_percent >= 95.0
+                else "WARNING"
+                if coverage_percent >= 80.0
+                else "ERROR",
             )
             if report.get("total_functions", 0) > 0:
-                print_status(f"Function Coverage: {report.get('function_coverage_percent', 0.0):.2f}%", "INFO")
+                print_status(
+                    f"Function Coverage: {report.get('function_coverage_percent', 0.0):.2f}%",
+                    "INFO",
+                )
             if report.get("total_regions", 0) > 0:
-                print_status(f"Region Coverage:   {report.get('region_coverage_percent', 0.0):.2f}%", "INFO")
+                print_status(
+                    f"Region Coverage:   {report.get('region_coverage_percent', 0.0):.2f}%",
+                    "INFO",
+                )
             report_file = report.get("report_file", "")
             if report_file:
                 report_dir = os.path.dirname(report_file)
@@ -290,9 +344,13 @@ def check_dependencies() -> list[str]:
                 missing_deps.append("C++ compiler (MSVC or Clang)")
     elif platform.system() == "Darwin":
         try:
-            subprocess.run(["xcode-select", "--print-path"], capture_output=True, check=True)
+            subprocess.run(
+                ["xcode-select", "--print-path"], capture_output=True, check=True
+            )
         except (subprocess.CalledProcessError, FileNotFoundError):
-            missing_deps.append("Xcode Command Line Tools (run: xcode-select --install)")
+            missing_deps.append(
+                "Xcode Command Line Tools (run: xcode-select --install)"
+            )
         try:
             subprocess.run(["clang++", "--version"], capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -313,23 +371,40 @@ def check_xcode_availability() -> bool:
     if platform.system() != "Darwin":
         return False
     try:
-        result = subprocess.run(["xcodebuild", "-version"], capture_output=True, check=True, text=True)
+        result = subprocess.run(
+            ["xcodebuild", "-version"], capture_output=True, check=True, text=True
+        )
         print_status(f"Found Xcode: {result.stdout.strip().split()[1]}", "INFO")
         return True
     except subprocess.CalledProcessError as e:
-        stderr_output = e.stderr if isinstance(e.stderr, str) else (e.stderr.decode() if e.stderr else "")
+        stderr_output = (
+            e.stderr
+            if isinstance(e.stderr, str)
+            else (e.stderr.decode() if e.stderr else "")
+        )
         if "command line tools instance" in stderr_output:
-            print_status("Xcode Command Line Tools found, but full Xcode is required for Xcode generator", "WARNING")
+            print_status(
+                "Xcode Command Line Tools found, but full Xcode is required for Xcode generator",
+                "WARNING",
+            )
         else:
             print_status(f"Xcode check failed: {stderr_output.strip()}", "WARNING")
         return False
     except FileNotFoundError:
-        print_status("xcodebuild not found - install Xcode or Xcode Command Line Tools", "WARNING")
+        print_status(
+            "xcodebuild not found - install Xcode or Xcode Command Line Tools",
+            "WARNING",
+        )
         return False
 
 
 def print_status(message: str, status: str = "INFO", end: str = "\n") -> None:
-    status_colors = {"INFO": Fore.BLUE, "SUCCESS": Fore.GREEN, "ERROR": Fore.RED, "WARNING": Fore.YELLOW}
+    status_colors = {
+        "INFO": Fore.BLUE,
+        "SUCCESS": Fore.GREEN,
+        "ERROR": Fore.RED,
+        "WARNING": Fore.YELLOW,
+    }
     color = status_colors.get(status, Fore.WHITE)
     print(f"{color}[{status}]{Style.RESET_ALL} {message}", end=end)
 
@@ -353,6 +428,14 @@ class MemoryFlags:
     ON = "ON"
 
     def __init__(self, arg_list):
+        self.requested_build_type = next(
+            (
+                cli_helper.canonical_build_type(arg)
+                for arg in reversed(arg_list)
+                if arg in ("debug", "release", "relwithdebinfo", "minsizerel")
+            ),
+            None,
+        )
         self.__initialize_flags()
         if arg_list:
             self.__build_cmake_flag()
@@ -395,9 +478,9 @@ class MemoryFlags:
             "build Memory example programs",
             "enable GoogleTest for Memory (default ON; token disables it)",
             "enable Google Benchmark for Memory (default ON; token disables it)",
-            "link the Profiler library (default ON; token disables it)",
+            "enable profiling via an installed Profiler library (default OFF; token enables it)",
             "enable the mimalloc CPU allocator (default ON; token disables it)",
-            "compile mimalloc statistics support (MI_STAT=1)",
+            "compile mimalloc statistics support (MI_STATS=1)",
             "enable the memkind extended-memory allocator (Linux only)",
             "enable the Intel TBB scalable memory allocator (tbbmalloc)",
             "enable NUMA-aware allocation (Linux only)",
@@ -466,7 +549,7 @@ class MemoryFlags:
                 "test": self.ON,  # MEMORY_ENABLE_TESTING default ON
                 "gtest": self.ON,  # MEMORY_ENABLE_GTEST default ON
                 "benchmark": self.ON,  # MEMORY_ENABLE_BENCHMARK default ON
-                "profiler": self.ON,  # MEMORY_ENABLE_PROFILER default ON
+                "profiler": self.OFF,  # MEMORY_ENABLE_PROFILER default OFF
                 "mimalloc": self.ON,  # MEMORY_ENABLE_MIMALLOC default ON
                 "cache": self.ON,  # MEMORY_ENABLE_CACHE default ON
                 "gpu": "none",  # MEMORY_GPU_BACKEND default "none"
@@ -482,7 +565,11 @@ class MemoryFlags:
         sanitizer_list = ["address", "undefined", "thread", "memory", "leak"]
         cxx_std_list = ["cxx11", "cxx14", "cxx17", "cxx20", "cxx23"]
         cache_type_list = ["none", "ccache", "sccache", "buildcache"]
-        gpu_backend_list = ["cuda", "hip", "metal"]  # "none" is the default; no bare token for it
+        gpu_backend_list = [
+            "cuda",
+            "hip",
+            "metal",
+        ]  # "none" is the default; no bare token for it
         linker_list = ["default", "mold", "lld", "gold", "lld-link"]
 
         self.builder_suffix = ""
@@ -492,7 +579,15 @@ class MemoryFlags:
                 self.builder_suffix += "_static"
             elif arg in sanitizer_list:
                 self.__value["sanitizer"] = self.ON
-                self.__value["sanitizer_enum"] = arg
+                selected = (
+                    self.__value["sanitizer_enum"].split(",")
+                    if getattr(self, "_sanitizer_selected", False)
+                    else []
+                )
+                if arg not in selected:
+                    selected.append(arg)
+                self.__value["sanitizer_enum"] = ",".join(selected)
+                self._sanitizer_selected = True
                 self.builder_suffix += f"_{arg}"
             elif arg in gpu_backend_list:
                 self.__value["gpu"] = arg
@@ -507,7 +602,10 @@ class MemoryFlags:
                         self.builder_suffix += f"_lto_{lto_mode}"
                     print_status(f"LTO mode: {lto_mode}", "INFO")
                 else:
-                    print_status(f"Unknown LTO mode '{lto_mode}'. Valid options: {', '.join(lto_modes)}", "ERROR")
+                    print_status(
+                        f"Unknown LTO mode '{lto_mode}'. Valid options: {', '.join(lto_modes)}",
+                        "ERROR",
+                    )
                     sys.exit(1)
             elif arg.startswith("linker."):
                 linker_value = arg.split(".", 1)[1].lower()
@@ -517,7 +615,7 @@ class MemoryFlags:
                     print_status(f"Setting linker to {linker_value}", "INFO")
                 else:
                     print_status(
-                        f"Unknown linker '{linker_value}'. Valid options: {', '.join(l for l in linker_list if l != 'default')}",
+                        f"Unknown linker '{linker_value}'. Valid options: {', '.join(linker for linker in linker_list if linker != 'default')}",
                         "ERROR",
                     )
                     sys.exit(1)
@@ -529,12 +627,12 @@ class MemoryFlags:
                 std_version = arg[3:]  # Remove "cxx" prefix
                 self.__value["cxxstd"] = std_version
                 print_status(f"Setting C++ standard to C++{std_version}", "INFO")
-            elif re.match(r"^c\+\+(\d+)$", arg.lower()):
-                std_version = re.match(r"^c\+\+(\d+)$", arg.lower()).group(1)
+            elif m := re.match(r"^c\+\+(\d+)$", arg.lower()):
+                std_version = m.group(1)
                 self.__value["cxxstd"] = std_version
                 print_status(f"Setting C++ standard to C++{std_version}", "INFO")
             elif arg in self.__key:
-                if arg in ("gtest", "cache", "profiler", "mimalloc"):
+                if arg in ("gtest", "cache", "mimalloc"):
                     # CMake default ON: providing the token turns it OFF.
                     self.__value[arg] = self.OFF
                 elif arg == "benchmark":
@@ -551,7 +649,10 @@ class MemoryFlags:
                     self.builder_suffix += f"_{arg}"
 
     def __validate_flags(self):
-        if self.__value.get("gpu") == "metal" and self.__value.get("profiler") == self.ON:
+        if (
+            self.__value.get("gpu") == "metal"
+            and self.__value.get("profiler") == self.ON
+        ):
             # ThirdParty/Profiler/cmake/ProfilerOptions.cmake inherits Memory's
             # MEMORY_GPU_BACKEND as PROFILER_GPU_BACKEND's default, but Profiler
             # itself only accepts none/cuda/hip ("Metal support was removed") --
@@ -565,29 +666,50 @@ class MemoryFlags:
                 "INFO",
             )
 
-        if self.__value.get("sanitizer") == self.ON and self.__value.get("valgrind") == self.ON:
-            print_status("Both sanitizer and valgrind enabled - consider using only one.", "WARNING")
+        if (
+            self.__value.get("sanitizer") == self.ON
+            and self.__value.get("valgrind") == self.ON
+        ):
+            print_status(
+                "Both sanitizer and valgrind enabled - consider using only one.",
+                "WARNING",
+            )
 
-        if self.__value.get("coverage") == self.ON and self.__value.get("test") != self.ON:
-            print_status("Coverage enabled but testing is disabled - enabling tests automatically.", "WARNING")
+        if (
+            self.__value.get("coverage") == self.ON
+            and self.__value.get("test") != self.ON
+        ):
+            print_status(
+                "Coverage enabled but testing is disabled - enabling tests automatically.",
+                "WARNING",
+            )
             self.__value["test"] = self.ON
 
-        if self.__value.get("coverage") == self.ON:
-            try:
-                import coverage_tool  # noqa: F401
-            except ImportError:
-                print_status(
-                    "coverage-tool is not installed. Install with: pip install coverage-tool",
-                    "ERROR",
-                )
-                sys.exit(1)
+        if (
+            self.__value.get("coverage") == self.ON
+            and importlib.util.find_spec("coverage_tool") is None
+        ):
+            print_status(
+                "coverage-tool is not installed. Install with: pip install coverage-tool",
+                "ERROR",
+            )
+            sys.exit(1)
 
         if self.__value.get("spell") == self.ON:
-            print_status("SPELL CHECKING ENABLED: Automatic spelling corrections will be applied during build!", "WARNING")
-            print_status("Ensure you have committed your changes before building with this option.", "WARNING")
+            print_status(
+                "SPELL CHECKING ENABLED: Automatic spelling corrections will be applied during build!",
+                "WARNING",
+            )
+            print_status(
+                "Ensure you have committed your changes before building with this option.",
+                "WARNING",
+            )
 
         if self.__value.get("gpu") == "metal" and platform.system() != "Darwin":
-            print_status("MEMORY_GPU_BACKEND=metal is only supported on Apple platforms.", "ERROR")
+            print_status(
+                "MEMORY_GPU_BACKEND=metal is only supported on Apple platforms.",
+                "ERROR",
+            )
             sys.exit(1)
 
     @staticmethod
@@ -597,16 +719,21 @@ class MemoryFlags:
 
     def create_cmake_flags(self, cmake_cmd_flags, build_enum, system):
         debug_print("Create cmake flags")
-        del system  # unused; kept for parity with the CMake-driven build-type selection below
-        if (
+        del (
+            system
+        )  # unused; kept for parity with the CMake-driven build-type selection below
+        if not self.requested_build_type and (
             self.__value.get("valgrind") == self.ON
             or self.__value.get("sanitizer") == self.ON
             or self.__value.get("coverage") == self.ON
         ):
-            print_status("Enabling debug build for sanitizer, valgrind, or coverage analysis", "INFO")
-            build_type = "DEBUG"
+            print_status(
+                "Enabling debug build for sanitizer, valgrind, or coverage analysis",
+                "INFO",
+            )
+            build_type = "Debug"
         else:
-            build_type = str(build_enum).capitalize()
+            build_type = cli_helper.canonical_build_type(build_enum)
 
         for key, value in self.__value.items():
             if key in self.__name:
@@ -638,7 +765,10 @@ class MemoryFlags:
 
 
 class MemoryConfiguration:
+    """Drives config/build/test/coverage for Memory from parsed dotted-token args."""
+
     def __init__(self, args_list):
+        self.source_path = Path(__file__).resolve().parents[1]
         missing_deps = check_dependencies()
         if missing_deps:
             print_status("Missing required dependencies:", "ERROR")
@@ -647,12 +777,23 @@ class MemoryConfiguration:
             print_status("Please install missing dependencies and try again.", "ERROR")
             sys.exit(1)
 
-        self.error_logger = ErrorLogger()
+        self.error_logger = ErrorLogger(str(self.source_path / "logs"))
         self.summary_reporter = SummaryReporter()
 
         self.__initialize_values()
         self.__memory_flags = MemoryFlags(args_list)
+        self.__set_ninja_flags()
         self.__fill_compilation_flags(args_list)
+        self.__value["build_enum"] = self.__memory_flags.create_cmake_flags(
+            [], self.__value["build_enum"], self.__value["system"]
+        )
+        if self.__compiler_user_specified:
+            compiler = self.__value["cmake_cxx_compiler"].split("=", 1)[-1]
+            self.__value["build_folder"] += "_" + re.sub(
+                r"[^a-zA-Z0-9+-]", "_", Path(compiler).name
+            )
+        if self.__value["build_enum"] != "Release":
+            self.__value["build_folder"] += "_" + self.__value["build_enum"].lower()
 
     def __initialize_values(self):
         default_cxx_compiler = "clang++"
@@ -683,33 +824,31 @@ class MemoryConfiguration:
             self.__set_ninja_flags()
         elif arg == "xcode":
             self.__set_xcode_flags()
-        elif self.__is_clang_compiler(arg):
-            self.__set_clang_compiler(arg)
-        elif arg == "clang-cl":
-            self.__value["cmake_cxx_compiler"] = "-DCMAKE_GENERATOR_TOOLSET=ClangCL"
-            self.__value["cmake_c_compiler"] = ""
-            self.__compiler_user_specified = True
-        elif self.__is_gcc_compiler(arg):
-            self.__set_gcc_compiler(arg)
+        elif self.__dotted_compiler(arg):
+            self.__set_compiler(arg)
         elif self.__is_visual_studio(arg):
             self.__set_visual_studio(arg)
         elif arg in ["config", "build", "test"]:
             self.__value[arg] = arg
-        elif arg in ["release", "debug", "relwithdebinfo"]:
-            self.__value["build_enum"] = arg.capitalize()
+        elif arg in ["release", "debug", "relwithdebinfo", "minsizerel"]:
+            self.__value["build_enum"] = cli_helper.canonical_build_type(arg)
         elif arg in ["vv", "v"]:
             self.__set_verbose_flags()
 
     def __set_ninja_flags(self):
         self.__value["cmake_generator"] = "Ninja"
         self.__value["builder"] = "ninja"
-        self.__value["build_folder"] = f"build_ninja{self.__memory_flags.builder_suffix}"
+        self.__value["build_folder"] = (
+            f"build_ninja{self.__memory_flags.builder_suffix}"
+        )
 
     def __set_xcode_flags(self):
         if self.__value["system"] == "Darwin" and check_xcode_availability():
             self.__value["cmake_generator"] = "Xcode"
             self.__value["builder"] = "xcodebuild"
-            self.__value["build_folder"] = f"build_xcode{self.__memory_flags.builder_suffix}"
+            self.__value["build_folder"] = (
+                f"build_xcode{self.__memory_flags.builder_suffix}"
+            )
             print_status("Using Xcode generator", "SUCCESS")
         else:
             if self.__value["system"] == "Darwin":
@@ -718,39 +857,27 @@ class MemoryConfiguration:
                 print_status("Xcode generator is only available on macOS", "WARNING")
             self.__set_ninja_flags()
 
-    def __is_clang_compiler(self, arg):
-        return "clang" in arg and arg not in ["clang-cl", "clangtidy"]
+    @staticmethod
+    def __dotted_compiler(arg):
+        # msvc is a named-mode-only family; the legacy pipeline never handled it.
+        return None if arg == "msvc" else cli_helper.dotted_compiler(arg)
 
-    def __set_clang_compiler(self, arg):
-        self.__value["cmake_c_compiler"] = f"-DCMAKE_C_COMPILER={arg}"
-        self.__value["cmake_cxx_compiler"] = f"-DCMAKE_CXX_COMPILER={arg.replace('clang', 'clang++')}"
-        self.__compiler_user_specified = True
-
-    def __is_gcc_compiler(self, arg):
-        return ("gcc" in arg or "g++" in arg) and arg not in ["cppcheck"]
-
-    def __set_gcc_compiler(self, arg):
-        if "g++" in arg:
-            self.__value["cmake_cxx_compiler"] = f"-DCMAKE_CXX_COMPILER={arg}"
-            self.__value["cmake_c_compiler"] = f"-DCMAKE_C_COMPILER={arg.replace('g++', 'gcc')}"
-        else:
-            self.__value["cmake_c_compiler"] = f"-DCMAKE_C_COMPILER={arg}"
-            self.__value["cmake_cxx_compiler"] = f"-DCMAKE_CXX_COMPILER={arg.replace('gcc', 'g++')}"
+    def __set_compiler(self, arg):
+        _, c_compiler, cxx_compiler = cli_helper.dotted_compiler(arg)
+        self.__value["cmake_c_compiler"] = f"-DCMAKE_C_COMPILER={c_compiler}"
+        self.__value["cmake_cxx_compiler"] = f"-DCMAKE_CXX_COMPILER={cxx_compiler}"
         self.__compiler_user_specified = True
 
     def __is_visual_studio(self, arg):
-        return arg in ["vs17", "vs19", "vs22", "vs26"] and self.__value["system"] == "Windows"
+        return arg in cli_helper.VS_GENERATORS and self.__value["system"] == "Windows"
 
     def __set_visual_studio(self, arg):
-        vs_versions = {
-            "vs17": ("Visual Studio 15 2017 Win64", "build_vs17"),
-            "vs19": ("Visual Studio 16 2019", "build_vs19"),
-            "vs22": ("Visual Studio 17 2022", "build_vs22"),
-            "vs26": ("Visual Studio 18 2026", "build_vs26"),
-        }
-        self.__value["cmake_generator"], base_build_folder = vs_versions[arg]
+        self.__value["cmake_generator"] = cli_helper.VS_GENERATORS[arg]
+        base_build_folder = f"build_{arg}"
         self.__value["builder"] = "cmake"
-        self.__value["build_folder"] = f"{base_build_folder}{self.__memory_flags.builder_suffix}"
+        self.__value["build_folder"] = (
+            f"{base_build_folder}{self.__memory_flags.builder_suffix}"
+        )
         if not self.__compiler_user_specified:
             self.__value["cmake_cxx_compiler"] = ""
             self.__value["cmake_c_compiler"] = ""
@@ -799,7 +926,10 @@ class MemoryConfiguration:
         print_status("Building project...", "INFO")
         try:
             exit_code = build_helper.build_project(
-                self.__value["builder"], self.__value["build_enum"], self.__value["system"], self.__shell_flag()
+                self.__value["builder"],
+                self.__value["build_enum"],
+                self.__value["system"],
+                self.__shell_flag(),
             )
             if exit_code == 0:
                 print_status("Build completed successfully", "SUCCESS")
@@ -816,10 +946,15 @@ class MemoryConfiguration:
             return 0
         print_status("Starting static code analysis with cppcheck...", "INFO")
         try:
-            version_result = subprocess.run(["cppcheck", "--version"], capture_output=True, check=True, text=True)
+            version_result = subprocess.run(
+                ["cppcheck", "--version"], capture_output=True, check=True, text=True
+            )
             print_status(f"Found cppcheck: {version_result.stdout.strip()}", "SUCCESS")
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print_status("cppcheck not found. Install it (e.g. 'brew install cppcheck').", "ERROR")
+            print_status(
+                "cppcheck not found. Install it (e.g. 'brew install cppcheck').",
+                "ERROR",
+            )
             return 1
 
         os.makedirs(build_path, exist_ok=True)
@@ -829,13 +964,17 @@ class MemoryConfiguration:
         try:
             original_dir = os.getcwd()
             os.chdir(source_path)
-            result = subprocess.run(cppcheck_cmd, capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                cppcheck_cmd, capture_output=True, text=True, check=False
+            )
             os.chdir(original_dir)
             exit_code = cppcheck_helper.process_cppcheck_results(result, output_file)
             self.summary_reporter.add_cppcheck_report(output_file, exit_code)
             return exit_code
         except Exception as e:
-            self.error_logger.log_error(" ".join(cppcheck_cmd), str(e), "Running cppcheck static analysis")
+            self.error_logger.log_error(
+                " ".join(cppcheck_cmd), str(e), "Running cppcheck static analysis"
+            )
             print_status(f"Unexpected error during cppcheck execution: {e}", "ERROR")
             return 1
 
@@ -843,7 +982,9 @@ class MemoryConfiguration:
         if self.__value["test"] != "test":
             return 0
         if self.__memory_flags.is_valgrind():
-            exit_code = test_helper.run_valgrind_test(source_path, build_path, self.__shell_flag())
+            exit_code = test_helper.run_valgrind_test(
+                source_path, build_path, self.__shell_flag()
+            )
             self.summary_reporter.add_valgrind_report(build_path, exit_code)
             return exit_code
         return test_helper.run_ctest(
@@ -859,11 +1000,16 @@ class MemoryConfiguration:
     def coverage(self, source_path, build_path):
         if self.__value["build"] != "build" or not self.__memory_flags.is_coverage():
             return 0
-        print_status("Starting code coverage collection and report generation...", "INFO")
+        print_status(
+            "Starting code coverage collection and report generation...", "INFO"
+        )
         try:
             from coverage_tool import get_coverage
         except ImportError:
-            print_status("coverage-tool is not installed. Install with: pip install coverage-tool", "ERROR")
+            print_status(
+                "coverage-tool is not installed. Install with: pip install coverage-tool",
+                "ERROR",
+            )
             return 1
 
         coverage_result = get_coverage(
@@ -882,17 +1028,13 @@ class MemoryConfiguration:
         return 1
 
     def __shell_flag(self):
-        return self.__value["system"] == "Windows"
+        return False
 
     def move_to_build_folder(self):
-        os.chdir("..")
-        build_folder = self.__value["build_folder"]
-        if os.path.isdir(build_folder) and self.__value.get("config") == "config":
-            shutil.rmtree(build_folder, ignore_errors=True)
-        if not os.path.isdir(build_folder):
-            os.mkdir(build_folder)
+        build_folder = self.source_path / self.__value["build_folder"]
+        build_folder.mkdir(parents=True, exist_ok=True)
         os.chdir(build_folder)
-        return os.getcwd()
+        return str(build_folder)
 
 
 def parse_args(args):
@@ -905,7 +1047,10 @@ def parse_args(args):
             if sanitizer_type in valid_sanitizers:
                 processed_args.extend(["sanitizer", sanitizer_type])
             else:
-                print_status(f"Invalid sanitizer type: {sanitizer_type}. Valid options: {', '.join(valid_sanitizers)}", "ERROR")
+                print_status(
+                    f"Invalid sanitizer type: {sanitizer_type}. Valid options: {', '.join(valid_sanitizers)}",
+                    "ERROR",
+                )
                 sys.exit(1)
         elif arg.startswith("--lto."):
             lto_mode = arg.split(".", 1)[1].lower()
@@ -913,20 +1058,30 @@ def parse_args(args):
             if lto_mode in valid_lto_modes:
                 processed_args.append(f"lto.{lto_mode}")
             else:
-                print_status(f"Invalid LTO mode '{lto_mode}'. Valid options: {', '.join(valid_lto_modes)}", "ERROR")
+                print_status(
+                    f"Invalid LTO mode '{lto_mode}'. Valid options: {', '.join(valid_lto_modes)}",
+                    "ERROR",
+                )
                 sys.exit(1)
         elif arg.startswith("--gpu."):
             gpu_value = arg.split(".", 1)[1].lower()
             valid_gpu_backends = ["none", "cuda", "hip", "metal"]
             if gpu_value in valid_gpu_backends:
-                if gpu_value != "none":  # "none" is already the default; nothing to append
+                if (
+                    gpu_value != "none"
+                ):  # "none" is already the default; nothing to append
                     processed_args.append(gpu_value)
             else:
-                print_status(f"Invalid GPU backend: {gpu_value}. Valid options: {', '.join(valid_gpu_backends)}", "ERROR")
+                print_status(
+                    f"Invalid GPU backend: {gpu_value}. Valid options: {', '.join(valid_gpu_backends)}",
+                    "ERROR",
+                )
                 sys.exit(1)
         elif arg.startswith("--linker."):
             processed_args.append(f"linker.{arg.split('.', 1)[1].lower()}")
-        elif re.search(r"[/\\]", arg) and re.search(r"[Cc]lang|[Gg][Cc][Cc]|[Gg]\+\+", arg):
+        elif re.search(r"[/\\]", arg) and re.search(
+            r"[Cc]lang|[Gg][Cc][Cc]|[Gg]\+\+", arg
+        ):
             # Compiler path argument (e.g. C:/msys64/mingw64/bin/clang.exe) — pass through verbatim.
             processed_args.append(arg)
         else:
@@ -936,7 +1091,19 @@ def parse_args(args):
 
 
 def main():
+    """Parse CLI args and drive config/build/test/coverage, or print --help."""
+    forwarded = cli_helper.dispatch(
+        sys.argv[1:],
+        Path(__file__).resolve().parents[1],
+        MemoryFlags,
+        MemoryConfiguration,
+        parse_args,
+    )
+    if forwarded is not None:
+        sys.exit(forwarded)
+
     if len(sys.argv) == 2 and sys.argv[1] == "--help":
+        cli_helper.print_help()
         print_status("Memory Build Configuration Helper", "INFO")
         print("\n" + "=" * 80)
         print("DEFAULT CONFIGURATION:")
@@ -964,7 +1131,9 @@ def main():
         print("\nSanitizer flags:")
         print("  --sanitizer.address | .undefined | .thread | .memory | .leak")
         print("\nGPU backend flags:")
-        print("  --gpu.none | .cuda | .hip | .metal   (or bare 'cuda' / 'hip' / 'metal')")
+        print(
+            "  --gpu.none | .cuda | .hip | .metal   (or bare 'cuda' / 'hip' / 'metal')"
+        )
         print("\nAvailable options:")
         MemoryFlags([]).helper()
         return
@@ -972,13 +1141,16 @@ def main():
     try:
         arg_list = parse_args(sys.argv[1:])
         if not arg_list:
-            print_status("No build configuration specified. Use --help for usage information.", "ERROR")
+            print_status(
+                "No build configuration specified. Use --help for usage information.",
+                "ERROR",
+            )
             sys.exit(1)
 
         print_status(f"Starting build configuration for {platform.system()}", "INFO")
         compilation_calc = MemoryConfiguration(arg_list)
 
-        source_path = os.path.dirname(os.getcwd())
+        source_path = str(compilation_calc.source_path)
         build_path = compilation_calc.move_to_build_folder()
         print_status(f"Build directory: {build_path}", "INFO")
 
@@ -990,18 +1162,26 @@ def main():
             compilation_calc.build()
             build_end = time.perf_counter()
 
-            compilation_calc.cppcheck(source_path, build_path)
+            phase_result = compilation_calc.cppcheck(source_path, build_path)
+            if phase_result:
+                sys.exit(phase_result)
             cppcheck_end = time.perf_counter()
 
-            compilation_calc.test(source_path, build_path)
+            phase_result = compilation_calc.test(source_path, build_path)
+            if phase_result:
+                sys.exit(phase_result)
             test_end = time.perf_counter()
 
-            compilation_calc.coverage(source_path, build_path)
+            phase_result = compilation_calc.coverage(source_path, build_path)
+            if phase_result:
+                sys.exit(phase_result)
             end = time.perf_counter()
 
             print_status(f"Config time: {config_end - start:.4f} seconds", "INFO")
             print_status(f"Build time: {build_end - config_end:.4f} seconds", "INFO")
-            print_status(f"Cppcheck time: {cppcheck_end - build_end:.4f} seconds", "INFO")
+            print_status(
+                f"Cppcheck time: {cppcheck_end - build_end:.4f} seconds", "INFO"
+            )
             print_status(f"Test time: {test_end - cppcheck_end:.4f} seconds", "INFO")
             print_status(f"Coverage time: {end - test_end:.4f} seconds", "INFO")
             print_status(f"Total time: {end - start:.4f} seconds", "INFO")
@@ -1009,7 +1189,10 @@ def main():
 
             compilation_calc.summary_reporter.display_summary()
             if compilation_calc.error_logger.has_errors():
-                print_status(f"Error log available at: {compilation_calc.error_logger.get_log_file_path()}", "INFO")
+                print_status(
+                    f"Error log available at: {compilation_calc.error_logger.get_log_file_path()}",
+                    "INFO",
+                )
 
         except SystemExit:
             compilation_calc.summary_reporter.display_summary()

@@ -14,6 +14,14 @@ DartConfiguration.tcl
 
 # Bazel
 bazel-*
+# //ThirdParty/Logging's vendor_deps.bzl module extension resolves
+# ThirdParty/{fmt,loguru,spdlog,googletest,benchmark} via local_repository
+# using each checkout's absolute path. Bazel's module-extension lock caching
+# does not re-run the extension when its declared inputs are unchanged, so a
+# committed MODULE.bazel.lock replays the absolute path from whichever
+# machine last regenerated it — breaking the build on every other
+# machine/CI runner. Never commit it; let each environment regenerate its own.
+MODULE.bazel.lock
 
 # Coverage
 *.gcda
@@ -34,8 +42,11 @@ coverage_html/
 __pycache__/
 *.pyc
 .mypy_cache/
+.venv*/
+.venv_libtorch/
 
 .lintbin/
 
 # crash dumps (hundreds of MB; keep local)
 *.dmp
+.dmypy.json

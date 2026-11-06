@@ -23,19 +23,21 @@
 // this suite's CMakeLists.txt for why this builds under the HIP labels.
 
 #include <atomic>
-#include <exception>
 #include <cstdio>
-#include <map>
-#include <random>
+#include <cstdlib>
+#include <exception>
 #include <gtest/gtest.h>
+#include <map>
+#include <new>
+#include <random>
 
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
-#include "fake_runtime.h"
-#include "common/storage_handle.h"
 #include "common/cleanup_diagnostic.h"
+#include "common/storage_handle.h"
+#include "fake_runtime.h"
 #include "gpu/cuda_caching_allocator.h"
 #include "include/util/exception.h"
 
@@ -109,13 +111,13 @@ TEST_F(CudaCachingAllocatorRuntime, RetryAfterDriverFailureRechecksShrunkenBudge
 {
     rt::device_total_bytes = 100 * kSegmentSize;
     cuda_caching_allocator allocator(0);
-    allocator.set_memory_fraction(2.0 * static_cast<double>(kSegmentSize) / rt::device_total_bytes);
+    allocator.set_memory_fraction(
+        2.0 * static_cast<double>(kSegmentSize) / static_cast<double>(rt::device_total_bytes));
 
     rt::malloc_pause_on_call = 1;  // pause the 1st cudaMalloc call
     rt::fail_malloc_calls    = 1;  // ...which then fails once released
 
-    std::thread worker(
-        [&] { EXPECT_THROW(allocator.allocate(kSegmentSize), std::bad_alloc); });
+    std::thread worker([&] { EXPECT_THROW(allocator.allocate(kSegmentSize), std::bad_alloc); });
     rt::wait_for_malloc_pause();
 
     // Shrink the budget while the worker is paused mid-driver-call for its
@@ -123,12 +125,12 @@ TEST_F(CudaCachingAllocatorRuntime, RetryAfterDriverFailureRechecksShrunkenBudge
     // allocator's lock discipline (release_cached_blocks_locked holds the
     // lock throughout; only alloc_segment_unlocked's own cudaMalloc drops it).
     allocator.set_memory_fraction(
-        0.5 * static_cast<double>(kSegmentSize) / rt::device_total_bytes);
+        0.5 * static_cast<double>(kSegmentSize) / static_cast<double>(rt::device_total_bytes));
     rt::release_malloc_pause();
     worker.join();
 
     EXPECT_EQ(1, rt::malloc_calls) << "the recheck must reject before spending a 2nd cudaMalloc "
-                                       "once it sees the shrunken budget";
+                                      "once it sees the shrunken budget";
 }
 
 // Order 2, item 2: if malloc_segment's device_guard throws (its cudaGetDevice
@@ -143,11 +145,12 @@ TEST_F(CudaCachingAllocatorRuntime, SegmentAllocDeviceGuardThrowRollsBackPending
     // Room for exactly one segment: set_memory_fraction's own device_guard
     // (inside query_device_total_memory) consumes one cudaGetDevice call here,
     // before the injected failure below is armed.
-    allocator.set_memory_fraction(1.0 * static_cast<double>(kSegmentSize) / rt::device_total_bytes);
+    allocator.set_memory_fraction(
+        1.0 * static_cast<double>(kSegmentSize) / static_cast<double>(rt::device_total_bytes));
 
     rt::fail_get_device_calls = 1;  // fails the next cudaGetDevice call only:
-                                     // malloc_segment's device_guard, inside
-                                     // the retry-free first allocate() attempt.
+                                    // malloc_segment's device_guard, inside
+                                    // the retry-free first allocate() attempt.
     EXPECT_THROW(allocator.allocate(kSegmentSize), std::runtime_error);
 
     // If pending_reserved_bytes_ leaked from the failed attempt above, this
@@ -156,6 +159,28 @@ TEST_F(CudaCachingAllocatorRuntime, SegmentAllocDeviceGuardThrowRollsBackPending
     void* ptr = nullptr;
     EXPECT_NO_THROW(ptr = allocator.allocate(kSegmentSize));
     ASSERT_NE(nullptr, ptr);
+    allocator.deallocate(ptr, kSegmentSize);
+}
+
+// num_alloc_retries counts the OOM-chain's second alloc_segment_unlocked()
+// attempt (is_retry=true): the first driver cudaMalloc fails, the cache is
+// flushed (a no-op here, nothing is cached yet), and the retried cudaMalloc
+// succeeds. This stat is the only signal that an allocate() paid for a
+// cache-flush-and-retry rather than succeeding on the first driver call.
+TEST_F(CudaCachingAllocatorRuntime, OomChainRetrySucceedsAndCountsAllocRetry)
+{
+    cuda_caching_allocator allocator(0);
+
+    rt::fail_malloc_calls = 1;  // only the 1st cudaMalloc call fails
+
+    void* ptr = nullptr;
+    EXPECT_NO_THROW(ptr = allocator.allocate(kSegmentSize));
+    ASSERT_NE(nullptr, ptr);
+
+    EXPECT_EQ(2, rt::malloc_calls);  // the failed attempt plus the retry
+    EXPECT_EQ(1U, allocator.stats().num_alloc_retries.load());
+    EXPECT_EQ(1U, allocator.stats().successful_allocations.load());
+
     allocator.deallocate(ptr, kSegmentSize);
 }
 
@@ -169,7 +194,7 @@ TEST_F(CudaCachingAllocatorRuntime, SegmentAllocDeviceGuardThrowRollsBackPending
 TEST_F(CudaCachingAllocatorRuntime, DeallocateWithStreamLookupReturnsBlockToPool)
 {
     cuda_caching_allocator allocator(0);
-    void* ptr = allocator.allocate(4096);
+    void*                  ptr = allocator.allocate(4096);
     ASSERT_NE(nullptr, ptr);
     EXPECT_EQ(4096u, allocator.bytes_allocated_now());
 
@@ -190,27 +215,29 @@ TEST_F(CudaCachingAllocatorRuntime, DeallocateWithStreamLookupReturnsBlockToPool
 // allocate_bytes() GPU handles in production.
 TEST_F(CudaCachingAllocatorRuntime, BareStorageHandleFreesViaDeleter)
 {
-    using memory::storage_handle;
     using memory::device;
     using memory::next_allocation_id;
+    using memory::storage_handle;
 
     // Local mirror of src/storage.cpp::gpu_free_fn (plan §2.10, R1).
-    auto gpu_free_fn = [](void* cache_ctx, void* p, std::size_t nb) noexcept {
-        static_cast<cuda_caching_allocator*>(cache_ctx)->deallocate_with_stream_lookup(p, nb);
-    };
+    auto gpu_free_fn = [](void* cache_ctx, void* p, std::size_t nb) noexcept
+    { static_cast<cuda_caching_allocator*>(cache_ctx)->deallocate_with_stream_lookup(p, nb); };
 
     cuda_caching_allocator allocator(0);
-    void* raw = allocator.allocate(8192);
+    void*                  raw = allocator.allocate(8192);
     ASSERT_NE(nullptr, raw);
     EXPECT_EQ(8192u, allocator.bytes_allocated_now());
 
     {
         // Build a handle that owns this block.
-        storage_handle h(raw, 8192,
-                         static_cast<memory::deleter_fn>(gpu_free_fn),
-                         static_cast<void*>(&allocator),
-                         device::cuda(0),
-                         next_allocation_id());
+        storage_handle h(
+            raw,
+            8192,
+            static_cast<memory::deleter_fn>(gpu_free_fn),
+            static_cast<void*>(&allocator),
+            device::cuda(0),
+            memory::storage_provenance::allocated,
+            next_allocation_id());
         // Handle goes out of scope here → destructor → gpu_free_fn → deallocate_with_stream_lookup.
     }
     EXPECT_EQ(0u, allocator.bytes_allocated_now());
@@ -238,6 +265,7 @@ std::atomic<long> g_inject_new_seen{0};
 std::atomic<bool> g_inject_new_fired{false};
 }  // namespace
 
+#if !defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
 void* operator new(std::size_t n)
 {
     if (g_count_new.load(std::memory_order_relaxed))
@@ -257,8 +285,29 @@ void* operator new(std::size_t n)
     }
     throw std::bad_alloc();
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+// get_temporary_buffer allocates with nothrow new and frees with the sized
+// delete above. Both must use malloc/free once Valgrind stops replacing this
+// executable's operator new; otherwise the sized delete is a mismatched free.
+// The injection counter stays on the throwing operator new.
+void* operator new(std::size_t n, std::nothrow_t const&) noexcept
+{
+    return std::malloc(n ? n : 1);
+}
+#endif
+
+// NOLINTNEXTLINE(bugprone-reserved-identifier) -- required ASAN callback symbol
+extern "C" const char* __asan_default_options()
+{
+    return "alloc_dealloc_mismatch=0:detect_leaks=0";
+}
 
 namespace
 {
@@ -278,13 +327,22 @@ struct new_probe
 // in a Debug build) every container carries an allocated proxy, so the counts
 // are not those of the shipped code: the probes run in Release only.
 #if defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
-#define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS()     GTEST_SKIP() << "heap-allocation probes need a build without debug iterators"
+#define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS()                                                    \
+    GTEST_SKIP() << "heap-allocation probes need a build without debug iterators"
 #else
 #define SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS() (void)0
 #endif
 
+#if defined(MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE)
+#define SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER()                                                    \
+    GTEST_SKIP() << "sanitizer owns global allocation operators; heap probe unavailable"
+#else
+#define SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER() (void)0
+#endif
+
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     allocator.deallocate(allocator.allocate(4096), 4096);  // warm the pool
@@ -307,6 +365,7 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuWarmAllocFreeHeapAndDriverCalls)
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             split_and_merge = [&]
@@ -330,6 +389,7 @@ TEST_F(CudaCachingAllocatorRuntime, ProbeGpuSplitHeapAllocations)
 
 TEST_F(CudaCachingAllocatorRuntime, ProbeRecordStreamUpToFourStreamsNoHeap)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     cuda_caching_allocator allocator(0);
     allocator.deallocate(allocator.allocate(4096), 4096);
     void*  p    = allocator.allocate(4096);
@@ -368,10 +428,10 @@ TEST_F(CudaCachingAllocatorRuntime, ForeignPointerDeallocateAndRecordStreamThrow
 
 namespace
 {
-std::atomic<int>                 g_handler_calls{0};
-std::atomic<int>                 g_handler_last_source{-1};
+std::atomic<int>                     g_handler_calls{0};
+std::atomic<int>                     g_handler_last_source{-1};
 std::atomic<cuda_caching_allocator*> g_probe_allocator{nullptr};
-std::atomic<bool>                g_probe_reentered{false};
+std::atomic<bool>                    g_probe_reentered{false};
 
 void counting_handler(memory::cleanup_source source) noexcept
 {
@@ -385,10 +445,13 @@ void counting_handler(memory::cleanup_source source) noexcept
 void reentrant_handler(memory::cleanup_source) noexcept
 {
     auto* allocator = g_probe_allocator.load();
-    std::thread([allocator] {
-        (void)allocator->stats();
-        g_probe_reentered.store(true);
-    }).join();
+    std::thread(
+        [allocator]
+        {
+            (void)allocator->stats();
+            g_probe_reentered.store(true);
+        })
+        .join();
 }
 }  // namespace
 
@@ -403,8 +466,7 @@ TEST_F(CudaCachingAllocatorRuntime, CleanupHandlerSeesFailureOutsideCacheLock)
     auto const previous = memory::cleanup_diagnostic::set_handler(&counting_handler);
     allocator.deallocate_with_stream_lookup(&foreign, 16);
     EXPECT_EQ(1, g_handler_calls.load());
-    EXPECT_EQ(
-        static_cast<int>(memory::cleanup_source::gpu_cache), g_handler_last_source.load());
+    EXPECT_EQ(static_cast<int>(memory::cleanup_source::gpu_cache), g_handler_last_source.load());
 
     g_probe_allocator.store(&allocator);
     g_probe_reentered.store(false);
@@ -432,6 +494,7 @@ TEST_F(CudaCachingAllocatorRuntime, DoubleFreeThrowsLoggingException)
 // event and allocates nothing.
 TEST_F(CudaCachingAllocatorRuntime, ProbeGpuCrossStreamFreeHeapAllocations)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     SKIP_HEAP_PROBE_UNDER_DEBUG_ITERATORS();
     cuda_caching_allocator allocator(0);
     auto const             cross_stream_pair = [&](size_t streams)
@@ -472,7 +535,9 @@ TEST_F(CudaCachingAllocatorRuntime, CachedBytesTrackFreePoolsWithoutLocking)
     cuda_caching_allocator allocator(0);
     EXPECT_EQ(0u, allocator.bytes_cached_now());
     void* p = allocator.allocate(4096);
-    EXPECT_EQ(allocator.bytes_reserved_now() - allocator.bytes_allocated_now(), allocator.bytes_cached_now())
+    EXPECT_EQ(
+        allocator.bytes_reserved_now() - allocator.bytes_allocated_now(),
+        allocator.bytes_cached_now())
         << "the rest of the segment is cached after a split";
     allocator.deallocate(p, 4096);
     EXPECT_EQ(allocator.bytes_reserved_now(), allocator.bytes_cached_now());
@@ -493,6 +558,7 @@ TEST_F(CudaCachingAllocatorRuntime, BoundedPollingStillReclaimsUnderPressure)
     cuda_caching_allocator allocator(0);
     constexpr int          kBlocks = 40;  // more pending events than one poll examines
     std::vector<void*>     ptrs;
+    ptrs.reserve(kBlocks);
     for (int i = 0; i < kBlocks; ++i)
     {
         ptrs.push_back(allocator.allocate(4096));
@@ -503,16 +569,18 @@ TEST_F(CudaCachingAllocatorRuntime, BoundedPollingStillReclaimsUnderPressure)
         allocator.record_stream(p, rt::stream(0));
         allocator.deallocate(p, 4096);
     }
-    int const mallocs = rt::malloc_calls;
+    int const mallocs  = rt::malloc_calls;
     rt::event_ready[1] = true;  // all work completes
     // The first call polls a bounded number of events; the cache still holds
     // enough completed blocks to serve every request without a driver call.
     std::vector<void*> again;
+    again.reserve(kBlocks);
     for (int i = 0; i < kBlocks; ++i)
     {
         again.push_back(allocator.allocate(4096));
     }
-    EXPECT_EQ(mallocs, rt::malloc_calls) << "pressure poll must reap completed events before the driver";
+    EXPECT_EQ(mallocs, rt::malloc_calls)
+        << "pressure poll must reap completed events before the driver";
     for (void* p : again)
     {
         allocator.deallocate(p, 4096);
@@ -596,13 +664,15 @@ void expect_exact_after_failure(cuda_caching_allocator& allocator, long n)
 
 TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASegmentAlloc)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
         rt::reset();
         rt::device_total_bytes = 100 * kSegmentSize;
         cuda_caching_allocator allocator(0);
-        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.set_memory_fraction(
+            kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
 
         void* ptr   = nullptr;
         bool  threw = false;
@@ -645,13 +715,15 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
 
 TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfASplit)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
         rt::reset();
         rt::device_total_bytes = 100 * kSegmentSize;
         cuda_caching_allocator allocator(0);
-        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.set_memory_fraction(
+            kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
         allocator.deallocate(allocator.allocate(kSegmentSize), kSegmentSize);  // one cached segment
         int const mallocs = rt::malloc_calls;
 
@@ -700,12 +772,13 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
 
 TEST_F(CudaCachingAllocatorRuntime, FreeFailingBeforeCommitLeavesTheBlockLiveAndRetryable)
 {
+    SKIP_GLOBAL_NEW_PROBE_UNDER_SANITIZER();
     long fired = 0;
     for (long n = 1; n < 256; ++n)
     {
         rt::reset();
         cuda_caching_allocator allocator(0);
-        void* ptr = allocator.allocate(4096);
+        void*                  ptr = allocator.allocate(4096);
         for (size_t s = 1; s <= 4; ++s)  // fill the inline stream set
         {
             allocator.record_stream(ptr, rt::stream(s));
@@ -760,7 +833,8 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactWhenTheDriverRetriesAfterOom)
     {
         // First cudaMalloc is out of memory, the flush-and-retry succeeds.
         cuda_caching_allocator allocator(0);
-        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.set_memory_fraction(
+            kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
         rt::fail_malloc_calls = 1;
         void* ptr             = allocator.allocate(kSegmentSize);
         ASSERT_NE(nullptr, ptr);
@@ -775,7 +849,8 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactWhenTheDriverRetriesAfterOom)
         // Both attempts fail: bad_alloc, and the budget reservation is returned
         // once per attempt (not leaked, not double-released).
         cuda_caching_allocator allocator(0);
-        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.set_memory_fraction(
+            kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
         rt::fail_malloc_calls = 2;
         EXPECT_THROW(allocator.allocate(kSegmentSize), std::bad_alloc);
         EXPECT_EQ(2, rt::malloc_calls);
@@ -804,13 +879,14 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryDeviceActivationOfARet
         rt::reset();
         rt::device_total_bytes = 100 * kSegmentSize;
         cuda_caching_allocator allocator(0);
-        allocator.set_memory_fraction(kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
+        allocator.set_memory_fraction(
+            kTwoSegmentFraction(static_cast<double>(rt::device_total_bytes)));
 
-        rt::get_device_calls       = 0;
+        rt::get_device_calls        = 0;
         rt::fail_get_device_at_call = static_cast<int>(n);
-        rt::fail_malloc_calls      = 1;  // force the flush-and-retry chain
-        void* ptr                  = nullptr;
-        bool  threw                = false;
+        rt::fail_malloc_calls       = 1;  // force the flush-and-retry chain
+        void* ptr                   = nullptr;
+        bool  threw                 = false;
         try
         {
             ptr = allocator.allocate(kSegmentSize);
@@ -819,9 +895,9 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryDeviceActivationOfARet
         {
             threw = true;
         }
-        bool const hit             = rt::get_device_calls >= n;
+        bool const hit              = rt::get_device_calls >= n;
         rt::fail_get_device_at_call = 0;
-        rt::fail_malloc_calls      = 0;
+        rt::fail_malloc_calls       = 0;
         if (hit)
         {
             ++fired;
@@ -892,7 +968,7 @@ TEST_F(CudaCachingAllocatorRuntime, TraceKeepsOneAllocationIdUntilTheBlockIsReus
     void* const again = allocator.allocate(1000);
     allocator.deallocate(again, 1000);
 
-    auto const trace = allocator.snapshot().device_trace;
+    auto const                                  trace = allocator.snapshot().device_trace;
     std::map<void*, std::vector<std::uint64_t>> allocs;
     std::map<void*, std::vector<std::uint64_t>> frees;
     for (auto const& e : trace)
@@ -982,7 +1058,7 @@ TEST_F(CudaCachingAllocatorRuntime, BackingEquationReconcilesThroughSplitPending
     EXPECT_GT(allocator.stats().bytes_quarantined, 0u);
 
     rt::event_ready[1] = true;
-    void* c = allocator.allocate(1000);
+    void* c            = allocator.allocate(1000);
     expect_backing_equation(allocator);
     allocator.deallocate(c, 1000);
     expect_backing_equation(allocator);
@@ -1005,7 +1081,8 @@ TEST_F(CudaCachingAllocatorRuntime, FullTraceRingReportsLossAndNeverFailsAnAlloc
     auto const snap = allocator.snapshot();
     EXPECT_TRUE(snap.trace_enabled);
     EXPECT_EQ(4u, snap.device_trace.size());
-    EXPECT_GT(snap.device_trace_entries_lost, 40u) << "20 alloc + 20 free entries and a segment into 4 slots";
+    EXPECT_GT(snap.device_trace_entries_lost, 40u)
+        << "20 alloc + 20 free entries and a segment into 4 slots";
     allocator.record_memory_history(false);
     EXPECT_FALSE(allocator.snapshot().trace_enabled);
 }
@@ -1041,19 +1118,20 @@ TEST_F(CudaCachingAllocatorRuntime, BackingEquationSurvivesRandomFaultInjectionR
         rt::reset();
         SCOPED_TRACE(::testing::Message() << "seed " << seed);
         {
-            cuda_caching_allocator                  allocator(0);
-            std::mt19937                            rng(seed);
-            std::vector<std::pair<void*, size_t>>   live;
-            std::vector<std::vector<size_t>>        uses;  // stream ids recorded per live block
-            size_t                                  live_capacity_lower_bound = 0;
-            auto const                              pick = [&](size_t n) { return rng() % n; };
+            cuda_caching_allocator                allocator(0);
+            std::mt19937                          rng(seed);
+            std::vector<std::pair<void*, size_t>> live;
+            std::vector<std::vector<size_t>>      uses;  // stream ids recorded per live block
+            size_t                                live_capacity_lower_bound = 0;
+            auto const                            pick = [&](size_t n) { return rng() % n; };
 
             for (int step = 0; step < 600; ++step)
             {
                 switch (pick(8))
                 {
                 case 0:
-                    rt::fail_malloc_calls = 1 + static_cast<int>(pick(3));  // fails the retry too when >= 2
+                    rt::fail_malloc_calls =
+                        1 + static_cast<int>(pick(3));  // fails the retry too when >= 2
                     break;
                 case 1:
                     rt::fail_event_record_at_call = rt::event_record_calls + 1;
@@ -1062,7 +1140,10 @@ TEST_F(CudaCachingAllocatorRuntime, BackingEquationSurvivesRandomFaultInjectionR
                     rt::fail_event_create_at_call = rt::event_create_calls + 1;
                     break;
                 case 3:
-                    for (auto& r : rt::event_ready) { r = (rng() & 1U) != 0; }
+                    for (auto& r : rt::event_ready)
+                    {
+                        r = (rng() & 1U) != 0;
+                    }
                     break;
                 default:
                     break;
@@ -1119,10 +1200,20 @@ TEST_F(CudaCachingAllocatorRuntime, BackingEquationSurvivesRandomFaultInjectionR
                 ASSERT_EQ(s.bytes_reserved, rt::device_backing_bytes) << "step " << step;
                 (void)live_capacity_lower_bound;
             }
-            for (auto& r : rt::event_ready) { r = true; }
+            for (auto& r : rt::event_ready)
+            {
+                r = true;
+            }
             for (auto const& l : live)
             {
-                try { allocator.deallocate(l.first, l.second); } catch (std::exception const&) {}
+                try
+                {
+                    allocator.deallocate(l.first, l.second);
+                }
+                catch (std::exception const& e)
+                {
+                    ADD_FAILURE() << "deallocate threw during teardown: " << e.what();
+                }
             }
             auto const s = allocator.stats();
             EXPECT_EQ(0u, s.bytes_allocated);

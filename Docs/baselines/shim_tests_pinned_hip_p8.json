@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "suite": "pinned_runtime_hip",
+    "backend": "hip",
+    "evidence": "shim",
+    "git_sha": "f687f1f",
+    "git_tree": "clean",
+    "binary": "C:\\dev\\build_ninja\\bin\\MemoryPinnedHipRuntimeTests.exe",
+    "recorded": "2026-10-04 18:02:14"
+  },
+  "result": {
+    "exit_code": 0,
+    "tests": 21,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 21
+  }
+}

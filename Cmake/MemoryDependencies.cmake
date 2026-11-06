@@ -1,3 +1,29 @@
+# Configure vendored dependencies without changing the host's build options.
+function(memory_add_dependency_subdirectory source_dir binary_dir)
+  foreach(_option IN ITEMS BUILD_TESTING BUILD_EXAMPLES BUILD_BENCHMARKS)
+    get_property(
+      _had_${_option}
+      CACHE ${_option}
+      PROPERTY TYPE
+      SET
+    )
+    if(_had_${_option})
+      get_property(_value_${_option} CACHE ${_option} PROPERTY VALUE)
+      get_property(_type_${_option} CACHE ${_option} PROPERTY TYPE)
+      get_property(_help_${_option} CACHE ${_option} PROPERTY HELPSTRING)
+    endif()
+    set(${_option} OFF)
+  endforeach()
+  add_subdirectory("${source_dir}" "${binary_dir}" ${ARGN})
+  foreach(_option IN ITEMS BUILD_TESTING BUILD_EXAMPLES BUILD_BENCHMARKS)
+    if(_had_${_option})
+      set(${_option} "${_value_${_option}}" CACHE ${_type_${_option}} "${_help_${_option}}" FORCE)
+    else()
+      unset(${_option} CACHE)
+    endif()
+  endforeach()
+endfunction()
+
 # =============================================================================
 # Memory — test dependency resolution (standalone + embedded)
 # =============================================================================
@@ -8,7 +34,7 @@
 
 include_guard(GLOBAL)
 
-include(third_party_helpers)
+include("${CMAKE_CURRENT_LIST_DIR}/third_party_helpers.cmake")
 
 get_filename_component(_memory_repo_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(MEMORY_THIRD_PARTY_DIR "${_memory_repo_root}/ThirdParty"
@@ -28,7 +54,7 @@ function(memory_setup_gtest)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${MEMORY_THIRD_PARTY_DIR}/googletest" "${CMAKE_BINARY_DIR}/ThirdParty/googletest_build"
       EXCLUDE_FROM_ALL
     )
@@ -48,7 +74,7 @@ function(memory_setup_gtest)
   if(TARGET gtest_main AND NOT TARGET GTest::gtest_main)
     add_library(GTest::gtest_main ALIAS gtest_main)
   endif()
-  _create_third_party_interface_targets(
+  memory_create_third_party_interface_targets(
     "Gtest::gtest=GTest::gtest|gtest" "Gtest::gtest_main=GTest::gtest_main|gtest_main"
   )
 endfunction()
@@ -63,7 +89,7 @@ function(memory_setup_benchmark)
   set(_bench_src "")
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/benchmark/CMakeLists.txt")
     set(_bench_src "${MEMORY_THIRD_PARTY_DIR}/benchmark")
-  elseif(XSIGMA_ENABLE_EXTERNAL)
+  elseif(MEMORY_ENABLE_EXTERNAL)
     find_package(benchmark QUIET)
     if(benchmark_FOUND)
       message(STATUS "Found external Google Benchmark")
@@ -89,17 +115,19 @@ function(memory_setup_benchmark)
   set(BENCHMARK_USE_BUNDLED_GTEST OFF CACHE BOOL "Don't use bundled gtest for benchmark" FORCE)
   set(BENCHMARK_DOWNLOAD_DEPENDENCIES OFF CACHE BOOL "Don't download dependencies" FORCE)
   if(_bench_src)
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${_bench_src}" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build" EXCLUDE_FROM_ALL
     )
   else()
     include(FetchContent)
     FetchContent_Declare(
-      benchmark GIT_REPOSITORY https://github.com/google/benchmark.git GIT_TAG v1.9.4
+      benchmark GIT_REPOSITORY https://github.com/google/benchmark.git GIT_TAG v1.9.5
     )
     FetchContent_MakeAvailable(benchmark)
   endif()
-  _set_third_party_folder_properties("benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build")
+  memory_set_third_party_folder_properties(
+    "benchmark" "${CMAKE_BINARY_DIR}/ThirdParty/benchmark_build"
+  )
 endfunction()
 
 # -----------------------------------------------------------------------------
@@ -119,8 +147,21 @@ function(memory_setup_logging)
   endif()
   set(LOGGING_ENABLE_TESTING OFF CACHE BOOL "Logging tests build only standalone" FORCE)
   set(LOGGING_ENABLE_EXAMPLES OFF CACHE BOOL "Logging examples build only standalone" FORCE)
+  set(LOGGING_ENABLE_BENCHMARK OFF CACHE BOOL "Logging benchmarks build only standalone" FORCE)
+  # Logging consumes fmt headers; its optional module target is unnecessary and
+  # clang-cl cannot scan its imports with CMake's Ninja generator.
+  set(FMT_MODULE OFF)
+  # Keep dependency tooling disabled; only distributed compilation follows Memory.
+  foreach(_mem_log_feat IN ITEMS CACHE CLANGTIDY FIX IWYU SANITIZER COVERAGE SPELL VALGRIND)
+    set(LOGGING_ENABLE_${_mem_log_feat} OFF CACHE BOOL "Disabled by Memory" FORCE)
+  endforeach()
+  set(LOGGING_ENABLE_ICECC "${MEMORY_ENABLE_ICECC}" CACHE BOOL "Configured by Memory" FORCE)
+  foreach(_mem_log_setting IN ITEMS CACHE_BACKEND SANITIZER_TYPE LINKER_CHOICE LTO_MODE)
+    set(LOGGING_${_mem_log_setting} "${MEMORY_${_mem_log_setting}}"
+        CACHE STRING "Configured by Memory" FORCE)
+  endforeach()
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Logging/CMakeLists.txt")
-    add_subdirectory(
+    memory_add_dependency_subdirectory(
       "${MEMORY_THIRD_PARTY_DIR}/Logging" "${CMAKE_BINARY_DIR}/ThirdParty/Logging_build"
       EXCLUDE_FROM_ALL
     )
@@ -141,8 +182,13 @@ function(memory_setup_logging)
 endfunction()
 
 # -----------------------------------------------------------------------------
-# memory_setup_profiler: optional sibling dependency
-# (https://github.com/KhwarizmiAnalytix/Profiler), submodule-or-FetchContent.
+# memory_setup_profiler: optional sibling XSigma repo
+# (https://github.com/KhwarizmiAnalytix/Profiler). Not a vendored third-party
+# library — resolved exclusively via find_package(Profiler), independent of
+# MEMORY_ENABLE_EXTERNAL (that flag governs vendored ThirdParty/ copies).
+# Install it first (cmake --install) and point CMAKE_PREFIX_PATH at it.
+# Optional: callers gate on TARGET Profiler::Profiler, so a missing install
+# just disables MEMORY_HAS_PROFILER rather than failing the configure.
 # -----------------------------------------------------------------------------
 function(memory_setup_profiler)
   if(TARGET Profiler::Profiler)
@@ -155,27 +201,12 @@ function(memory_setup_profiler)
   if(NOT MEMORY_ENABLE_PROFILER)
     return()
   endif()
-  set(PROFILER_ENABLE_TESTING OFF CACHE BOOL "Profiler tests build only standalone" FORCE)
-  set(PROFILER_ENABLE_EXAMPLES OFF CACHE BOOL "Profiler examples build only standalone" FORCE)
-  if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Profiler/CMakeLists.txt")
-    add_subdirectory(
-      "${MEMORY_THIRD_PARTY_DIR}/Profiler" "${CMAKE_BINARY_DIR}/ThirdParty/Profiler_build"
-      EXCLUDE_FROM_ALL
-    )
+  find_package(Profiler CONFIG QUIET)
+  if(TARGET Profiler::Profiler)
+    message(STATUS "Memory: using Profiler::Profiler (find_package)")
   else()
-    include(FetchContent)
-    FetchContent_Declare(
-      Profiler GIT_REPOSITORY https://github.com/KhwarizmiAnalytix/Profiler.git GIT_TAG main
+    message(STATUS "Memory: Profiler not found via find_package; MEMORY_HAS_PROFILER "
+                   "will be 0. Install it and set CMAKE_PREFIX_PATH to enable it."
     )
-    FetchContent_MakeAvailable(Profiler)
   endif()
-  # Profiler's xplane_utils.cpp / bespoke/common/util.cpp / memory_tracker.cpp use
-  # std::back_inserter without including <iterator>, relying on a transitive include
-  # that newer libc++ (Homebrew LLVM, used by the macOS coverage job) no longer
-  # provides. Force-include it until the submodule includes it itself.
-  if(TARGET Profiler AND NOT MSVC)
-    target_compile_options(Profiler PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include iterator>")
-  endif()
-  # Optional: do not FATAL_ERROR if unavailable, matching MEMORY_ENABLE_PROFILER's
-  # "link when available" semantics in the host overlay (ThirdParty/memory.cmake).
 endfunction()

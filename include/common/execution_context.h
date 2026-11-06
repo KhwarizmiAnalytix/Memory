@@ -36,7 +36,7 @@ struct execution_context
     stream_handle_t stream{nullptr};
 
     constexpr execution_context() noexcept = default;
-    constexpr execution_context(memory::device d, stream_handle_t s = nullptr) noexcept
+    constexpr explicit execution_context(memory::device d, stream_handle_t s = nullptr) noexcept
         : dev(d), stream(s)
     {
     }
@@ -48,7 +48,10 @@ struct execution_context
     constexpr memory::device_enum device_type() const noexcept { return dev.type; }
     constexpr int                 device_index() const noexcept { return dev.index; }
 
-    static execution_context cpu() noexcept { return {memory::device::cpu(), nullptr}; }
+    static execution_context cpu() noexcept
+    {
+        return execution_context(memory::device::cpu(), nullptr);
+    }
 
     static execution_context cuda(int index = 0, stream_handle_t s = nullptr) noexcept
     {

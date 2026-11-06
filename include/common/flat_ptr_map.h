@@ -62,8 +62,8 @@ public:
 
         basic_iterator() = default;
         basic_iterator(pointer cur, pointer end) noexcept : cur_(cur), end_(end) { skip(); }
-        reference operator*() const noexcept { return *cur_; }
-        pointer   operator->() const noexcept { return cur_; }
+        reference       operator*() const noexcept { return *cur_; }
+        pointer         operator->() const noexcept { return cur_; }
         basic_iterator& operator++() noexcept
         {
             ++cur_;
@@ -102,8 +102,8 @@ public:
     bool   empty() const noexcept { return size_ == 0; }
     size_t capacity() const noexcept { return capacity_; }
 
-    iterator       begin() noexcept { return iterator(table_.get(), table_.get() + capacity_); }
-    iterator       end() noexcept { return iterator(table_.get() + capacity_, table_.get() + capacity_); }
+    iterator begin() noexcept { return iterator(table_.get(), table_.get() + capacity_); }
+    iterator end() noexcept { return iterator(table_.get() + capacity_, table_.get() + capacity_); }
     const_iterator begin() const noexcept
     {
         return const_iterator(table_.get(), table_.get() + capacity_);
@@ -113,12 +113,12 @@ public:
         return const_iterator(table_.get() + capacity_, table_.get() + capacity_);
     }
 
-    iterator find(void* key) noexcept
+    iterator find(const void* key) noexcept
     {
         size_t const i = locate(key);
         return i == npos ? end() : iterator(table_.get() + i, table_.get() + capacity_);
     }
-    const_iterator find(void* key) const noexcept
+    const_iterator find(const void* key) const noexcept
     {
         size_t const i = locate(key);
         return i == npos ? end() : const_iterator(table_.get() + i, table_.get() + capacity_);
@@ -153,7 +153,7 @@ public:
     }
 
     // Removes the entry; returns whether one was present. Never throws or allocates.
-    bool erase(void* key) noexcept
+    bool erase(const void* key) noexcept
     {
         size_t const i = locate(key);
         if (i == npos)
@@ -176,15 +176,16 @@ public:
     }
 
 private:
-    static constexpr size_t npos         = static_cast<size_t>(-1);
+    static constexpr size_t npos          = static_cast<size_t>(-1);
     static constexpr size_t kInitialSlots = 64;
 
     size_t ideal(void const* key) const noexcept
     {
         // Pointers are at least 16-byte aligned in this allocator; drop the low bits and
         // take the top bits of the product (Fibonacci hashing).
-        std::uint64_t const x = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(key) >> 4U) *
-                                0x9E3779B97F4A7C15ULL;
+        std::uint64_t const x =
+            static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(key) >> 4U) *
+            0x9E3779B97F4A7C15ULL;
         return static_cast<size_t>(x >> shift_);
     }
 

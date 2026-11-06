@@ -218,11 +218,6 @@ TEST_F(TestPhase3Identity, CloneGetsDifferentId)
 // Test: storage_identity with allocation_id
 TEST_F(TestPhase3Identity, StorageIdentityIntegration)
 {
-
-    allocation_id id = next_allocation_id();
-    void* ptr = reinterpret_cast<void*>(0x12345678);
-    size_t cap = 1000;
-
     // Legacy API still works (backward compatibility)
     uint64_t next_legacy_id = storage_identity::next_id();
     EXPECT_NE(next_legacy_id, 0);

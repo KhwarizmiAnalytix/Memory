@@ -1,0 +1,13 @@
+load("//bazel:runtime_tests.bzl", "runtime_test")
+
+runtime_test(
+    name = "MemoryCudaCachingAllocatorRuntimeTests",
+    srcs = [
+        "TestCudaCachingAllocatorRuntime.cpp",
+        "//:src/gpu/cuda_caching_allocator.cpp",
+        "//:src/profiler/unified_memory_stats.cpp",
+        "//:src/common/allocation_id.cpp",
+    ],
+    backend = "hip",
+    logging = True,
+)

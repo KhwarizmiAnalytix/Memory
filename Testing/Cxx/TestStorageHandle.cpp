@@ -27,8 +27,8 @@ namespace memory
 TEST(StorageHandle, SizeIs48Bytes)
 {
     // Plan §4.2: exact 48-byte layout on 64-bit platforms.
-    static_assert(sizeof(storage_handle) == 48,
-                  "storage_handle must be exactly 48 bytes (plan §4.2)");
+    static_assert(
+        sizeof(storage_handle) == 48, "storage_handle must be exactly 48 bytes (plan §4.2)");
     EXPECT_EQ(sizeof(storage_handle), 48u);
 }
 
@@ -41,16 +41,75 @@ TEST(StorageHandle, DefaultIsEmpty)
     EXPECT_FALSE(h.id().valid());
 }
 
+// Default-constructed/moved-from handles have no storage; the conservative
+// default is `adopted` so the overlap classifier never treats "no storage"
+// as a provenance shortcut.
+TEST(StorageHandle, DefaultProvenanceIsAdopted)
+{
+    storage_handle h;
+    EXPECT_EQ(h.provenance(), storage_provenance::adopted);
+}
+
+TEST(StorageHandle, ProvenanceIsExplicitPerConstruction)
+{
+    auto del = [](void*, void*, std::size_t) noexcept {};
+
+    void*          mem_a = ::operator new(8);
+    storage_handle allocated_h(
+        mem_a, 8, del, nullptr, device::cpu(), storage_provenance::allocated, next_allocation_id());
+    EXPECT_EQ(allocated_h.provenance(), storage_provenance::allocated);
+    ::operator delete(allocated_h.release());
+
+    void*          mem_b = ::operator new(8);
+    storage_handle adopted_h(
+        mem_b, 8, del, nullptr, device::cpu(), storage_provenance::adopted, next_allocation_id());
+    EXPECT_EQ(adopted_h.provenance(), storage_provenance::adopted);
+    ::operator delete(adopted_h.release());
+}
+
+TEST(StorageHandle, MovePreservesProvenance)
+{
+    auto           del = [](void*, void*, std::size_t) noexcept {};
+    void*          mem = ::operator new(8);
+    storage_handle src(
+        mem, 8, del, nullptr, device::cpu(), storage_provenance::allocated, next_allocation_id());
+    storage_handle dst(std::move(src));
+    EXPECT_EQ(dst.provenance(), storage_provenance::allocated);
+    EXPECT_EQ(src.provenance(), storage_provenance::adopted);  // NOLINT(bugprone-use-after-move) --
+                                                               // moved-from: conservative default
+    ::operator delete(dst.release());
+}
+
+TEST(StorageHandle, AllocateBytesIsAllocatedProvenance)
+{
+    auto h = allocate_bytes(64, 64, execution_context::cpu());
+    EXPECT_EQ(h.provenance(), storage_provenance::allocated);
+}
+
+TEST(StorageHandle, AdoptBytesIsAdoptedProvenance)
+{
+    void* mem = ::operator new(16);
+    auto  h   = adopt_bytes(
+        mem,
+        16,
+        device::cpu(),
+        [](void*, void* p, std::size_t) noexcept { ::operator delete(p); },
+        nullptr);
+    EXPECT_EQ(h.provenance(), storage_provenance::adopted);
+}
+
 TEST(StorageHandle, DeleterRunsOnce)
 {
     int calls = 0;
     {
-        auto del = [](void* ctx, void* ptr, std::size_t) noexcept {
+        auto del = [](void* ctx, void* ptr, std::size_t) noexcept
+        {
             (*static_cast<int*>(ctx))++;
             ::operator delete(ptr);
         };
-        void* mem = ::operator new(64);
-        storage_handle h(mem, 64, del, &calls, device::cpu(), next_allocation_id());
+        void*          mem = ::operator new(64);
+        storage_handle h(
+            mem, 64, del, &calls, device::cpu(), storage_provenance::adopted, next_allocation_id());
         EXPECT_FALSE(h.empty());
     }  // destructor fires here
     EXPECT_EQ(calls, 1);
@@ -58,16 +117,18 @@ TEST(StorageHandle, DeleterRunsOnce)
 
 TEST(StorageHandle, MoveSourceDisarmed)
 {
-    int calls = 0;
-    auto del  = [](void* ctx, void* ptr, std::size_t) noexcept {
+    int  calls = 0;
+    auto del   = [](void* ctx, void* ptr, std::size_t) noexcept
+    {
         (*static_cast<int*>(ctx))++;
         ::operator delete(ptr);
     };
-    void* mem = ::operator new(32);
-    storage_handle src(mem, 32, del, &calls, device::cpu(), next_allocation_id());
+    void*          mem = ::operator new(32);
+    storage_handle src(
+        mem, 32, del, &calls, device::cpu(), storage_provenance::adopted, next_allocation_id());
     {
         storage_handle dst(std::move(src));  // src is now empty
-        EXPECT_TRUE(src.empty());
+        EXPECT_TRUE(src.empty());  // NOLINT(bugprone-use-after-move) -- testing moved-from state
         EXPECT_FALSE(dst.empty());
     }
     // Only dst's destructor should have called the deleter.
@@ -76,16 +137,18 @@ TEST(StorageHandle, MoveSourceDisarmed)
 
 TEST(StorageHandle, MoveAssignSourceDisarmed)
 {
-    int calls = 0;
-    auto del  = [](void* ctx, void* ptr, std::size_t) noexcept {
+    int  calls = 0;
+    auto del   = [](void* ctx, void* ptr, std::size_t) noexcept
+    {
         (*static_cast<int*>(ctx))++;
         ::operator delete(ptr);
     };
-    void* mem = ::operator new(16);
-    storage_handle src(mem, 16, del, &calls, device::cpu(), next_allocation_id());
+    void*          mem = ::operator new(16);
+    storage_handle src(
+        mem, 16, del, &calls, device::cpu(), storage_provenance::adopted, next_allocation_id());
     storage_handle dst;
     dst = std::move(src);
-    EXPECT_TRUE(src.empty());
+    EXPECT_TRUE(src.empty());  // NOLINT(bugprone-use-after-move) -- testing moved-from state
     EXPECT_FALSE(dst.empty());
     // No destructor has fired yet.
     EXPECT_EQ(calls, 0);
@@ -93,14 +156,16 @@ TEST(StorageHandle, MoveAssignSourceDisarmed)
 
 TEST(StorageHandle, ReleasedDisarmsDestructor)
 {
-    int calls = 0;
-    auto del  = [](void* ctx, void* ptr, std::size_t) noexcept {
+    int  calls = 0;
+    auto del   = [](void* ctx, void* ptr, std::size_t) noexcept
+    {
         (*static_cast<int*>(ctx))++;
         ::operator delete(ptr);
     };
     void* mem = ::operator new(8);
     {
-        storage_handle h(mem, 8, del, &calls, device::cpu(), next_allocation_id());
+        storage_handle h(
+            mem, 8, del, &calls, device::cpu(), storage_provenance::adopted, next_allocation_id());
         void* raw = h.release();
         EXPECT_EQ(raw, mem);
         EXPECT_TRUE(h.empty());
@@ -115,8 +180,9 @@ TEST(StorageHandle, ReleasedDisarmsDestructor)
 
 TEST(StorageHandle, AdoptBytesDeleterRuns)
 {
-    int calls = 0;
-    auto del  = [](void* ctx, void* ptr, std::size_t) noexcept {
+    int  calls = 0;
+    auto del   = [](void* ctx, void* ptr, std::size_t) noexcept
+    {
         (*static_cast<int*>(ctx))++;
         ::operator delete(ptr);
     };
@@ -132,24 +198,21 @@ TEST(StorageHandle, AdoptBytesDeleterRuns)
 TEST(StorageHandle, AdoptBytesNullPtrThrows)
 {
     auto del = [](void*, void*, std::size_t) noexcept {};
-    EXPECT_THROW(adopt_bytes(nullptr, 64, device::cpu(), del, nullptr),
-                 std::invalid_argument);
+    EXPECT_THROW(adopt_bytes(nullptr, 64, device::cpu(), del, nullptr), std::invalid_argument);
 }
 
 TEST(StorageHandle, AdoptBytesZeroNbytesThrows)
 {
     void* mem = ::operator new(8);
     auto  del = [](void*, void*, std::size_t) noexcept {};
-    EXPECT_THROW(adopt_bytes(mem, 0, device::cpu(), del, nullptr),
-                 std::invalid_argument);
+    EXPECT_THROW(adopt_bytes(mem, 0, device::cpu(), del, nullptr), std::invalid_argument);
     ::operator delete(mem);
 }
 
 TEST(StorageHandle, AdoptBytesNullDeleterThrows)
 {
     void* mem = ::operator new(8);
-    EXPECT_THROW(adopt_bytes(mem, 8, device::cpu(), nullptr, nullptr),
-                 std::invalid_argument);
+    EXPECT_THROW(adopt_bytes(mem, 8, device::cpu(), nullptr, nullptr), std::invalid_argument);
     ::operator delete(mem);
 }
 
@@ -199,7 +262,7 @@ TEST(DataPtrStorage, MoveEmptiesSource)
     data_ptr<int> src(8, device_enum::CPU);
     EXPECT_NE(src.data(), nullptr);
     data_ptr<int> dst(std::move(src));
-    EXPECT_EQ(src.data(), nullptr);
+    EXPECT_EQ(src.data(), nullptr);  // NOLINT(bugprone-use-after-move) -- testing moved-from state
     EXPECT_EQ(src.size(), 0u);
     EXPECT_NE(dst.data(), nullptr);
     EXPECT_EQ(dst.size(), 8u);
@@ -218,7 +281,7 @@ TEST(RetainedPtrPromotion, PromotionTransfersOwnership)
     retained_ptr<float> rp(std::move(dp));
 
     // dp is empty after promotion.
-    EXPECT_EQ(dp.data(), nullptr);
+    EXPECT_EQ(dp.data(), nullptr);  // NOLINT(bugprone-use-after-move) -- testing moved-from state
     EXPECT_EQ(dp.size(), 0u);
 
     // rp sees the same allocation.
@@ -230,9 +293,10 @@ TEST(RetainedPtrPromotion, PromotionTransfersOwnership)
 
 TEST(RetainedPtrPromotion, PromotedPtrSharesOwnership)
 {
-    data_ptr<int>   dp(10, device_enum::CPU);
+    data_ptr<int>     dp(10, device_enum::CPU);
     retained_ptr<int> rp1(std::move(dp));
-    retained_ptr<int> rp2 = rp1;  // copy increments ref count
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization) -- testing copy semantics
+    retained_ptr<int> rp2 = rp1;
 
     EXPECT_EQ(rp1.use_count(), 2);
     EXPECT_EQ(rp2.use_count(), 2);
@@ -241,8 +305,8 @@ TEST(RetainedPtrPromotion, PromotedPtrSharesOwnership)
 
 TEST(RetainedPtrPromotion, PromotedPtrSliceSharesBlock)
 {
-    data_ptr<int>   dp(20, device_enum::CPU);
-    int*            raw = dp.data();
+    data_ptr<int>     dp(20, device_enum::CPU);
+    int*              raw = dp.data();
     retained_ptr<int> rp(std::move(dp));
     retained_ptr<int> sl = rp.slice(5, 10);
 
@@ -256,7 +320,7 @@ TEST(RetainedPtrPromotion, PromotedPtrSliceSharesBlock)
 
 TEST(RetainedPtrPromotion, EmptyDataPtrPromotesEmpty)
 {
-    data_ptr<float>   dp;
+    data_ptr<float>     dp;
     retained_ptr<float> rp(std::move(dp));
     EXPECT_TRUE(rp.empty());
     EXPECT_EQ(rp.use_count(), 0);
@@ -264,8 +328,8 @@ TEST(RetainedPtrPromotion, EmptyDataPtrPromotesEmpty)
 
 TEST(RetainedPtrPromotion, IdentityPreservedAcrossPromotion)
 {
-    data_ptr<double> dp(4, device_enum::CPU);
-    allocation_id    orig_id = dp.id();
+    data_ptr<double>     dp(4, device_enum::CPU);
+    allocation_id        orig_id = dp.id();
     retained_ptr<double> rp(std::move(dp));
     EXPECT_EQ(rp.identity().alloc_id, orig_id.value);
 }

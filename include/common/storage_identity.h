@@ -62,23 +62,33 @@ struct allocation_id
 // sequence instead of owning a private counter per binary (plan §5.1, A6).
 MEMORY_API allocation_id next_allocation_id() noexcept;
 
+// Where a storage_handle's memory came from. `allocated` means this library's
+// own allocator owns the free path (allocate_bytes()); the overlap classifier
+// (Vectorization design plan §6) proves two `allocated` storages with
+// different allocation ids disjoint without an address-range test. `adopted`
+// means a caller-supplied deleter owns the memory (retained_ptr::adopt(),
+// adopt_bytes()); the caller may have adopted overlapping or aliased memory,
+// so distinct adopted storages still need the address-range/lattice test.
+enum class storage_provenance : uint8_t
+{
+    allocated,
+    adopted,
+};
+
 // A stable allocation identity (legacy name, maps to allocation_id + metadata).
 // Assigned once at allocate time; survives all derived views and address reuse
 // so telemetry can pair alloc/free events even when the block address is
 // recycled between trace entries.
 struct storage_identity
 {
-    uint64_t alloc_id = 0;  // 0 = invalid/unset; assigned by next_id()
-    void*    base = nullptr;     // allocation base pointer (not a view's start)
-    size_t   capacity = 0;       // allocation byte capacity
+    uint64_t alloc_id = 0;        // 0 = invalid/unset; assigned by next_id()
+    void*    base     = nullptr;  // allocation base pointer (not a view's start)
+    size_t   capacity = 0;        // allocation byte capacity
 
     bool valid() const noexcept { return alloc_id != 0; }
 
     // Thread-safe monotonic ID source (starts at 1; 0 is always invalid).
-    static uint64_t next_id() noexcept
-    {
-        return next_allocation_id().value;
-    }
+    static uint64_t next_id() noexcept { return next_allocation_id().value; }
 
     bool operator==(storage_identity const& o) const noexcept
     {

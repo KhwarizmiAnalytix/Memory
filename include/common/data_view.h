@@ -19,6 +19,9 @@ namespace memory
 template <typename value_t>
 struct data_ptr;
 
+template <typename value_t>
+class retained_ptr;
+
 /**
  * Identity of the allocation a view windows into (plan 4.3, task 2.5): the
  * allocation's base pointer, its allocation_id and its device. A slice of a
@@ -31,6 +34,9 @@ struct storage_ref
     value_t*      base{nullptr};
     allocation_id id{};
     device        dev{};
+    // Conservative default: unknown provenance behaves like adopted memory
+    // (see storage_provenance in storage_identity.h).
+    storage_provenance provenance{storage_provenance::adopted};
 };
 
 /**
@@ -49,6 +55,12 @@ struct data_view
     MEMORY_FORCE_INLINE data_view(data_ptr<value_t> const& owner) noexcept;
     MEMORY_FORCE_INLINE data_view(
         data_ptr<value_t> const& owner, size_t offset, size_t count) noexcept;
+
+    // Allocation identity and provenance come from the retained_ptr's own
+    // control block, not from borrow(): unlike foreign memory, a retained_ptr
+    // slice still names its allocation's base/id and whether this library's
+    // allocator or a caller-supplied deleter owns the free path.
+    MEMORY_FORCE_INLINE data_view(retained_ptr<value_t> const& owner) noexcept;
 
     MEMORY_FORCE_INLINE data_view subview(size_t offset, size_t count) const noexcept
     {
@@ -72,7 +84,10 @@ struct data_view
             data,
             size,
             storage_ref<value_t>{
-                data, allocation_id{}, memory::device{type, static_cast<std::int16_t>(device_index)}},
+                data,
+                allocation_id{},
+                memory::device{type, static_cast<std::int16_t>(device_index)},
+                storage_provenance::adopted},
             stream);
     }
 
@@ -87,14 +102,19 @@ struct data_view
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE value_t* base() const { return ref_.base; }
     /** Allocation id of the owner; invalid for default-constructed and borrowed views. */
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE allocation_id id() const { return ref_.id; }
+    /** Whether the allocation's free path is this library's allocator or a caller deleter. */
+    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE storage_provenance provenance() const
+    {
+        return ref_.provenance;
+    }
     DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE storage_ref<value_t> const& storage() const
     {
         return ref_;
     }
-    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE bool     is_aligned() const { return aligned_; }
-    MEMORY_FORCE_INLINE int         device_index() const { return ref_.dev.index; }
-    MEMORY_FORCE_INLINE device_enum device() const { return ref_.dev.type; }
-    MEMORY_FORCE_INLINE stream_t    stream() const { return stream_; }
+    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE bool is_aligned() const { return aligned_; }
+    MEMORY_FORCE_INLINE int                         device_index() const { return ref_.dev.index; }
+    MEMORY_FORCE_INLINE device_enum                 device() const { return ref_.dev.type; }
+    MEMORY_FORCE_INLINE stream_t                    stream() const { return stream_; }
 
     /**
      * @brief Record a cross-stream use of this view's underlying allocation.
@@ -113,8 +133,8 @@ struct data_view
     }
 
 private:
-    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE data_view(
-        value_t* data, size_t size, storage_ref<value_t> const& ref, stream_t stream) noexcept
+    DATA_VIEW_GPU_CALLABLE MEMORY_FORCE_INLINE
+    data_view(value_t* data, size_t size, storage_ref<value_t> const& ref, stream_t stream) noexcept
         : data_(data), size_(size), ref_(ref), stream_(stream), aligned_(is_ptr_aligned(data))
     {
     }
@@ -125,10 +145,27 @@ private:
         return ptr != nullptr && (reinterpret_cast<uintptr_t>(ptr) % MEMORY_ALIGNMENT == 0);
     }
 
-    value_t*           data_{nullptr};
-    size_t             size_{0};
+    value_t*             data_{nullptr};
+    size_t               size_{0};
     storage_ref<value_t> ref_{};  // base/id/device of the allocation, however deep the slice
-    stream_t           stream_{nullptr};
-    bool               aligned_{false};
+    stream_t             stream_{nullptr};
+    bool                 aligned_{false};
 };
+
+// Defined here, not in data_ptr.h: retained_ptr<T> is already complete through
+// allocator.h -> retained_ptr.h, so consumers of data_view + retained_ptr need not
+// include the unique-owner header.
+template <typename value_t>
+MEMORY_FORCE_INLINE data_view<value_t>::data_view(retained_ptr<value_t> const& owner) noexcept
+    : data_view(
+          owner.data(),
+          owner.size(),
+          storage_ref<value_t>{
+              owner.base(),
+              allocation_id{owner.identity().alloc_id},
+              owner.ctx().dev,
+              owner.provenance()},
+          owner.ctx().stream)
+{
+}
 }  // namespace memory

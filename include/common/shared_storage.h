@@ -72,6 +72,7 @@ public:
     std::size_t              nbytes() const noexcept { return handle_.nbytes(); }
     execution_context const& ctx() const noexcept { return ctx_; }
     storage_identity const&  identity() const noexcept { return identity_; }
+    storage_provenance       provenance() const noexcept { return handle_.provenance(); }
 
 private:
     shared_storage(storage_handle&& handle, execution_context ctx) noexcept

@@ -126,3 +126,24 @@ foreach(_variant "" "Lockwait" "Spin")
     endif()
   endif()
 endforeach()
+
+# These standalone shims do not link Memory, so they must opt into its
+# instrumentation themselves, including the runtime needed by Logging.
+if(MEMORY_ENABLE_SANITIZER)
+  foreach(
+    _target IN
+    ITEMS MemoryCudaCachingAllocatorRuntimeTests MemoryGpuShimBenchPhase0 MemoryGpuShimChurn
+          MemoryGpuShimContentionPhase8 MemoryGpuShimContentionPhase8Lockwait
+          MemoryGpuShimContentionPhase8Spin
+  )
+    memory_configure_sanitizer(${_target} MEMORY)
+  endforeach()
+endif()
+
+if(MEMORY_ENABLE_SANITIZER AND MEMORY_SANITIZER_TYPE MATCHES "(^|,)(thread|leak)(,|$)")
+  # TSan and LSan own the replaceable allocation operators, as in MemoryCxxTests.
+  target_compile_definitions(
+    MemoryCudaCachingAllocatorRuntimeTests PRIVATE MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE=1
+  )
+  target_compile_definitions(MemoryGpuShimBenchPhase0 PRIVATE MEMORY_TEST_NO_GLOBAL_NEW_OVERRIDE=1)
+endif()

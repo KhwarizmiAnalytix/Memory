@@ -28,8 +28,8 @@ endif()
 
 # /opt/rocm is not a CMake default prefix; HIP_PATH=/usr (dirname of the
 # alternatives hipcc wrapper) is not an SDK root. Resolve a real prefix first.
-include(rocm_prefix)
-xsigma_setup_rocm_prefix()
+include("${MEMORY_SOURCE_DIR}/Cmake/rocm_prefix.cmake")
+memory_setup_rocm_prefix()
 
 # Find HIP package
 find_package(hip REQUIRED)

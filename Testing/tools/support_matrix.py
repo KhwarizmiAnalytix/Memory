@@ -85,8 +85,10 @@ def render(a):
     cells = {(b, e): [] for b in BACKENDS for e in EVIDENCE}
     for path in sorted(glob.glob(os.path.join(a.dir, "*.json"))):
         try:
-            doc = json.load(open(path))
-        except (OSError, ValueError):
+            doc = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError) as err:
+            # A manifest that cannot be read must not vanish from the matrix silently.
+            print(f"warning: skipped {path}: {err}", file=sys.stderr)
             continue
         m = doc.get("manifest", doc)
         b, e = m.get("backend"), m.get("evidence")

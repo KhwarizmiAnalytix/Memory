@@ -6,12 +6,6 @@ Handles the build step (ninja / xcodebuild / msvc) for Scripts/setup.py.
 
 import os
 import subprocess
-from typing import Optional
-
-try:
-    import resource
-except ImportError:  # resource is POSIX-only; unavailable on Windows.
-    resource = None  # type: ignore[assignment]
 
 
 def _raise_stack_limit() -> None:
@@ -23,29 +17,27 @@ def _raise_stack_limit() -> None:
     segfault. Raising RLIMIT_STACK before spawning the build (inherited by
     ninja's clang child processes) avoids the crash.
     """
-    if resource is None:
-        return
     try:
+        import resource
+
         soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
         if hard == resource.RLIM_INFINITY or hard > soft:
             resource.setrlimit(resource.RLIMIT_STACK, (hard, hard))
-    except (ValueError, OSError):
+    except (ImportError, AttributeError, ValueError, OSError):
         pass
 
 
-def get_logical_processor_count() -> Optional[int]:
-    """Get the number of logical processors available."""
+def get_logical_processor_count() -> int:
+    """Get a positive job count even when CPU detection is unavailable."""
     try:
-        import psutil  # type: ignore[import-untyped]
+        import psutil
 
-        return psutil.cpu_count(logical=True)  # type: ignore[no-untyped-call,no-any-return]
-    except ImportError:
-        try:
-            return os.cpu_count()
-        except AttributeError:
-            import multiprocessing
-
-            return multiprocessing.cpu_count()
+        count = psutil.cpu_count(logical=True)
+        if count is not None and count > 0:
+            return int(count)
+    except (ImportError, OSError, NotImplementedError):
+        pass
+    return max(1, os.cpu_count() or 1)
 
 
 def build_project(builder: str, build_enum: str, system: str, shell_flag: bool) -> int:
@@ -81,10 +73,8 @@ def build_project(builder: str, build_enum: str, system: str, shell_flag: bool) 
             return 1
 
         _raise_stack_limit()
-        subprocess.check_call(cmake_cmd_build, stderr=subprocess.STDOUT, shell=shell_flag)
+        subprocess.check_call(cmake_cmd_build, stderr=subprocess.STDOUT, shell=False)
         return 0
 
-    except subprocess.CalledProcessError:
-        return 1
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, ValueError):
         return 1

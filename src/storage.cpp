@@ -43,6 +43,7 @@ void gpu_free_fn(void* cache_ctx, void* ptr, std::size_t nbytes) noexcept
 }
 #endif
 
+#if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
 // Guard: is `t` the GPU backend that was compiled in?
 constexpr bool is_active_gpu(device_enum t) noexcept
 {
@@ -52,22 +53,20 @@ constexpr bool is_active_gpu(device_enum t) noexcept
     return t == device_enum::HIP;
 #elif MEMORY_HAS_METAL
     return t == device_enum::METAL;
-#else
-    (void)t;
-    return false;
 #endif
 }
+#endif
 }  // namespace
 
-storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
-                               execution_context ctx)
+storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment, execution_context ctx)
 {
     if (nbytes == 0)
     {
         // Zero-size allocation returns empty storage (plan §5.1): no memory and no
         // allocation lifetime, hence the invalid ID. The device is kept.
         device const dev{ctx.device_type(), static_cast<std::int16_t>(ctx.device_index())};
-        return storage_handle(nullptr, 0, nullptr, nullptr, dev, allocation_id{});
+        return storage_handle(
+            nullptr, 0, nullptr, nullptr, dev, storage_provenance::allocated, allocation_id{});
     }
 
     device const dev{ctx.device_type(), static_cast<std::int16_t>(ctx.device_index())};
@@ -79,8 +78,14 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
         {
             throw std::bad_alloc{};
         }
-        return storage_handle(ptr, nbytes, &cpu_free_fn, nullptr, dev,
-                              next_allocation_id());
+        return storage_handle(
+            ptr,
+            nbytes,
+            &cpu_free_fn,
+            nullptr,
+            dev,
+            storage_provenance::allocated,
+            next_allocation_id());
     }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
@@ -89,9 +94,9 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
         // Obtain the per-device cache ONCE; store its address in ctx_ so the
         // free path can reach it directly without a registry lookup
         // (plan §4.3, P2.3 gate: 0 lookups on free).
-        gpu::caching_allocator& cache =
-            gpu::caching_allocator_for_device(ctx.device_index());
-        void* ptr = cache.allocate(nbytes, static_cast<gpu::caching_allocator::stream_type>(ctx.stream));
+        gpu::caching_allocator& cache = gpu::caching_allocator_for_device(ctx.device_index());
+        void*                   ptr =
+            cache.allocate(nbytes, static_cast<gpu::caching_allocator::stream_type>(ctx.stream));
         if (!ptr)
         {
             throw std::bad_alloc{};
@@ -100,9 +105,14 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment,
         // from the cache_block and deallocates). The cache pointer is stored
         // in ctx_ so the deleter can reach the cache without a registry lookup
         // (plan §2.10, R1: GPU handle frees itself).
-        return storage_handle(ptr, nbytes, &gpu_free_fn,
-                              static_cast<void*>(&cache),
-                              dev, next_allocation_id());
+        return storage_handle(
+            ptr,
+            nbytes,
+            &gpu_free_fn,
+            static_cast<void*>(&cache),
+            dev,
+            storage_provenance::allocated,
+            next_allocation_id());
     }
 #endif
 

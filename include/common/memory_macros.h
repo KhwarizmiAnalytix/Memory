@@ -203,4 +203,26 @@ public:
 #define MEMORY_EXCLUSIVE_LOCKS_REQUIRED(...)
 #endif
 
+// ============================================================================
+// Silence deprecations that live only inside a system header.
+// Apple's Foundation umbrella includes CarbonCore/Script.h, which uses
+// ScriptTokenType (deprecated in macOS 13). Wrap the import; do not leave
+// the suppression active for our own code.
+// ============================================================================
+// clang-format off
+#if defined(__clang__) || defined(__GNUC__)
+#define MEMORY_SUPPRESS_DEPRECATED_BEGIN \
+    _Pragma("GCC diagnostic push") \
+    _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+#define MEMORY_SUPPRESS_DEPRECATED_END _Pragma("GCC diagnostic pop")
+#elif defined(_MSC_VER)
+#define MEMORY_SUPPRESS_DEPRECATED_BEGIN \
+    __pragma(warning(push)) __pragma(warning(disable : 4996))
+#define MEMORY_SUPPRESS_DEPRECATED_END __pragma(warning(pop))
+#else
+#define MEMORY_SUPPRESS_DEPRECATED_BEGIN
+#define MEMORY_SUPPRESS_DEPRECATED_END
+#endif
+// clang-format on
+
 #endif  // MEMORY_PORTABLE_MACROS_INCLUDED_

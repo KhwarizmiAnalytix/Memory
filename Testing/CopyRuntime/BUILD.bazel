@@ -1,0 +1,13 @@
+load("//bazel:runtime_tests.bzl", "runtime_test")
+
+[runtime_test(
+    name = "MemoryCopy" + backend.title() + "RuntimeTests",
+    srcs = [
+        "TestCopyRuntime.cpp",
+        "gpu_dispatch_stub.cpp",
+        "//:src/retained_operation_service.cpp",
+        "//:src/transfer.cpp",
+        "//:src/common/allocation_id.cpp",
+    ],
+    backend = backend,
+) for backend in ["cuda", "hip"]]

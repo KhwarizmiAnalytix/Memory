@@ -111,7 +111,7 @@ MEMORY_FORCE_INLINE void* allocate_zero(
 // ---------------------------------------------------------------------------
 // mimalloc statistics — available only when the library is configured with
 // MEMORY_ENABLE_MIMALLOC_STATS=ON (compiles the vendored mimalloc with
-// MI_STAT=1; mimalloc release builds otherwise compile all counters out).
+// MI_STATS=1; otherwise the counters are compiled out).
 // Because mimalloc is linked with MI_OVERRIDE=OFF, the statistics cover only
 // allocations that went through this namespace — not the process's malloc.
 // ---------------------------------------------------------------------------
@@ -135,9 +135,9 @@ MEMORY_API bool has_stats() noexcept;
 /**
  * @brief Log mimalloc allocator statistics via LOGGING_LOG_INFO.
  *
- * Merges the calling thread's counters into the process totals first
- * (mi_stats_merge), then dumps line-by-line through mi_stats_print_out into
- * the Memory logger. No-op when statistics are not compiled in. Equivalent
+ * Dumps line-by-line through mi_stats_print_out into the Memory logger.
+ * That call aggregates the calling thread's counters into the process totals.
+ * No-op when statistics are not compiled in. Equivalent
  * env-var route: MIMALLOC_SHOW_STATS=1 prints at process exit (to stderr,
  * outside this API).
  */

@@ -1,0 +1,7 @@
+load("//bazel:runtime_tests.bzl", "runtime_test")
+
+[runtime_test(
+    name = "MemoryPinned" + backend.title() + "RuntimeTests",
+    srcs = ["TestPinnedRuntime.cpp", "//:src/helper/pinned_memory_allocator.cpp"],
+    backend = backend,
+) for backend in ["cuda", "hip"]]
