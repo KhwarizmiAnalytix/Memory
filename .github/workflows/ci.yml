@@ -752,13 +752,24 @@ jobs:
 
       - uses: bazelbuild/setup-bazelisk@v3
 
+      # Keep machine-specific output bases (including local_config_cc) out of
+      # the cache so runner image/compiler upgrades trigger fresh discovery.
+      - name: Configure portable Bazel caches
+        shell: python
+        run: |
+          from pathlib import Path
+          cache = Path.home() / ".cache" / "bazel-ci"
+          with (Path.home() / ".bazelrc").open("a") as rc:
+              rc.write(f'\ncommon --repository_cache="{cache.as_posix()}/repository"\n')
+              rc.write(f'build --disk_cache="{cache.as_posix()}/disk"\n')
+
       - name: Cache Bazel
         uses: actions/cache@v4
         with:
-          path: ~/.cache/bazel
-          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'WORKSPACE.bazel', 'BUILD.bazel') }}
+          path: ~/.cache/bazel-ci
+          key: bazel-ci-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock', '**/BUILD.bazel', 'bazel/**') }}
           restore-keys: |
-            bazel-${{ runner.os }}-
+            bazel-ci-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-
 
       - name: Build
         run: python3 "${{ github.workspace }}/Scripts/setup_bazel.py" build --compiler=default --compilation-mode=fastbuild --target=//...
@@ -791,13 +802,22 @@ jobs:
 
       - uses: bazelbuild/setup-bazelisk@v3
 
+      - name: Configure portable Bazel caches
+        shell: python
+        run: |
+          from pathlib import Path
+          cache = Path.home() / ".cache" / "bazel-ci"
+          with (Path.home() / ".bazelrc").open("a") as rc:
+              rc.write(f'\ncommon --repository_cache="{cache.as_posix()}/repository"\n')
+              rc.write(f'build --disk_cache="{cache.as_posix()}/disk"\n')
+
       - name: Cache Bazel
         uses: actions/cache@v4
         with:
-          path: ~/.cache/bazel
-          key: bazel-${{ runner.os }}-${{ matrix.backend }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', 'BUILD.bazel', 'bazel/**') }}
+          path: ~/.cache/bazel-ci
+          key: bazel-ci-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ matrix.backend }}-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock', '**/BUILD.bazel', 'bazel/**') }}
           restore-keys: |
-            bazel-${{ runner.os }}-${{ matrix.backend }}-
+            bazel-ci-v2-${{ runner.os }}-${{ runner.arch }}-${{ env.ImageOS }}-${{ env.ImageVersion }}-${{ matrix.backend }}-
 
       - name: Verify CUDA device is visible
         if: matrix.backend == 'cuda'
