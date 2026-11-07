@@ -37,6 +37,9 @@ using hipEvent_t                          = cudaEvent_t;
 // `using cudaMemcpyKind = hipMemcpyKind;` regardless of whether this TU
 // actually calls a memcpy function, so the alias target must exist here too.
 using hipMemcpyKind                       = cudaMemcpyKind;
+// Same reasoning: gpu_runtime.h unconditionally declares
+// `using cudaDeviceProp = hipDeviceProp_t;` in its HIP branch.
+using hipDeviceProp_t                     = cudaDeviceProp;
 inline constexpr auto hipSuccess          = cudaSuccess;
 inline constexpr auto hipErrorOutOfMemory = cudaErrorMemoryAllocation;
 inline constexpr auto hipErrorNotReady    = cudaErrorNotReady;

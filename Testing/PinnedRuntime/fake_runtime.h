@@ -38,6 +38,10 @@ enum cudaMemcpyKind
     cudaMemcpyHostToDevice,
     cudaMemcpyDeviceToHost
 };
+struct cudaDeviceProp
+{
+    char name[256]{};
+};
 inline constexpr int      cudaSuccess               = 0;
 inline constexpr int      cudaErrorMemoryAllocation = 1;
 inline constexpr int      cudaErrorNotReady         = 2;
@@ -92,6 +96,21 @@ inline cudaError_t cudaGetDevice(int* device)
 inline cudaError_t cudaSetDevice(int device)
 {
     fake_runtime::current_device = device;
+    return 0;
+}
+inline cudaError_t cudaGetDeviceProperties(cudaDeviceProp* prop, int)
+{
+    *prop = cudaDeviceProp{};
+    return 0;
+}
+inline cudaError_t cudaRuntimeGetVersion(int* version)
+{
+    *version = 0;
+    return 0;
+}
+inline cudaError_t cudaDriverGetVersion(int* version)
+{
+    *version = 0;
     return 0;
 }
 inline cudaError_t cudaHostAlloc(void** ptr, std::size_t bytes, unsigned)

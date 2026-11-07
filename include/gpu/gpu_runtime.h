@@ -38,6 +38,7 @@ using cudaError_t    = hipError_t;
 using cudaStream_t   = hipStream_t;
 using cudaEvent_t    = hipEvent_t;
 using cudaMemcpyKind = hipMemcpyKind;
+using cudaDeviceProp = hipDeviceProp_t;
 
 // HIP historically used hipErrorOutOfMemory; hipErrorMemoryAllocation is an
 // alias on recent ROCm. Prefer OutOfMemory for broader toolkit coverage.
@@ -54,6 +55,9 @@ using cudaMemcpyKind = hipMemcpyKind;
 #define cudaGetDevice hipGetDevice
 #define cudaSetDevice hipSetDevice
 #define cudaGetDeviceCount hipGetDeviceCount
+#define cudaGetDeviceProperties hipGetDeviceProperties
+#define cudaRuntimeGetVersion hipRuntimeGetVersion
+#define cudaDriverGetVersion hipDriverGetVersion
 #define cudaMalloc hipMalloc
 #define cudaFree hipFree
 #define cudaHostAlloc hipHostMalloc

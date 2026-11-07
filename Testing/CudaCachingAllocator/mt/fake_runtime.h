@@ -23,6 +23,10 @@ enum cudaMemcpyKind
     cudaMemcpyHostToDevice,
     cudaMemcpyDeviceToHost
 };
+struct cudaDeviceProp
+{
+    char name[256]{};
+};
 inline constexpr int      cudaSuccess               = 0;
 inline constexpr int      cudaErrorMemoryAllocation = 1;
 inline constexpr int      cudaErrorNotReady         = 2;
