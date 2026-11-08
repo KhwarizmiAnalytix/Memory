@@ -14,6 +14,12 @@ coverage_report_dir = "coverage_report"
 # uses it to find the library and test executable.
 modules = ["Memory"]
 
+[coverage.gcc]
+# GCC/gcov can report different end lines for the same GoogleTest function.
+# lcov 2.4 classifies this as "inconsistent", not "mismatch". Keep it as a
+# warning so capture can finish before test/vendor/system files are excluded.
+lcov_ignore_errors = ["mismatch", "negative", "gcov", "inconsistent"]
+
 [coverage.exclude]
 patterns = [
     "*ThirdParty*",
