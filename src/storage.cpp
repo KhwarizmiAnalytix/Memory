@@ -7,12 +7,14 @@
 #include "common/storage_handle.h"
 
 #include <cstddef>
+#include <limits>
 #include <new>
 #include <stdexcept>
 
 #include "common/cleanup_diagnostic.h"
 #include "common/device.h"
 #include "common/execution_context.h"
+#include "common/shared_storage.h"
 #include "helper/memory_allocator.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
@@ -117,6 +119,45 @@ storage_handle allocate_bytes(std::size_t nbytes, std::size_t alignment, executi
 #endif
 
     throw std::invalid_argument("allocate_bytes: unsupported device type");
+}
+
+shared_storage* shared_storage::allocate_inline_cpu(
+    std::size_t nbytes, std::size_t alignment, execution_context ctx)
+{
+    if (nbytes == 0 || ctx.device_type() != device_enum::CPU)
+    {
+        throw std::invalid_argument(
+            "shared_storage::allocate_inline_cpu: requires a CPU context and a non-zero size");
+    }
+    std::size_t const align =
+        alignment < alignof(shared_storage) ? alignof(shared_storage) : alignment;
+    std::size_t const header = inline_header_bytes(align);
+    if (nbytes > std::numeric_limits<std::size_t>::max() - header)
+    {
+        throw std::overflow_error(
+            "shared_storage::allocate_inline_cpu: control block plus payload overflows size_t");
+    }
+    void* const block = cpu::memory_allocator::allocate(header + nbytes, align);
+    if (block == nullptr)
+    {
+        throw std::bad_alloc{};
+    }
+    // No deleter on the embedded handle: release() frees the block itself.
+    device const dev{device_enum::CPU, static_cast<std::int16_t>(ctx.device_index())};
+    auto* const  storage = construct(
+        block,
+        storage_handle(
+            static_cast<std::byte*>(block) + header,
+            nbytes,
+            nullptr,
+            nullptr,
+            dev,
+            storage_provenance::allocated,
+            next_allocation_id()),
+        ctx);
+    storage->inline_header_ = header;
+    storage->block_free_    = &cpu_free_fn;
+    return storage;
 }
 
 }  // namespace memory

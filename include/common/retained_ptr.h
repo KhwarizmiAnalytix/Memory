@@ -162,6 +162,13 @@ public:
             shared_storage::construct(block, std::move(handle), ctx), base, capacity);
     }
 
+    // Takes the single reference of a freshly allocated inline control block
+    // (shared_storage::allocate_inline_cpu); used by make_retained().
+    static retained_ptr from_inline_storage(shared_storage* storage, size_t count) noexcept
+    {
+        return retained_ptr(storage, static_cast<T*>(storage->base()), count);
+    }
+
     // --- Copy / Move / Destructor ---
 
     retained_ptr(retained_ptr const& rhs) noexcept
@@ -340,6 +347,11 @@ private:
 /// Allocate count uninitialized elements and return them under shared ownership
 /// (c10 make_intrusive analogue). Zero count yields an empty pointer.
 /// Throws overflow_error when count * sizeof(T) overflows.
+///
+/// CPU storage is one heap allocation holding the control block and the
+/// payload (std::make_shared analogue); GPU storage keeps a host control block
+/// beside the cached device allocation. Either way the payload is aligned to
+/// storage_max_alignment, `allocated`, and has its own allocation id.
 template <typename T>
 retained_ptr<T> make_retained(std::size_t count, execution_context ctx)
 {
@@ -348,6 +360,12 @@ retained_ptr<T> make_retained(std::size_t count, execution_context ctx)
         throw std::overflow_error("make_retained: count * sizeof(T) overflows size_t");
     }
     detail::validate_context_stream(ctx);
+    if (ctx.device_type() == device_enum::CPU && count != 0)
+    {
+        return retained_ptr<T>::from_inline_storage(
+            shared_storage::allocate_inline_cpu(count * sizeof(T), storage_max_alignment, ctx),
+            count);
+    }
     return retained_ptr<T>::from_storage(
         allocate_bytes(count * sizeof(T), storage_max_alignment, ctx), ctx);
 }

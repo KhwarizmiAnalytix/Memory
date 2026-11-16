@@ -8,7 +8,11 @@
 #include "common/cleanup_diagnostic.h"
 #include "common/execution_context.h"
 #include "common/retained_ptr.h"
+#include "common/shared_storage.h"
+#include "common/storage_element.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <stdexcept>
@@ -409,5 +413,63 @@ MEMORYTEST(RetainedPtr, from_storage_wraps_a_handle_without_reallocating)
     EXPECT_TRUE(handle.empty());  // NOLINT(bugprone-use-after-move) -- testing moved-from state
     EXPECT_EQ(rp.data(), static_cast<std::byte*>(raw));
     EXPECT_EQ(rp.size(), 64U);
+    END_TEST();
+}
+
+// Vectorization design plan U1: sized CPU storage is one allocation holding the
+// control block and the payload (std::make_shared layout).
+MEMORYTEST(RetainedPtr, inline_cpu_storage_places_payload_after_control_block)
+{
+    auto* const storage =
+        shared_storage::allocate_inline_cpu(96, storage_max_alignment, execution_context::cpu());
+    EXPECT_TRUE(storage->is_inline());
+    auto const* const block = reinterpret_cast<std::byte const*>(storage);
+    EXPECT_EQ(
+        static_cast<std::byte const*>(storage->base()),
+        block + shared_storage::inline_header_bytes(storage_max_alignment));
+    EXPECT_EQ(reinterpret_cast<std::uintptr_t>(storage->base()) % storage_max_alignment, 0U);
+    EXPECT_EQ(storage->nbytes(), 96U);
+    EXPECT_EQ(storage->provenance(), storage_provenance::allocated);
+    EXPECT_TRUE(storage->handle().id().valid());
+    EXPECT_EQ(storage->use_count(), 1);
+    shared_storage::release(storage);  // frees control block and payload together
+
+    EXPECT_THROW(
+        (void)shared_storage::allocate_inline_cpu(0, 64, execution_context::cpu()),
+        std::invalid_argument);
+    EXPECT_THROW(
+        (void)shared_storage::allocate_inline_cpu(
+            std::numeric_limits<std::size_t>::max() - 8, 64, execution_context::cpu()),
+        std::overflow_error);
+    EXPECT_EQ(shared_storage::inline_header_bytes(1) % alignof(shared_storage), 0U);
+    END_TEST();
+}
+
+MEMORYTEST(RetainedPtr, make_retained_cpu_storage_is_inline_and_outlives_owner_through_slices)
+{
+    retained_ptr<double> slice;
+    std::uint64_t        first_id = 0;
+    {
+        auto owner = memory::make_retained<double>(1000, execution_context::cpu());
+        EXPECT_EQ(owner.base(), owner.data());
+        EXPECT_EQ(reinterpret_cast<std::uintptr_t>(owner.data()) % storage_max_alignment, 0U);
+        EXPECT_EQ(owner.identity().capacity, 1000 * sizeof(double));
+        for (std::size_t i = 0; i < owner.size(); ++i)
+        {
+            owner.data()[i] = static_cast<double>(i);
+        }
+        slice    = owner.slice(10, 5);
+        first_id = owner.identity().alloc_id;
+        EXPECT_EQ(owner.use_count(), 2);
+    }
+    // The slice keeps the whole single-block allocation alive.
+    EXPECT_EQ(slice.use_count(), 1);
+    EXPECT_EQ(slice.size(), 5U);
+    EXPECT_EQ(slice.data()[0], 10.0);
+    EXPECT_EQ(slice.data()[4], 14.0);
+    EXPECT_EQ(slice.identity().alloc_id, first_id);
+    auto other = memory::make_retained<double>(1000, execution_context::cpu());
+    EXPECT_NE(other.identity().alloc_id, first_id);
+    EXPECT_EQ(other.provenance(), storage_provenance::allocated);
     END_TEST();
 }

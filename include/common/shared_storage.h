@@ -12,6 +12,7 @@
 #include <new>
 #include <utility>
 
+#include "common/deleter_fn.h"
 #include "common/execution_context.h"
 #include "common/memory_macros.h"
 #include "common/storage_handle.h"
@@ -53,6 +54,27 @@ public:
         return construct(block, std::move(handle), ctx);
     }
 
+    // One allocation for control block and payload (std::make_shared /
+    // c10::make_intrusive analogue): a CPU block laid out as
+    // [shared_storage | padding to alignment | nbytes payload]. The payload is
+    // uninitialized, `allocated`, with a fresh allocation id; base() returns its
+    // first byte. The embedded handle has no deleter: release() frees the whole
+    // block once. nbytes must be non-zero and the context a CPU one; throws
+    // bad_alloc, or overflow_error when the block size overflows size_t.
+    MEMORY_API static shared_storage* allocate_inline_cpu(
+        std::size_t nbytes, std::size_t alignment, execution_context ctx);
+
+    // Bytes from the block start to the payload for a given payload alignment.
+    static constexpr std::size_t inline_header_bytes(std::size_t alignment) noexcept
+    {
+        std::size_t const align =
+            alignment < alignof(shared_storage) ? alignof(shared_storage) : alignment;
+        return (sizeof(shared_storage) + align - 1) / align * align;
+    }
+
+    // True when the payload lives in this control block's own allocation.
+    bool is_inline() const noexcept { return inline_header_ != 0; }
+
     void add_ref() noexcept { refs_.fetch_add(1, std::memory_order_relaxed); }
 
     /// Drops one reference; the last one destroys the object and its handle.
@@ -60,6 +82,14 @@ public:
     {
         if (s != nullptr && s->refs_.fetch_sub(1, std::memory_order_acq_rel) == 1)
         {
+            if (s->is_inline())
+            {
+                std::size_t const block_bytes = s->inline_header_ + s->handle_.nbytes();
+                deleter_fn const  free_block  = s->block_free_;
+                s->~shared_storage();  // handle has no deleter: nothing freed yet
+                free_block(nullptr, static_cast<void*>(s), block_bytes);
+                return;
+            }
             s->~shared_storage();
             ::operator delete(static_cast<void*>(s));
         }
@@ -89,6 +119,10 @@ private:
     storage_handle       handle_;
     execution_context    ctx_;
     storage_identity     identity_{};
+    // Inline blocks only: payload offset and the block's free function, set by
+    // allocate_inline_cpu() so release() needs no out-of-line symbol.
+    std::size_t inline_header_{0};  // 0: separate control block
+    deleter_fn  block_free_{nullptr};
 };
 
 }  // namespace memory
