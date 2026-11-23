@@ -17,6 +17,15 @@
 #include "common/memory_macros.h"
 #include "common/storage_identity.h"
 
+// The trivial pointer/size accessors back data_ptr's __host__ __device__
+// data()/size(); without the annotation nvcc warns (#20011-D) on every
+// data_ptr<T> instantiation in a CUDA translation unit.
+#if defined(__CUDACC__) || defined(__HIPCC__)
+#define STORAGE_HANDLE_GPU_CALLABLE __host__ __device__
+#else
+#define STORAGE_HANDLE_GPU_CALLABLE
+#endif
+
 namespace memory
 {
 
@@ -92,12 +101,12 @@ public:
     storage_handle(storage_handle const&)            = delete;
     storage_handle& operator=(storage_handle const&) = delete;
 
-    void*              get() const noexcept { return ptr_; }
-    std::size_t        nbytes() const noexcept { return nbytes_; }
-    device             dev() const noexcept { return dev_; }
-    storage_provenance provenance() const noexcept { return provenance_; }
-    allocation_id      id() const noexcept { return id_; }
-    bool               empty() const noexcept { return ptr_ == nullptr; }
+    STORAGE_HANDLE_GPU_CALLABLE void* get() const noexcept { return ptr_; }
+    STORAGE_HANDLE_GPU_CALLABLE std::size_t nbytes() const noexcept { return nbytes_; }
+    device                                  dev() const noexcept { return dev_; }
+    storage_provenance                      provenance() const noexcept { return provenance_; }
+    allocation_id                           id() const noexcept { return id_; }
+    STORAGE_HANDLE_GPU_CALLABLE bool        empty() const noexcept { return ptr_ == nullptr; }
 
     // Disarm: returns the raw pointer and zeros the handle so the destructor
     // becomes a no-op.  The caller is responsible for freeing the memory.
