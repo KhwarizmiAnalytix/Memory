@@ -19,8 +19,11 @@ if(WIN32 AND (MINGW OR CMAKE_CXX_COMPILER MATCHES "msys64"))
   return()
 endif()
 
-if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-  set(CMAKE_CUDA_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "CUDA compiler (Clang)" FORCE)
+# A parent project that already enabled CUDA owns the compiler choice.
+if(CMAKE_CUDA_COMPILER_LOADED)
+  # Nothing to select.
+elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+  set(CMAKE_CUDA_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "CUDA compiler (Clang)")
   message(STATUS "CUDA: using Clang ${CMAKE_CXX_COMPILER_VERSION} as CUDA compiler")
 else()
   # With nvcc as CMAKE_CUDA_COMPILER, CMAKE_CXX_COMPILER only selects the compiler
@@ -43,93 +46,23 @@ endif()
 
 find_package(CUDAToolkit REQUIRED)
 
-# Workaround: When Clang is used as the CUDA compiler, CMake's internal variables
-# _CMAKE_CUDA_WHOLE_FLAG and CMAKE_CUDA_COMPILE_OBJECT are not reliably propagated to the
-# generator's directory scope — this manifests as a hard error during the generation phase on CMake
-# 3.28 and CMake 4.2+. Setting CMAKE_CUDA_COMPILER_FORCED skips the compiler test subprocess that
-# triggers the broken variable lookup; Clang + CUDA 12 is known-good.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  set(CMAKE_CUDA_COMPILER_FORCED TRUE)
-endif()
-
-# Pre-set CMAKE_CUDA_ARCHITECTURES before enable_language(CUDA). When
-# CMAKE_CUDA_COMPILER_FORCED is TRUE, CMake skips the GPU hardware probe that
-# resolves "native", causing enable_language to abort with "Failed to detect a
-# default CUDA architecture". Provide an explicit Turing-and-above list so the
-# configure step succeeds without a GPU present at configure time.
-if(CMAKE_CUDA_COMPILER_FORCED AND NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES "${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}")
+# CMake identifies Clang as a CUDA compiler by compiling a probe for a fixed GPU
+# architecture. Releases before 3.31.10 only probe sm_52 and older, which
+# CUDA 13 no longer supports, so identification fails.
+if(NOT CMAKE_CUDA_COMPILER_LOADED AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+   AND CMAKE_CUDA_COMPILER STREQUAL CMAKE_CXX_COMPILER
+   AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL 13.0 AND CMAKE_VERSION VERSION_LESS 3.31.10
+)
   message(
-    STATUS
-      "CUDA: Clang+COMPILER_FORCED — pre-setting architectures to ${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}"
+    FATAL_ERROR
+      "Clang as the CUDA compiler with CUDA ${CUDAToolkit_VERSION} requires CMake 3.31.10 or "
+      "newer (found ${CMAKE_VERSION})."
   )
 endif()
 
-# Enable CUDA language support
+# A parent that uses CUDA must enable it in its top-level directory before
+# adding Memory: a language enabled here is not visible to sibling directories.
 enable_language(CUDA)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CUDA_COMPILER_FORCED)
-  # The forced compiler skips CMake's CUDA ABI probe, including implicit
-  # include detection. Clang uses the same host headers for CXX and CUDA.
-  # Preserve their implicit status so dependencies cannot inject, for example,
-  # -isystem /usr/include ahead of libstdc++ and break cmath's include_next.
-  list(APPEND CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
-  list(REMOVE_DUPLICATES CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES)
-  set(CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES "${CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES}"
-      CACHE INTERNAL "CUDA implicit host include directories" FORCE
-  )
-endif()
-
-# Persist CUDA language rules to the CMake cache so every directory scope can access them during
-# generation.
-#
-# Root cause: enable_language(CUDA) is called from Library/Memory (a subdirectory), so
-# CMakeCUDAInformation.cmake and Compiler/Clang-CUDA.cmake are loaded only in Memory's
-# configure-phase directory scope.  The Ninja generator later processes Library/Core/Testing/Cxx
-# (which contains CudaEnzymeADTest.cu) in a separate directory scope that never ran
-# CMakeCUDAInformation.cmake, so it cannot find these variables. Storing them as CACHE INTERNAL
-# makes them globally visible across all directory scopes without overriding any per-directory
-# regular variable. Persist CUDA language rules to the CMake cache (FORCE) so every directory scope
-# can read them during the generation phase.  enable_language(CUDA) sets these as regular variables
-# that are only visible in the Memory subdirectory scope; without CACHE INTERNAL they are invisible
-# to sibling directories (e.g. Core/Testing/Cxx) that compile .cu files but never called
-# enable_language. Strategy: use whatever value enable_language just set, falling back to the Clang
-# default when the variable was not populated (CMAKE_CUDA_COMPILER_FORCED skips parts of the
-# compiler test).
-if(NOT _CMAKE_CUDA_WHOLE_FLAG)
-  # Clang uses plain -c; no whole-archive wrapper is needed.
-  set(_CMAKE_CUDA_WHOLE_FLAG "-c")
-endif()
-set(_CMAKE_CUDA_WHOLE_FLAG "${_CMAKE_CUDA_WHOLE_FLAG}" CACHE INTERNAL "CUDA whole-object flag"
-                                                             FORCE
-)
-
-if(NOT CMAKE_CUDA_COMPILE_OBJECT)
-  # Mirrors the template in CMakeCUDAInformation.cmake for Clang. _CMAKE_COMPILE_AS_CUDA_FLAG = "-x
-  # cuda" (from Clang-CUDA.cmake)
-  set(CMAKE_CUDA_COMPILE_OBJECT
-      "<CMAKE_CUDA_COMPILER>  <DEFINES> <INCLUDES> <FLAGS> -x cuda <CUDA_COMPILE_MODE> <SOURCE> -o <OBJECT>"
-  )
-endif()
-set(CMAKE_CUDA_COMPILE_OBJECT "${CMAKE_CUDA_COMPILE_OBJECT}" CACHE INTERNAL
-                                                                   "CUDA compile-object rule" FORCE
-)
-
-# CMAKE_INCLUDE_FLAG_CUDA is set by CMakeCUDAInformation.cmake as a regular (non-cache) variable
-# scoped to the Memory subdirectory where enable_language(CUDA) runs.  Sibling directories that
-# compile .cu files (e.g. Core/Testing/Cxx) never see it, so CMake generates $INCLUDES as bare paths
-# without the -I prefix — clang then treats them as linker inputs and emits
-# -Wunused-command-line-argument warnings.  Persist the value to CACHE INTERNAL so every directory
-# scope that compiles CUDA TUs gets the correct flag.
-#
-# NOTE: Do NOT cache CMAKE_INCLUDE_FLAG_SEP_CUDA.  When that variable is *defined* (even to ""),
-# CMake's GetIncludeFlags() switches to a separator-join codepath that concatenates all paths after
-# a single -I flag.  Leaving it undefined lets CMake use its default space-separated behaviour,
-# producing the correct "-I/path1 -I/path2 ..." form.
-if(NOT CMAKE_INCLUDE_FLAG_CUDA)
-  set(CMAKE_INCLUDE_FLAG_CUDA "-I")
-endif()
-set(CMAKE_INCLUDE_FLAG_CUDA "${CMAKE_INCLUDE_FLAG_CUDA}" CACHE INTERNAL "CUDA include flag" FORCE)
 
 # Version checks using consistent CUDAToolkit variables
 if(CUDAToolkit_VERSION VERSION_LESS "12.0")
@@ -209,18 +142,7 @@ set_property(
 
 # Set architectures based on user selection
 if(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "native")
-  # "native" requires CMake to probe the GPU at configure time.  When CMAKE_CUDA_COMPILER_FORCED is
-  # set (Clang + CMake 4.2 workaround) that probe is skipped, so CMake cannot resolve "native"
-  # during generation. Fall back to the shared Turing-and-above list.
-  if(CMAKE_CUDA_COMPILER_FORCED)
-    set(CMAKE_CUDA_ARCHITECTURES "${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}")
-    message(
-      STATUS
-        "CUDA: native arch detection unavailable (COMPILER_FORCED), using ${XSIGMA_CUDA_ARCHITECTURES_DEFAULT}"
-    )
-  else()
-    set(CMAKE_CUDA_ARCHITECTURES "native")
-  endif()
+  set(CMAKE_CUDA_ARCHITECTURES "native")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "turing")
   set(CMAKE_CUDA_ARCHITECTURES "75")
 elseif(PROJECT_CUDA_ARCH_OPTIONS STREQUAL "ampere")
@@ -264,53 +186,8 @@ if(CMAKE_CUDA_COMPILER_ID STREQUAL "NVIDIA")
   endif()
 else()
   # Clang CUDA flags
+  # Clang identifies only the CUDA releases it knows and warns about newer ones.
   string(APPEND CMAKE_CUDA_FLAGS " -Wno-unknown-cuda-version")
-  # When CMAKE_CUDA_COMPILER_FORCED=TRUE, CMake never loads CMakeCUDAInformation.cmake
-  # in the normal way, so the C++ standard flag from CMAKE_CXX_STANDARD is not
-  # automatically added to <FLAGS> in the custom CMAKE_CUDA_COMPILE_OBJECT rule.
-  # Inject it explicitly so CUDA TUs can use std::span and other C++20 features.
-  if(CMAKE_CUDA_STANDARD)
-    string(APPEND CMAKE_CUDA_FLAGS " -std=gnu++${CMAKE_CUDA_STANDARD}")
-  elseif(CMAKE_CXX_STANDARD)
-    string(APPEND CMAKE_CUDA_FLAGS " -std=gnu++${CMAKE_CXX_STANDARD}")
-  endif()
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    string(APPEND CMAKE_CUDA_FLAGS " -g")
-  else()
-    string(APPEND CMAKE_CUDA_FLAGS " -O3")
-  endif()
-
-  # On Windows, CMAKE_CUDA_COMPILER_FORCED (set above) makes CMake skip the normal
-  # CUDA compiler probe, so it never loads the Clang-CUDA Windows platform rules that
-  # translate CMAKE_MSVC_RUNTIME_LIBRARY into runtime-library flags for CUDA-language
-  # sources (the way it does automatically for plain CXX sources). A .cpp file tagged
-  # LANGUAGE CUDA (see vectorization_tag_gpu_expression_sources(), used for the
-  # ODR-safety reason documented in Library/Vectorization/Testing/Cxx/CMakeLists.txt)
-  # therefore compiles with Clang's un-annotated default runtime-library linkage
-  # (static CRT) while every ordinary CXX source in the same target gets the dynamic
-  # CRT that CMAKE_MSVC_RUNTIME_LIBRARY selects (MultiThreadedDLL by default under
-  # CMP0091 NEW, set by cmake_minimum_required(VERSION 3.16) at the top of
-  # CMakeLists.txt). Mixing the two in one executable trips lld-link's
-  # /failifmismatch check on the 'RuntimeLibrary' object attribute (confirmed:
-  # VectorizationCxxTests failing to link with "mismatch detected for
-  # 'RuntimeLibrary': ... has value MD_DynamicRelease ... has value
-  # MT_StaticRelease" on Windows CUDA CI). Mirror the same flags CXX gets so every
-  # CUDA-tagged TU matches.
-  if(WIN32)
-    if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
-      if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DEBUG -Xclang --dependent-lib=libcmtd")
-      else()
-        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -Xclang --dependent-lib=libcmt")
-      endif()
-    else()
-      if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DLL -D_DEBUG -Xclang --dependent-lib=msvcrtd")
-      else()
-        string(APPEND CMAKE_CUDA_FLAGS " -D_MT -D_DLL -Xclang --dependent-lib=msvcrt")
-      endif()
-    endif()
-  endif()
 endif()
 
 # For backward compatibility, set legacy variables (if needed elsewhere)
