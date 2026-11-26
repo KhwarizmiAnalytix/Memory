@@ -1691,8 +1691,9 @@ private:
         {
             return;
         }
-        auto const* src_bytes = static_cast<char const*>(src->ptr);
-        auto const* dst_bytes = static_cast<char const*>(dst->ptr);
+        // Only the debug check reads these; LOGGING_CHECK_DEBUG is empty under NDEBUG.
+        [[maybe_unused]] auto const* src_bytes = static_cast<char const*>(src->ptr);
+        [[maybe_unused]] auto const* dst_bytes = static_cast<char const*>(dst->ptr);
         LOGGING_CHECK_DEBUG(
             (src_is_prev && src_bytes + src->size == dst_bytes) ||
                 (src_is_next && dst_bytes + dst->size == src_bytes),
