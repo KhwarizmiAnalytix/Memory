@@ -164,13 +164,13 @@ if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   endif()
 endif()
 
-# On macOS with a Homebrew LLVM clang, libLogging.dylib is built against
-# LLVM's libc++ (from lib/c++).  Memory's own executables must use the same
-# libc++ so that std::exception's typeinfo is a single shared object and
-# cross-library catch (const std::exception &) works.  Without this,
-# MemoryCxxTests catches a different std::exception typeinfo from Apple's
-# system libc++ and EXPECT_THROW(..., std::exception) fails.
-if(APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+# On macOS with a Homebrew LLVM clang, standalone Memory links LLVM's libc++
+# (from lib/c++). These directory link options are inherited by the bundled
+# Logging added later, so every library in the process shares one libc++ and
+# one std::exception typeinfo: cross-library catch (const std::exception &)
+# works. When Memory is nested, the top-level project picks the C++ runtime,
+# and Memory inherits it. AppleClang uses the SDK headers and system libc++.
+if(APPLE AND MEMORY_STANDALONE AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   if(DEFINED MEMORY_LLVM_INSTALL_PREFIX AND MEMORY_LLVM_INSTALL_PREFIX)
     set(_memory_llvm_prefix "${MEMORY_LLVM_INSTALL_PREFIX}")
   elseif(EXISTS "/opt/homebrew/opt/llvm/lib/c++")

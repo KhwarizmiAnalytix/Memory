@@ -305,8 +305,12 @@ if(MEMORY_ENABLE_MIMALLOC)
     set(MI_STATS "OFF" CACHE STRING "Compile out mimalloc statistics (MI_STATS=0)" FORCE)
   endif()
 
+  # mimalloc is private to Memory, so it is linked statically from the bundled
+  # source. That keeps the options above (MI_OVERRIDE OFF, MI_STATS) in force.
+  # An installed package would bring its own build options, or a shared library.
   memory_add_third_party_library(
     mimalloc
+    BUNDLED_ONLY
     CONDITION
     MEMORY_ENABLE_MIMALLOC
     LIBRARY_TYPE
@@ -410,6 +414,7 @@ if(NOT TARGET Logging::Logging)
     FATAL_ERROR "Memory requires Logging::Logging. memory_setup_logging() should have provided it."
   )
 endif()
+memory_check_dependency_linkage(Logging::Logging)
 # Wrapped in $<BUILD_INTERFACE:...>: Logging is built in-tree (submodule/FetchContent)
 # or via the host's own wiring when embedded, not via find_package(), so it is not
 # itself part of MemoryTargets' export set. Without this wrapper, install(EXPORT

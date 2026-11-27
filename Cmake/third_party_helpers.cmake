@@ -353,6 +353,8 @@ endfunction()
 #   AUTO_ADD_TO_DEPENDENCIES <ON|OFF> - Boolean value to automatically add to MEMORY_DEPENDENCY_LIBS
 #                                 Default: ON (automatically adds Xxx::name target)
 #   EXCLUDE_FROM_ALL            - If set, add_subdirectory(... EXCLUDE_FROM_ALL) for the bundled lib
+#   BUNDLED_ONLY                - If set, skip find_package() even when MEMORY_ENABLE_EXTERNAL=ON
+#                                 Use for private static dependencies whose build options matter
 #   BINARY_DIR <path>           - Out-of-tree build dir for add_subdirectory (absolute, or relative to
 #                                 CMAKE_BINARY_DIR). Default: ${CMAKE_CURRENT_BINARY_DIR}/${name}_build
 #
@@ -376,7 +378,7 @@ function(memory_add_third_party_library name)
   # Parse function arguments
   cmake_parse_arguments(
     TPL # Prefix
-    "DISABLE_WARNINGS;EXCLUDE_FROM_ALL" # Options (boolean flags)
+    "DISABLE_WARNINGS;EXCLUDE_FROM_ALL;BUNDLED_ONLY" # Options (boolean flags)
     "SOURCE_DIR;EXTERNAL_NAME;CONDITION;LIBRARY_TYPE;LIBRARY_TYPE_VAR;INCLUDE_DIR;BINARY_DIR;AUTO_ADD_TO_DEPENDENCIES" # One-value keywords
     "FILTER_FLAGS;EXTRA_FLAGS;ALIASES;MEMORY_TARGETS" # Multi-value keywords
     ${ARGN} # Arguments to parse
@@ -518,7 +520,7 @@ function(memory_add_third_party_library name)
   # -------------------------------------------------------------------------
   # Step 4: Try to find external library first if requested
   # -------------------------------------------------------------------------
-  if(MEMORY_ENABLE_EXTERNAL)
+  if(MEMORY_ENABLE_EXTERNAL AND NOT TPL_BUNDLED_ONLY)
     find_package(${TPL_EXTERNAL_NAME} QUIET GLOBAL)
     if(${TPL_EXTERNAL_NAME}_FOUND OR ${name}_FOUND)
       message(STATUS "================================================================")

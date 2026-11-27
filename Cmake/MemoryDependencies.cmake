@@ -131,6 +131,27 @@ function(memory_setup_benchmark)
 endfunction()
 
 # -----------------------------------------------------------------------------
+# memory_check_dependency_linkage: one copy of each sibling library per process
+# -----------------------------------------------------------------------------
+# Sibling libraries (Logging) are added once, by the top-level project, and
+# every nested project links that same target. A static copy linked into a
+# shared Memory would be duplicated in every shared library that also links
+# it, each with its own global state. Reject that at configure time: build the
+# dependency shared, or build everything static.
+# -----------------------------------------------------------------------------
+function(memory_check_dependency_linkage target)
+  get_target_property(_memory_dep_type "${target}" TYPE)
+  if(BUILD_SHARED_LIBS AND _memory_dep_type STREQUAL "STATIC_LIBRARY")
+    message(
+      FATAL_ERROR
+        "${target} is a static library, but Memory is shared (BUILD_SHARED_LIBS=ON). "
+        "Every shared library linking it would carry its own copy. Build ${target} "
+        "shared in the project that provides it, or configure with BUILD_SHARED_LIBS=OFF."
+    )
+  endif()
+endfunction()
+
+# -----------------------------------------------------------------------------
 # memory_setup_logging: required sibling dependency
 # (https://github.com/KhwarizmiAnalytix/Logging), submodule-or-FetchContent —
 # same pattern ThirdParty/Profiler's own standalone CMakeLists.txt uses for
