@@ -29,13 +29,13 @@
 #include <vector>
 
 #include "../Cxx/phase0_harness.h"
-#include "mt/fake_runtime.h"  // explicit: a bare name would resolve to the single-threaded fake next to this file
 #include "gpu/cuda_caching_allocator.h"
+#include "mt/fake_runtime.h"  // explicit: a bare name would resolve to the single-threaded fake next to this file
 
 #if defined(BENCH_LOCK_WAIT)
-#    define LOCK_STATS_ENABLED 1
+#define LOCK_STATS_ENABLED 1
 #else
-#    define LOCK_STATS_ENABLED 0
+#define LOCK_STATS_ENABLED 0
 #endif
 
 namespace rt = fake_runtime;
@@ -77,7 +77,7 @@ constexpr size_t kBatch = 256;
 lock_counts thread_locks()
 {
 #if LOCK_STATS_ENABLED
-    auto const& s = std::g_bench_lock_stats;
+    auto const& s = memory::testing::g_bench_lock_stats;
     return {s.acquisitions, s.contended, s.wait_ns, s.outer_acquisitions, s.hold_cycles};
 #else
     return {};
@@ -91,7 +91,7 @@ void run_worker(std::atomic<bool> const& go, size_t ops, Body&& body, worker_out
     while (!go.load(std::memory_order_acquire))
     {
     }
-    lock_counts const l0 = thread_locks();
+    lock_counts const l0   = thread_locks();
     size_t            done = 0;
     while (done < ops)
     {
@@ -104,15 +104,19 @@ void run_worker(std::atomic<bool> const& go, size_t ops, Body&& body, worker_out
         out.samples.push_back((phase0::now_ns() - t0) / static_cast<double>(n));
         done += n;
     }
-    out.end_ns = phase0::now_ns();
+    out.end_ns           = phase0::now_ns();
     lock_counts const l1 = thread_locks();
-    out.locks = {l1.acquisitions - l0.acquisitions,
-                 l1.contended - l0.contended,
-                 l1.wait_ns - l0.wait_ns,
-                 l1.outer - l0.outer,
-                 l1.hold_cycles - l0.hold_cycles};
+    out.locks            = {
+        l1.acquisitions - l0.acquisitions,
+        l1.contended - l0.contended,
+        l1.wait_ns - l0.wait_ns,
+        l1.outer - l0.outer,
+        l1.hold_cycles - l0.hold_cycles};
 }
 
+// preserve the vendor API enum representation in this
+// runtime test double.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class workload
 {
     warm,
@@ -123,10 +127,12 @@ enum class workload
 // the shared allocator measured since 8.1. With more it is an upper bound for an arena design
 // (task 8.7-C): every free returns to the instance that allocated it, so there is no cross-arena
 // free, no shared budget and no shared stats here, which a real design would have to pay for.
-phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, size_t rep, size_t arenas = 1)
+phase0::result run_config(
+    workload w, size_t threads, size_t ops_per_thread, size_t rep, size_t arenas = 1)
 {
     rt::reset();
     std::vector<std::unique_ptr<cuda_caching_allocator>> instances;
+    instances.reserve(arenas);
     for (size_t i = 0; i < arenas; ++i)
     {
         instances.push_back(std::make_unique<cuda_caching_allocator>(0));
@@ -137,70 +143,76 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
     std::vector<std::thread> pool;
     std::atomic<size_t>      ready{0};
     // Counters are snapshotted after workers finish their private warm-up (below).
+    pool.reserve(threads);
     for (size_t t = 0; t < threads; ++t)
     {
-        pool.emplace_back([&, t] {
-            cuda_caching_allocator& a = *instances[t % instances.size()];
-            if (w == workload::warm)
+        pool.emplace_back(
+            [&, t]
             {
-                for (int i = 0; i < 2000; ++i)
+                cuda_caching_allocator& a = *instances[t % instances.size()];
+                if (w == workload::warm)
                 {
-                    a.deallocate(a.allocate(512), 512);
-                }
-                ready.fetch_add(1);
-                run_worker(go, ops_per_thread, [&] { a.deallocate(a.allocate(512), 512); }, outs[t]);
-            }
-            else
-            {
-                struct slot
-                {
-                    void*  p{nullptr};
-                    size_t n{0};
-                };
-                std::vector<slot> slots(32);
-                xorshift          rng{1000 + t};
-                auto const        mine      = rt::stream(t);
-                auto const        neighbour = rt::stream((t + 1) % threads);
-                auto              size_for  = [&] {
-                    // log-uniform 512 B .. 1 MiB: 2^9 .. 2^20
-                    size_t const shift = 9 + rng.next() % 12;
-                    return (size_t{1} << shift) + rng.next() % (size_t{1} << shift);
-                };
-                auto step = [&] {
-                    slot& s = slots[rng.next() % slots.size()];
-                    if (s.p != nullptr)
+                    for (int i = 0; i < 2000; ++i)
                     {
-                        if (rng.next() % 100 < 8)
+                        a.deallocate(a.allocate(512), 512);
+                    }
+                    ready.fetch_add(1);
+                    run_worker(
+                        go, ops_per_thread, [&] { a.deallocate(a.allocate(512), 512); }, outs[t]);
+                }
+                else
+                {
+                    struct slot
+                    {
+                        void*  p{nullptr};
+                        size_t n{0};
+                    };
+                    std::vector<slot> slots(32);
+                    xorshift          rng{1000 + t};
+                    auto const        mine      = rt::stream(t);
+                    auto const        neighbour = rt::stream((t + 1) % threads);
+                    auto              size_for  = [&]
+                    {
+                        // log-uniform 512 B .. 1 MiB: 2^9 .. 2^20
+                        size_t const shift = 9 + rng.next() % 12;
+                        return (size_t{1} << shift) + rng.next() % (size_t{1} << shift);
+                    };
+                    auto step = [&]
+                    {
+                        slot& s = slots[rng.next() % slots.size()];
+                        if (s.p != nullptr)
                         {
-                            a.record_stream(s.p, neighbour);
+                            if (rng.next() % 100 < 8)
+                            {
+                                a.record_stream(s.p, neighbour);
+                            }
+                            a.deallocate(s.p, s.n, mine);
                         }
-                        a.deallocate(s.p, s.n, mine);
-                    }
-                    s.n = size_for();
-                    s.p = a.allocate(s.n, mine);
-                };
-                for (int i = 0; i < 2000; ++i)
-                {
-                    step();
-                }
-                ready.fetch_add(1);
-                run_worker(go, ops_per_thread, step, outs[t]);
-                for (slot& s : slots)
-                {
-                    if (s.p != nullptr)
+                        s.n = size_for();
+                        s.p = a.allocate(s.n, mine);
+                    };
+                    for (int i = 0; i < 2000; ++i)
                     {
-                        a.deallocate(s.p, s.n, mine);
+                        step();
+                    }
+                    ready.fetch_add(1);
+                    run_worker(go, ops_per_thread, step, outs[t]);
+                    for (slot& s : slots)
+                    {
+                        if (s.p != nullptr)
+                        {
+                            a.deallocate(s.p, s.n, mine);
+                        }
                     }
                 }
-            }
-        });
+            });
     }
     while (ready.load() != threads)
     {
         std::this_thread::yield();
     }
     size_t const m0 = rt::malloc_calls, f0 = rt::free_calls, ec0 = rt::event_creates,
-                 er0 = rt::event_record_calls;
+                 er0   = rt::event_record_calls;
     double const start = phase0::now_ns();
     go.store(true, std::memory_order_release);
     for (auto& th : pool)
@@ -208,8 +220,8 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
         th.join();
     }
     size_t const m1 = rt::malloc_calls, f1 = rt::free_calls, ec1 = rt::event_creates,
-                 er1 = rt::event_record_calls;
-    double end = start;
+                 er1   = rt::event_record_calls;
+    double         end = start;
     phase0::result r;
     lock_counts    lk;
     for (auto& o : outs)
@@ -238,40 +250,48 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
     }
 
     r.name   = w == workload::warm ? "warm_alloc_free" : "mixed_replay";
-    r.params = {{"threads", std::to_string(threads)},
-                {"rep", std::to_string(rep)},
-                {"ops_per_thread", std::to_string(ops_per_thread)},
-                {"arenas", std::to_string(arenas)},
-                {"lock_instrumented", LOCK_STATS_ENABLED ? "yes" : "no"}};
-    r.batch  = kBatch;
-    r.counters = {{"wall_s", wall_s},
-                  {"ops_per_sec", total_ops / wall_s},
-                  {"ns_per_op_per_thread", wall_s * 1e9 * static_cast<double>(threads) / total_ops},
-                  {"driver_malloc_total", static_cast<double>(m1 - m0)},
-                  {"driver_free_total", static_cast<double>(f1 - f0)},
-                  {"event_create_total", static_cast<double>(ec1 - ec0)},
-                  {"event_record_total", static_cast<double>(er1 - er0)},
-                  {"cache_hits_total", hits},
-                  {"cache_misses_total", misses},
-                  {"bytes_reserved_end", reserved},
-                  {"inactive_split_bytes_end", inactive},
-                  {"bytes_unaccounted_end", unaccounted}};
+    r.params = {
+        {"threads", std::to_string(threads)},
+        {"rep", std::to_string(rep)},
+        {"ops_per_thread", std::to_string(ops_per_thread)},
+        {"arenas", std::to_string(arenas)},
+        {"lock_instrumented", LOCK_STATS_ENABLED ? "yes" : "no"}};
+    r.batch    = kBatch;
+    r.counters = {
+        {"wall_s", wall_s},
+        {"ops_per_sec", total_ops / wall_s},
+        {"ns_per_op_per_thread", wall_s * 1e9 * static_cast<double>(threads) / total_ops},
+        {"driver_malloc_total", static_cast<double>(m1 - m0)},
+        {"driver_free_total", static_cast<double>(f1 - f0)},
+        {"event_create_total", static_cast<double>(ec1 - ec0)},
+        {"event_record_total", static_cast<double>(er1 - er0)},
+        {"cache_hits_total", hits},
+        {"cache_misses_total", misses},
+        {"bytes_reserved_end", reserved},
+        {"inactive_split_bytes_end", inactive},
+        {"bytes_unaccounted_end", unaccounted}};
 #if LOCK_STATS_ENABLED
-    r.counters.push_back({"lock_acquisitions_per_op", static_cast<double>(lk.acquisitions) / total_ops});
-    r.counters.push_back({"lock_contended_fraction",
-                          lk.acquisitions ? static_cast<double>(lk.contended) / static_cast<double>(lk.acquisitions)
-                                          : 0.0});
+    r.counters.push_back(
+        {"lock_acquisitions_per_op", static_cast<double>(lk.acquisitions) / total_ops});
+    r.counters.push_back(
+        {"lock_contended_fraction",
+         lk.acquisitions ? static_cast<double>(lk.contended) / static_cast<double>(lk.acquisitions)
+                         : 0.0});
     r.counters.push_back({"lock_wait_ns_per_op", static_cast<double>(lk.wait_ns) / total_ops});
-    r.counters.push_back({"lock_wait_share_of_time",
-                          static_cast<double>(lk.wait_ns) / (wall_s * 1e9 * static_cast<double>(threads))});
+    r.counters.push_back(
+        {"lock_wait_share_of_time",
+         static_cast<double>(lk.wait_ns) / (wall_s * 1e9 * static_cast<double>(threads))});
     // Critical-section length: mean outermost hold per acquisition, raw and with the empty-lock
-    // floor (two TSC reads) subtracted; hold_share = locked time / wall time (1.0 = lock never idle).
-    double const hold_ns =
-        lk.outer ? static_cast<double>(lk.hold_cycles) / g_cycles_per_ns / static_cast<double>(lk.outer) : 0.0;
+    // floor (two TSC reads) subtracted; hold_share = locked time / wall time (1.0 = lock never
+    // idle).
+    double const hold_ns = lk.outer ? static_cast<double>(lk.hold_cycles) / g_cycles_per_ns /
+                                          static_cast<double>(lk.outer)
+                                    : 0.0;
     r.counters.push_back({"lock_hold_ns_per_acq_raw", hold_ns});
     r.counters.push_back({"lock_hold_ns_per_acq_net", std::max(0.0, hold_ns - g_hold_floor_ns)});
-    r.counters.push_back({"lock_hold_share_of_wall",
-                          static_cast<double>(lk.hold_cycles) / g_cycles_per_ns / (wall_s * 1e9)});
+    r.counters.push_back(
+        {"lock_hold_share_of_wall",
+         static_cast<double>(lk.hold_cycles) / g_cycles_per_ns / (wall_s * 1e9)});
 #else
     (void)lk;
 #endif
@@ -285,9 +305,9 @@ phase0::result run_config(workload w, size_t threads, size_t ops_per_thread, siz
 
 static int run_main(int argc, char** argv)
 {
-    bool const  quick = phase0::has_flag(argc, argv, "--quick");
-    std::string out   = phase0::arg_value(argc, argv, "--out", "contention.json");
-    size_t const reps = std::stoul(phase0::arg_value(argc, argv, "--reps", quick ? "1" : "3"));
+    bool const     quick = phase0::has_flag(argc, argv, "--quick");
+    std::string    out   = phase0::arg_value(argc, argv, "--out", "contention.json");
+    size_t const   reps  = std::stoul(phase0::arg_value(argc, argv, "--reps", quick ? "1" : "3"));
     phase0::report rep(
         LOCK_STATS_ENABLED ? "gpu_cache_shim_contention_lockwait"
 #if defined(BENCH_LOCK_KIND)
@@ -299,40 +319,48 @@ static int run_main(int argc, char** argv)
         phase0::arg_value(argc, argv, "--repo", "."));
     rep.set_build(phase0::compiler_string(), phase0::kNdebug);
     rep.set_evidence("hip", "shim");
-    rep.note("fake_driver", "cudaMalloc/cudaFree are malloc/free, events never block; driver latency excluded");
+    rep.note(
+        "fake_driver",
+        "cudaMalloc/cudaFree are malloc/free, events never block; driver latency excluded");
     rep.note("quick", quick ? "yes (reduced ops; not baseline-grade)" : "no");
-    rep.note("replay", "per-thread seeded xorshift (seed 1000+tid); sequence deterministic, interleaving is not");
-    rep.note("lock_wait",
-             LOCK_STATS_ENABLED ? "measured: std::recursive_mutex replaced by a timing drop-in (lock_wait_mutex.h); "
-                                  "try_lock first, wait timed only when the lock was held"
-                                : "not instrumented in this build; see the _lockwait suite");
+    rep.note(
+        "replay",
+        "per-thread seeded xorshift (seed 1000+tid); sequence deterministic, interleaving is not");
+    rep.note(
+        "lock_wait",
+        LOCK_STATS_ENABLED
+            ? "measured: std::recursive_mutex replaced by a timing drop-in (lock_wait_mutex.h); "
+              "try_lock first, wait timed only when the lock was held"
+            : "not instrumented in this build; see the _lockwait suite");
 #if defined(BENCH_LOCK_KIND)
     rep.note("lock_kind", BENCH_LOCK_KIND " (experiment: std::recursive_mutex replaced, task 8.7)");
 #else
     rep.note("lock_kind", "std::recursive_mutex (library as shipped)");
 #endif
-    rep.note("scope", "latency is not evidence about fragmentation; no fragmentation claim is made");
+    rep.note(
+        "scope", "latency is not evidence about fragmentation; no fragmentation claim is made");
 
 #if LOCK_STATS_ENABLED
     {
         // TSC rate against the steady clock, then the floor of an empty lock/unlock hold.
-        auto const    t0 = std::chrono::steady_clock::now();
+        auto const          t0 = std::chrono::steady_clock::now();
         std::uint64_t const c0 = BENCH_TSC();
         while (std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(200))
         {
         }
         std::uint64_t const c1 = BENCH_TSC();
-        double const ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+        double const        ns =
+            std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
         g_cycles_per_ns = static_cast<double>(c1 - c0) / ns;
-        std::bench_timed_recursive_mutex m;
-        lock_counts const                 a = thread_locks();
+        memory::testing::bench_timed_recursive_mutex m;
+        lock_counts const                            a = thread_locks();
         for (int i = 0; i < 1000000; ++i)
         {
             m.lock();
             m.unlock();
         }
         lock_counts const b = thread_locks();
-        g_hold_floor_ns = static_cast<double>(b.hold_cycles - a.hold_cycles) / g_cycles_per_ns /
+        g_hold_floor_ns     = static_cast<double>(b.hold_cycles - a.hold_cycles) / g_cycles_per_ns /
                           static_cast<double>(b.outer - a.outer);
         rep.note("tsc_ghz", std::to_string(g_cycles_per_ns));
         rep.note("hold_floor_ns", std::to_string(g_hold_floor_ns));
@@ -345,8 +373,10 @@ static int run_main(int argc, char** argv)
     bool const sweep = phase0::has_flag(argc, argv, "--arena-sweep");
     if (sweep)
     {
-        rep.note("arena_sweep", "K independent cuda_caching_allocator instances, thread t uses t % K; upper bound for "
-                                "an arena design: no cross-arena free, shared budget or shared stats");
+        rep.note(
+            "arena_sweep",
+            "K independent cuda_caching_allocator instances, thread t uses t % K; upper bound for "
+            "an arena design: no cross-arena free, shared budget or shared stats");
     }
     for (size_t r = 1; r <= reps; ++r)
     {
@@ -364,10 +394,17 @@ static int run_main(int argc, char** argv)
                 }
                 for (workload w : {workload::warm, workload::mixed})
                 {
-                    phase0::result res =
-                        run_config(w, threads, w == workload::warm ? warm_ops : mixed_ops, r, arenas);
-                    std::fprintf(stderr, "%-16s T=%-2zu K=%-2zu rep=%zu  %.3g ops/s  %s\n", res.name.c_str(),
-                                 threads, arenas, r, res.counters[1].second, res.status.c_str());
+                    phase0::result res = run_config(
+                        w, threads, w == workload::warm ? warm_ops : mixed_ops, r, arenas);
+                    std::fprintf(
+                        stderr,
+                        "%-16s T=%-2zu K=%-2zu rep=%zu  %.3g ops/s  %s\n",
+                        res.name.c_str(),
+                        threads,
+                        arenas,
+                        r,
+                        res.counters[1].second,
+                        res.status.c_str());
                     rep.add(std::move(res));
                 }
             }

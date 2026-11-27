@@ -8,10 +8,9 @@
 // no vendor runtime (CUDA/HIP) header on the include path. Compile-only; see
 // MemoryConsumerNoVendorHeaders in Testing/Cxx/CMakeLists.txt.
 
-#include "memory.h"
 #include "allocator.h"
-#include "common/cpu_arena.h"
 #include "common/copy_token.h"
+#include "common/cpu_arena.h"
 #include "common/data_ptr.h"
 #include "common/data_view.h"
 #include "common/host_allocator.h"
@@ -21,6 +20,7 @@
 #include "common/shared_storage.h"
 #include "common/storage_handle.h"
 #include "gpu/gpu_workspace.h"
+#include "memory.h"
 
 int main()
 {

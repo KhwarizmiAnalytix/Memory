@@ -24,22 +24,25 @@ namespace
 {
 using memory::gpu::cuda_caching_allocator;
 
-void sync_device() { (void)cudaDeviceSynchronize(); }
+void sync_device()
+{
+    (void)cudaDeviceSynchronize();
+}
 
 phase0::result series(
-    std::string                                       name,
-    std::size_t                                       size,
-    std::string                                       workload,
-    std::function<void()> const&                      op,
-    size_t                                            warmup,
-    size_t                                            samples,
-    double                                            res_ns,
-    bool                                              allow_batch)
+    std::string                  name,
+    std::size_t                  size,
+    std::string                  workload,
+    std::function<void()> const& op,
+    size_t                       warmup,
+    size_t                       samples,
+    double                       res_ns,
+    bool                         allow_batch)
 {
     phase0::result r;
-    r.name   = std::move(name);
-    r.params = {{"size_bytes", std::to_string(size)}, {"workload", std::move(workload)}};
-    r.batch  = allow_batch ? phase0::pick_batch(res_ns, op) : 1;
+    r.name              = std::move(name);
+    r.params            = {{"size_bytes", std::to_string(size)}, {"workload", std::move(workload)}};
+    r.batch             = allow_batch ? phase0::pick_batch(res_ns, op) : 1;
     r.samples_ns_per_op = phase0::measure(warmup, samples, r.batch, op);
     return r;
 }
@@ -62,51 +65,68 @@ int main(int argc, char** argv)
     (void)cudaRuntimeGetVersion(&rt_ver);
     (void)cudaDriverGetVersion(&drv_ver);
 
-    phase0::report rep("cuda_cold_warm", "real GPU hardware; host timing of allocator calls",
-                       phase0::arg_value(argc, argv, "--repo", "."));
+    phase0::report rep(
+        "cuda_cold_warm",
+        "real GPU hardware; host timing of allocator calls",
+        phase0::arg_value(argc, argv, "--repo", "."));
     rep.set_build(phase0::compiler_string(), phase0::kNdebug);
     rep.set_evidence("cuda", "hardware");
     rep.note("gpu", prop.name);
     rep.note("cuda_runtime_version", std::to_string(rt_ver));
     rep.note("cuda_driver_version", std::to_string(drv_ver));
     rep.note("quick", quick ? "yes (reduced samples; not baseline-grade)" : "no");
-    rep.note("scope", "single host thread, null stream; cold = empty_cache+alloc+free timed separately");
-    rep.note("clocks", "GPU/CPU clocks and power state not controlled; repeat before drawing conclusions");
+    rep.note(
+        "scope", "single host thread, null stream; cold = empty_cache+alloc+free timed separately");
+    rep.note(
+        "clocks",
+        "GPU/CPU clocks and power state not controlled; repeat before drawing conclusions");
 
-    double const              res   = phase0::timer_resolution_ns();
-    size_t const              warm_samples = quick ? 40 : 500;
-    size_t const              cold_samples = quick ? 10 : 100;
-    std::size_t const sizes[]              = {4096, 65536, 1u << 20, 4u << 20, 32u << 20};
+    double const      res          = phase0::timer_resolution_ns();
+    size_t const      warm_samples = quick ? 40 : 500;
+    size_t const      cold_samples = quick ? 10 : 100;
+    std::size_t const sizes[]      = {4096, 65536, 1u << 20, 4u << 20, 32u << 20};
 
     for (std::size_t size : sizes)
     {
         // Direct driver pair (the "raw" comparator: same size, same thread).
         rep.add(series(
-            "raw_driver_malloc_free", size, "cudaMalloc + cudaFree pair",
-            [&] {
+            "raw_driver_malloc_free",
+            size,
+            "cudaMalloc + cudaFree pair",
+            [&]
+            {
                 void* p = nullptr;
                 memory::gpu::throw_on_cuda_error(cudaMalloc(&p, size), "cudaMalloc");
                 memory::gpu::throw_on_cuda_error(cudaFree(p), "cudaFree");
             },
-            5, cold_samples, res, false));
+            5,
+            cold_samples,
+            res,
+            false));
 
         // Warm: same-size cache hit after the first iteration.
         {
             cuda_caching_allocator a(0);
             a.deallocate(a.allocate(size), size);
             rep.add(series(
-                "cache_warm_alloc_free", size, "allocate + deallocate, block cached",
-                [&] {
+                "cache_warm_alloc_free",
+                size,
+                "allocate + deallocate, block cached",
+                [&]
+                {
                     void* p = a.allocate(size);
                     a.deallocate(p, size);
                 },
-                500, warm_samples, res, true));
+                500,
+                warm_samples,
+                res,
+                true));
         }
 
         // Cold, attributed per call.
         {
             cuda_caching_allocator a(0);
-            std::vector<double> empty_s, alloc_s, free_s;
+            std::vector<double>    empty_s, alloc_s, free_s;
             for (size_t i = 0; i < 5 + cold_samples; ++i)
             {
                 double const t0 = phase0::now_ns();
@@ -123,14 +143,16 @@ int main(int argc, char** argv)
                     free_s.push_back(t3 - t2);
                 }
             }
-            for (auto const& [nm, v] : {std::pair<char const*, std::vector<double>*>{"cache_cold_empty_cache", &empty_s},
-                                        {"cache_cold_allocate", &alloc_s},
-                                        {"cache_cold_deallocate", &free_s}})
+            for (auto const& [nm, v] :
+                 {std::pair<char const*, std::vector<double>*>{"cache_cold_empty_cache", &empty_s},
+                  {"cache_cold_allocate", &alloc_s},
+                  {"cache_cold_deallocate", &free_s}})
             {
                 phase0::result r;
-                r.name              = nm;
-                r.params            = {{"size_bytes", std::to_string(size)},
-                                       {"workload", "cold: empty_cache, allocate, deallocate timed separately"}};
+                r.name   = nm;
+                r.params = {
+                    {"size_bytes", std::to_string(size)},
+                    {"workload", "cold: empty_cache, allocate, deallocate timed separately"}};
                 r.samples_ns_per_op = *v;
                 rep.add(std::move(r));
             }

@@ -188,8 +188,7 @@ MEMORYTEST(Allocator, CopyZeroCountIsNoOpAndNullEndpointsAreRejected)
         std::invalid_argument);
     int src = 0;
     EXPECT_THROW(
-        alloc_t::copy(&src, 4, nullptr, device_enum::CPU, device_enum::CPU),
-        std::invalid_argument);
+        alloc_t::copy(&src, 4, nullptr, device_enum::CPU, device_enum::CPU), std::invalid_argument);
     EXPECT_NO_THROW(alloc_t::copy(&src, 0, dst.data(), device_enum::CPU, device_enum::CPU));
     EXPECT_NO_THROW(alloc_t::copy(nullptr, 0, nullptr, device_enum::CPU, device_enum::CPU));
 
@@ -374,6 +373,7 @@ MEMORYTEST(DataPtr, move_assign_releases_previous_storage)
     first = std::move(second);
     EXPECT_EQ(kept, first.data());
     EXPECT_EQ(2, first.data()[0]);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(nullptr, second.data());
     END_TEST();
 }
@@ -381,13 +381,16 @@ MEMORYTEST(DataPtr, move_assign_releases_previous_storage)
 MEMORYTEST(DataPtr, default_stream_is_null)
 {
     data_ptr<float> ptr(4, device_enum::CPU);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(nullptr, ptr.stream());
     END_TEST();
 }
 
 MEMORYTEST(DataPtr, stores_and_moves_stream)
 {
-    using stream_t       = data_ptr<int>::stream_t;
+    using stream_t = data_ptr<int>::stream_t;
+    // opaque pointer values model runtime handles; they are never dereferenced.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     stream_t const dummy = reinterpret_cast<stream_t>(static_cast<std::uintptr_t>(0x11));
 
     data_ptr<int> ptr(4, device_enum::CPU, 0, dummy);
@@ -395,6 +398,7 @@ MEMORYTEST(DataPtr, stores_and_moves_stream)
 
     data_ptr<int> moved = std::move(ptr);
     EXPECT_EQ(dummy, moved.stream());
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(nullptr, ptr.stream());
     EXPECT_EQ(0U, ptr.size());
     END_TEST();
@@ -403,7 +407,7 @@ MEMORYTEST(DataPtr, stores_and_moves_stream)
 MEMORYTEST(DataPtr, clone_clones_storage)
 {
     data_ptr<int> src(4, device_enum::CPU);
-    src.data()[0] = 7;
+    src.data()[0]     = 7;
     data_ptr<int> dst = src.clone();
     EXPECT_NE(src.data(), dst.data());
     EXPECT_EQ(7, dst.data()[0]);

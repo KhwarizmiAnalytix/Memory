@@ -152,13 +152,24 @@ function(memory_setup_logging)
   # clang-cl cannot scan its imports with CMake's Ninja generator.
   set(FMT_MODULE OFF)
   # Keep dependency tooling disabled; only distributed compilation follows Memory.
-  foreach(_mem_log_feat IN ITEMS CACHE CLANGTIDY FIX IWYU SANITIZER COVERAGE SPELL VALGRIND)
+  foreach(
+    _mem_log_feat IN
+    ITEMS CACHE
+          CLANGTIDY
+          FIX
+          IWYU
+          SANITIZER
+          COVERAGE
+          SPELL
+          VALGRIND
+  )
     set(LOGGING_ENABLE_${_mem_log_feat} OFF CACHE BOOL "Disabled by Memory" FORCE)
   endforeach()
   set(LOGGING_ENABLE_ICECC "${MEMORY_ENABLE_ICECC}" CACHE BOOL "Configured by Memory" FORCE)
   foreach(_mem_log_setting IN ITEMS CACHE_BACKEND SANITIZER_TYPE LINKER_CHOICE LTO_MODE)
     set(LOGGING_${_mem_log_setting} "${MEMORY_${_mem_log_setting}}"
-        CACHE STRING "Configured by Memory" FORCE)
+        CACHE STRING "Configured by Memory" FORCE
+    )
   endforeach()
   if(EXISTS "${MEMORY_THIRD_PARTY_DIR}/Logging/CMakeLists.txt")
     memory_add_dependency_subdirectory(

@@ -32,7 +32,7 @@ template <typename value_t>
 struct storage_ref
 {
     value_t*      base{nullptr};
-    allocation_id id{};
+    allocation_id id;
     device        dev{};
     // Conservative default: unknown provenance behaves like adopted memory
     // (see storage_provenance in storage_identity.h).
@@ -48,7 +48,7 @@ template <typename value_t>
 struct data_view
 {
     using allocator_t = allocator<value_t>;
-    using stream_t    = typename allocator_t::stream_t;
+    using stream_t    = allocator_t::stream_t;
 
     MEMORY_FORCE_INLINE data_view() = default;
 

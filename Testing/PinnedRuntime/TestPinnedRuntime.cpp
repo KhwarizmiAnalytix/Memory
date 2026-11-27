@@ -181,7 +181,7 @@ TEST_F(PinnedRuntime, FailedEventRecordingQuarantinesBacking)
 TEST_F(PinnedRuntime, StatsSeparateLivePendingReusableQuarantinedAndPadding)
 {
     pinned_memory_allocator pool;
-    auto*                   live    = pool.allocate(100);   // 512 B class, stays live
+    auto*                   live    = pool.allocate(100);  // 512 B class, stays live
     auto*                   cached  = pool.allocate(100);
     auto*                   pending = pool.allocate(100);
     pool.deallocate(cached);  // no stream: immediately reusable
@@ -196,7 +196,8 @@ TEST_F(PinnedRuntime, StatsSeparateLivePendingReusableQuarantinedAndPadding)
     EXPECT_EQ(0U, s.bytes_quarantined);
     EXPECT_EQ(3U * 63U, s.bytes_padding);
     EXPECT_EQ(3U * (512U + 63U), s.bytes_reserved);  // padding is part of the backing
-    EXPECT_EQ(s.bytes_reserved, s.bytes_allocated + s.bytes_pending + s.bytes_cached + s.bytes_padding);
+    EXPECT_EQ(
+        s.bytes_reserved, s.bytes_allocated + s.bytes_pending + s.bytes_cached + s.bytes_padding);
     rt::ready[1] = true;
     pool.deallocate(live);
     pool.empty_cache();
@@ -227,8 +228,8 @@ TEST_F(PinnedRuntime, ShrinkNeverFreesInFlightBytes)
     EXPECT_EQ(0U, s.bytes_cached);
     EXPECT_EQ(2U * (512U + 63U), s.bytes_reserved);  // the target was not reachable
 
-    EXPECT_EQ(0U, pool.shrink(0));  // nothing more is reusable
-    rt::ready[1] = true;            // the pending transfer completes
+    EXPECT_EQ(0U, pool.shrink(0));                   // nothing more is reusable
+    rt::ready[1] = true;                             // the pending transfer completes
     EXPECT_EQ(512U + 63U, pool.shrink(512U + 63U));  // now it is reusable and goes
     EXPECT_EQ(512U + 63U, pool.stats().bytes_reserved);
     pool.deallocate(live);
@@ -240,11 +241,15 @@ TEST_F(PinnedRuntime, ShrinkStopsAtTheTarget)
     pinned_memory_allocator pool;
     void*                   blocks[4];
     for (auto& b : blocks)
+    {
         b = pool.allocate(100);
+    }
     for (auto* b : blocks)
+    {
         pool.deallocate(b);
+    }
     EXPECT_EQ(4U * (512U + 63U), pool.stats().bytes_reserved);
-    EXPECT_EQ(2U * (512U + 63U), pool.shrink(2U * (512U + 63U)));
+    EXPECT_EQ(2U * (512U + 63U), pool.shrink(std::size_t{2} * (512U + 63U)));
     EXPECT_EQ(2U * (512U + 63U), pool.stats().bytes_reserved);
     EXPECT_EQ(2U, pool.stats().driver_frees);
     pool.empty_cache();
@@ -380,10 +385,14 @@ TEST_F(PinnedRuntime, TypedBufferMovesAndDefersDestruction)
         first.copy_to_device_async(device);
         EXPECT_EQ(123, device[0]);
         memory::pinned_buffer<int> moved(std::move(first));
+        // verify the documented valid, empty moved-from state.
+        // NOLINTNEXTLINE(bugprone-use-after-move)
         EXPECT_EQ(nullptr, first.data());
         EXPECT_EQ(16U, moved.size());
         memory::pinned_buffer<int> assigned(8);
         assigned = std::move(moved);
+        // verify the documented valid, empty moved-from state.
+        // NOLINTNEXTLINE(bugprone-use-after-move)
         EXPECT_EQ(nullptr, moved.data());
         EXPECT_EQ(123, assigned.data()[0]);
     }
@@ -397,13 +406,20 @@ TEST_F(PinnedRuntime, ConcurrentAllocationAndCrossThreadFree)
     pinned_memory_allocator  pool;
     std::vector<void*>       pointers(16);
     std::vector<std::thread> threads;
+    threads.reserve(pointers.size());
     for (std::size_t i = 0; i < pointers.size(); ++i)
+    {
         threads.emplace_back([&, i] { pointers[i] = pool.allocate(100 + i); });
+    }
     for (auto& thread : threads)
+    {
         thread.join();
+    }
     EXPECT_EQ(16U * 512, pool.stats().bytes_allocated);
     for (auto* ptr : pointers)
+    {
         EXPECT_TRUE(pool.deallocate(ptr));
+    }
     EXPECT_EQ(0U, pool.stats().bytes_allocated);
     pool.empty_cache();
     EXPECT_EQ(0U, pool.stats().bytes_reserved);
@@ -416,8 +432,8 @@ TEST_F(PinnedRuntime, BufferDestructorFailureIsCountedNotThrown)
 {
     auto& pool = memory::cpu::pinned_allocator_for_device();
     pool.set_max_cached_bytes(0);
-    auto const before = memory::cleanup_diagnostic::failure_count(
-        memory::cleanup_source::pinned_buffer);
+    auto const before =
+        memory::cleanup_diagnostic::failure_count(memory::cleanup_source::pinned_buffer);
     EXPECT_NO_THROW({
         memory::pinned_buffer<int> buffer(16);
         rt::fail_host_free = true;

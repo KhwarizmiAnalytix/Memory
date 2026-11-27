@@ -83,17 +83,23 @@ public:
     void record_stream(stream_type stream) const
     {
         if (allocator_)
+        {
             allocator_->record_stream(data_, stream);
+        }
     }
     void copy_to_device_async(T* destination, stream_type stream = nullptr) const
     {
         if (allocator_)
+        {
             allocator_->copy_to_device_async(destination, data_, size_bytes(), stream);
+        }
     }
     void copy_from_device_async(const T* source, stream_type stream = nullptr)
     {
         if (allocator_)
+        {
             allocator_->copy_from_device_async(data_, source, size_bytes(), stream);
+        }
     }
     /// Hand the storage to a shared `retained_ptr<T>` (plan 6.3) so a retained copy
     /// (`allocator<T>::copy_async_retained`) keeps it alive until the transfer

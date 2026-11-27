@@ -32,6 +32,7 @@ struct alignas(128) over_aligned
 MEMORYTEST(HostAllocator, VectorUsesAlignedStorage)
 {
     std::vector<float, host_allocator<float>> v;
+    v.reserve(1000);
     for (int i = 0; i < 1000; ++i)
     {
         v.push_back(static_cast<float>(i));

@@ -52,8 +52,11 @@ public:
     // Returned memory is not valid until all prior work on @p stream completes.
     void* allocate(size_t bytes, cudaStream_t stream)
     {
-        if (bytes == 0) return nullptr;
-        void*             ptr = nullptr;
+        if (bytes == 0)
+        {
+            return nullptr;
+        }
+        void*              ptr = nullptr;
         device_guard const g(device_);
         cudaError_t const  r = cudaMallocAsync(&ptr, bytes, stream);
         if (r != cudaSuccess)
@@ -69,7 +72,10 @@ public:
     // stream that has not synchronised against @p stream at this point.
     void deallocate(void* ptr, cudaStream_t stream) noexcept
     {
-        if (!ptr) return;
+        if (!ptr)
+        {
+            return;
+        }
         device_guard const g(device_, std::nothrow);
         (void)cudaFreeAsync(ptr, stream);
     }

@@ -40,7 +40,7 @@ MEMORY_API void record_stream_use(void* ptr, int device_index, stream_handle_t s
 MEMORY_API bool owns_live_allocation(void const* ptr, int device_index);
 
 // torch.cuda.memory analogues over the per-device cache.
-MEMORY_API void        empty_cache(int device_index = 0);
+MEMORY_API void empty_cache(int device_index = 0);
 MEMORY_API std::size_t memory_allocated(int device_index = 0);
 MEMORY_API std::size_t max_memory_allocated(int device_index = 0);
 MEMORY_API std::size_t memory_reserved(int device_index = 0);

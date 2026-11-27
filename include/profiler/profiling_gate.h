@@ -52,7 +52,7 @@ public:
             --countdown();
             return false;
         }
-        countdown() = kStride - 1;
+        countdown()    = kStride - 1;
         bool const now = query();
         if (now)
         {

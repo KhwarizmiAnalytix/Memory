@@ -251,7 +251,7 @@ void benchmark_xsigma_cuda_raw_single(benchmark::State& state)
         state.SkipWithError("No GPU device available");
         return;
     }
-    const std::size_t          nbytes = static_cast<std::size_t>(state.range(0));
+    const std::size_t           nbytes = static_cast<std::size_t>(state.range(0));
     gpu::cuda_caching_allocator allocator(0);
 
     for (auto _ : state)

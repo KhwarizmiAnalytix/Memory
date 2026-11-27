@@ -997,8 +997,7 @@ MEMORYTEST_F(CudaCachingAllocator, tracks_successful_allocations_and_frees)
     ASSERT_NE(nullptr, ptr1);
     ASSERT_NE(nullptr, ptr2);
     EXPECT_EQ(
-        before.successful_allocations.load() + 2,
-        allocator.stats().successful_allocations.load());
+        before.successful_allocations.load() + 2, allocator.stats().successful_allocations.load());
     EXPECT_EQ(before.successful_frees.load(), allocator.stats().successful_frees.load());
 
     allocator.deallocate(ptr1, 1024);
@@ -1007,8 +1006,7 @@ MEMORYTEST_F(CudaCachingAllocator, tracks_successful_allocations_and_frees)
     allocator.deallocate(ptr2, 2048);
     EXPECT_EQ(before.successful_frees.load() + 2, allocator.stats().successful_frees.load());
     EXPECT_EQ(
-        before.successful_allocations.load() + 2,
-        allocator.stats().successful_allocations.load());
+        before.successful_allocations.load() + 2, allocator.stats().successful_allocations.load());
 
     LOGGING_LOG_INFO("CUDA caching allocator successful allocation/free counters test passed");
 }

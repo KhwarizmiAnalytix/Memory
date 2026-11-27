@@ -47,7 +47,7 @@ MEMORYTEST(StorageIdentity, next_id_is_monotonic)
 
 MEMORYTEST(StorageIdentity, valid_when_alloc_id_set)
 {
-    int dummy = 42;
+    int              dummy = 42;
     storage_identity id;
     id.alloc_id = storage_identity::next_id();
     id.base     = &dummy;
@@ -58,7 +58,7 @@ MEMORYTEST(StorageIdentity, valid_when_alloc_id_set)
 
 MEMORYTEST(StorageIdentity, equality)
 {
-    int dummy = 0;
+    int              dummy = 0;
     storage_identity a, b;
     a.alloc_id = 7;
     a.base     = &dummy;

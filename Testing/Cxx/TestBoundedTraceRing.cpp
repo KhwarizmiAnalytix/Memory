@@ -73,7 +73,10 @@ MEMORYTEST(BoundedTraceRing, clear_resets_state)
 MEMORYTEST(BoundedTraceRing, resize_preserves_recent_entries)
 {
     bounded_trace_ring<int> ring{5};
-    for (int i = 1; i <= 5; ++i) ring.push(i);
+    for (int i = 1; i <= 5; ++i)
+    {
+        ring.push(i);
+    }
     ring.resize(3);
     auto v = ring.copy();
     EXPECT_EQ(v.size(), 3U);
@@ -142,7 +145,8 @@ MEMORYTEST(GpuMemoryHistory, record_stores_requested_size_and_id_verbatim)
 {
     gpu_memory_history h;
     h.set_enabled(true, 10);
-    h.record(gpu_memory_trace_action::alloc, nullptr, 256, 200, 256ULL, 1024ULL, 0LL, /*alloc_id=*/9);
+    h.record(
+        gpu_memory_trace_action::alloc, nullptr, 256, 200, 256ULL, 1024ULL, 0LL, /*alloc_id=*/9);
     auto v = h.copy();
     ASSERT_EQ(v.size(), 1U);
     EXPECT_EQ(v[0].requested_size, 200U);

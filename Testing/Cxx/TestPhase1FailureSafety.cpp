@@ -6,9 +6,9 @@
  */
 
 #include <gtest/gtest.h>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
-#include <limits>
 
 #include "allocator.h"
 #include "common/data_ptr.h"
@@ -26,32 +26,29 @@ public:
         return tracker;
     }
 
-    void record_failure(const std::string& reason) noexcept
+    void record_failure(const std::string& reason)
     {
         failure_count_++;
         last_failure_ = reason;
     }
 
-    size_t failure_count() const noexcept { return failure_count_; }
-    std::string last_failure() const noexcept { return last_failure_; }
-    void reset() noexcept
+    size_t      failure_count() const noexcept { return failure_count_; }
+    std::string last_failure() const { return last_failure_; }
+    void        reset() noexcept
     {
         failure_count_ = 0;
         last_failure_.clear();
     }
 
 private:
-    size_t failure_count_ = 0;
+    size_t      failure_count_ = 0;
     std::string last_failure_;
 };
 
 class TestPhase1FailureSafety : public ::testing::Test
 {
 protected:
-    void SetUp() override
-    {
-        CleanupFailureTracker::instance().reset();
-    }
+    void SetUp() override { CleanupFailureTracker::instance().reset(); }
 };
 
 // Test: Allocation with invalid size throws
@@ -69,9 +66,7 @@ TEST_F(TestPhase1FailureSafety, SizeOverflowDetection)
 {
     // Huge size that overflows when multiplied by sizeof(float)
     EXPECT_THROW(
-        allocator<float>::allocate(
-            std::numeric_limits<size_t>::max(),
-            execution_context::cpu()),
+        allocator<float>::allocate(std::numeric_limits<size_t>::max(), execution_context::cpu()),
         std::overflow_error);
 }
 
@@ -96,10 +91,10 @@ TEST_F(TestPhase1FailureSafety, AllocationDeallocationCycles)
 // Test: move semantics don't corrupt state
 TEST_F(TestPhase1FailureSafety, MoveDoesNotCorruptState)
 {
-    const size_t size = 1000;
+    const size_t    size = 1000;
     data_ptr<float> ptr1(size, execution_context::cpu());
-    auto* original_data = ptr1.data();
-    auto original_id = ptr1.id();
+    auto*           original_data = ptr1.data();
+    auto            original_id   = ptr1.id();
 
     data_ptr<float> ptr2 = std::move(ptr1);
 
@@ -109,6 +104,7 @@ TEST_F(TestPhase1FailureSafety, MoveDoesNotCorruptState)
     EXPECT_EQ(ptr2.size(), size);
 
     // ptr1 should be cleared
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(ptr1.data(), nullptr);
     EXPECT_EQ(ptr1.size(), 0);
 }
@@ -131,7 +127,7 @@ TEST_F(TestPhase1FailureSafety, CopyIsDeleted)
 TEST_F(TestPhase1FailureSafety, CloneAllocatesNewMemory)
 {
     data_ptr<float> ptr1(100, execution_context::cpu());
-    auto* original_data = ptr1.data();
+    auto*           original_data = ptr1.data();
 
     data_ptr<float> ptr2 = ptr1.clone();
 
@@ -171,8 +167,7 @@ TEST_F(TestPhase1FailureSafety, ZeroSizeCopyHandling)
     std::vector<float> dst(100, 0.0f);
 
     // Zero-size copy: should be no-op
-    allocator<float>::copy(src.data(), 0, dst.data(),
-                          device_enum::CPU, device_enum::CPU);
+    allocator<float>::copy(src.data(), 0, dst.data(), device_enum::CPU, device_enum::CPU);
 
     for (const auto& val : dst)
     {
@@ -185,7 +180,7 @@ TEST_F(TestPhase1FailureSafety, AllocationIdUniquenessStress)
 {
 
     std::unordered_set<uint64_t> ids;
-    const int alloc_count = 1000;
+    const int                    alloc_count = 1000;
 
     for (int i = 0; i < alloc_count; ++i)
     {
@@ -201,17 +196,16 @@ TEST_F(TestPhase1FailureSafety, AllocationIdUniquenessStress)
 TEST_F(TestPhase1FailureSafety, DestructorNoThrow)
 {
     // This should not throw even though destructors are noexcept
-    EXPECT_NO_THROW({
-        data_ptr<float> ptr(1000, execution_context::cpu());
-    });  // Destructor called here
+    EXPECT_NO_THROW(
+        { data_ptr<float> ptr(1000, execution_context::cpu()); });  // Destructor called here
 }
 
 // Test: Multiple moves in sequence
 TEST_F(TestPhase1FailureSafety, ChainedMoves)
 {
     data_ptr<float> ptr1(100, execution_context::cpu());
-    auto id1 = ptr1.id();
-    auto* data1 = ptr1.data();
+    auto            id1   = ptr1.id();
+    auto*           data1 = ptr1.data();
 
     data_ptr<float> ptr2 = std::move(ptr1);
     data_ptr<float> ptr3 = std::move(ptr2);
@@ -222,8 +216,11 @@ TEST_F(TestPhase1FailureSafety, ChainedMoves)
     EXPECT_EQ(ptr4.id(), id1);
 
     // All intermediate ptrs should be empty
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(ptr1.data(), nullptr);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(ptr2.data(), nullptr);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_EQ(ptr3.data(), nullptr);
 }
 
@@ -232,16 +229,14 @@ TEST_F(TestPhase1FailureSafety, InvalidArgumentHandling)
 {
     // Size that would definitely overflow when multiplied by sizeof(float)
     EXPECT_THROW(
-        allocator<float>::allocate(
-            std::numeric_limits<size_t>::max(),
-            execution_context::cpu()),
+        allocator<float>::allocate(std::numeric_limits<size_t>::max(), execution_context::cpu()),
         std::overflow_error);
 }
 
 // Test: Context preservation through copies
 TEST_F(TestPhase1FailureSafety, ContextPreservationInClone)
 {
-    auto ctx = execution_context::cpu();
+    auto            ctx = execution_context::cpu();
     data_ptr<float> ptr1(100, ctx);
 
     data_ptr<float> ptr2 = ptr1.clone();

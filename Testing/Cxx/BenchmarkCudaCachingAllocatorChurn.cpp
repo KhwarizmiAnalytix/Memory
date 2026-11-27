@@ -80,14 +80,8 @@ static LONG WINAPI churn_crash_handler(EXCEPTION_POINTERS* ep) noexcept
         time(&t);
         fprintf(report, "=== Churn Crash Report ===\n");
         fprintf(report, "Time           : %s", ctime(&t));
-        fprintf(
-            report,
-            "Exception code : 0x%08lX\n",
-            ep->ExceptionRecord->ExceptionCode);
-        fprintf(
-            report,
-            "Exception addr : %p\n",
-            ep->ExceptionRecord->ExceptionAddress);
+        fprintf(report, "Exception code : 0x%08lX\n", ep->ExceptionRecord->ExceptionCode);
+        fprintf(report, "Exception addr : %p\n", ep->ExceptionRecord->ExceptionAddress);
         if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
             ep->ExceptionRecord->NumberParameters >= 2)
         {
@@ -108,7 +102,7 @@ static LONG WINAPI churn_crash_handler(EXCEPTION_POINTERS* ep) noexcept
     if (SymInitialize(proc, nullptr, TRUE))
     {
         // Walk the stack from the faulting context.
-        CONTEXT ctx = *ep->ContextRecord;
+        CONTEXT      ctx = *ep->ContextRecord;
         STACKFRAME64 frame{};
         frame.AddrPC.Offset    = ctx.Rip;
         frame.AddrPC.Mode      = AddrModeFlat;
@@ -118,9 +112,9 @@ static LONG WINAPI churn_crash_handler(EXCEPTION_POINTERS* ep) noexcept
         frame.AddrFrame.Mode   = AddrModeFlat;
 
         alignas(SYMBOL_INFO) char sym_buf[sizeof(SYMBOL_INFO) + 512];
-        auto* sym          = reinterpret_cast<PSYMBOL_INFO>(sym_buf);
-        sym->SizeOfStruct  = sizeof(SYMBOL_INFO);
-        sym->MaxNameLen    = 511;
+        auto*                     sym = reinterpret_cast<PSYMBOL_INFO>(sym_buf);
+        sym->SizeOfStruct             = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen               = 511;
 
         fprintf(report, "\nStack trace (innermost first):\n");
         for (int i = 0; i < 64; ++i)
@@ -140,8 +134,8 @@ static LONG WINAPI churn_crash_handler(EXCEPTION_POINTERS* ep) noexcept
                 break;
             }
 
-            DWORD64      disp64 = 0;
-            DWORD        disp   = 0;
+            DWORD64         disp64 = 0;
+            DWORD           disp   = 0;
             IMAGEHLP_LINE64 line{};
             line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
 
@@ -203,18 +197,10 @@ static LONG WINAPI churn_crash_handler(EXCEPTION_POINTERS* ep) noexcept
         mdei.ClientPointers    = FALSE;
 
         const MINIDUMP_TYPE dump_type = static_cast<MINIDUMP_TYPE>(
-            MiniDumpWithFullMemory |
-            MiniDumpWithModuleHeaders |
-            MiniDumpWithHandleData);
+            MiniDumpWithFullMemory | MiniDumpWithModuleHeaders | MiniDumpWithHandleData);
 
         if (MiniDumpWriteDump(
-                proc,
-                GetCurrentProcessId(),
-                dmpfile,
-                dump_type,
-                &mdei,
-                nullptr,
-                nullptr))
+                proc, GetCurrentProcessId(), dmpfile, dump_type, &mdei, nullptr, nullptr))
         {
             fprintf(report, "\nMinidump: churn_crash.dmp\n");
         }
@@ -239,10 +225,7 @@ namespace
 // Static-init installs the handler before benchmark::Initialize() runs.
 struct churn_crash_handler_installer
 {
-    churn_crash_handler_installer() noexcept
-    {
-        SetUnhandledExceptionFilter(churn_crash_handler);
-    }
+    churn_crash_handler_installer() noexcept { SetUnhandledExceptionFilter(churn_crash_handler); }
 };
 }  // namespace
 static const churn_crash_handler_installer churn_crash_handler_installer_;

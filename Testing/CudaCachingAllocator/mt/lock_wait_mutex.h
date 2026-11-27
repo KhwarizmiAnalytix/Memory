@@ -8,21 +8,20 @@
 // Counters are thread_local plain integers so the instrumentation does not add a
 // shared cache line of its own; each worker reads its own counters after the run.
 // Hold time includes the two TSC reads (the bench measures that floor and reports it).
-// Declaring a type in namespace std is formally undefined behaviour; this is a
-// measurement build and the library sources are not changed.
+// The benchmark uses this type through the allocator's test-only mutex alias.
 
 #include <chrono>
 #include <cstdint>
 #include <mutex>
 
 #if defined(__x86_64__) || defined(__i386__)
-#    include <x86intrin.h>
-#    define BENCH_TSC() __rdtsc()
+#include <x86intrin.h>
+#define BENCH_TSC() __rdtsc()
 #else
-#    define BENCH_TSC() 0ULL
+#define BENCH_TSC() 0ULL
 #endif
 
-namespace std
+namespace memory::testing
 {
 struct bench_lock_stats
 {
@@ -46,10 +45,10 @@ public:
             ++s.contended;
             auto const t0 = std::chrono::steady_clock::now();
             m_.lock();
-            s.wait_ns += static_cast<std::uint64_t>(
-                std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now() - t0)
-                    .count());
+            s.wait_ns +=
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                               std::chrono::steady_clock::now() - t0)
+                                               .count());
         }
         if (depth_++ == 0)
         {
@@ -84,6 +83,4 @@ private:
     unsigned             depth_{0};  // touched only by the owning thread
     std::uint64_t        t_acquired_{0};
 };
-}  // namespace std
-
-#define recursive_mutex bench_timed_recursive_mutex
+}  // namespace memory::testing

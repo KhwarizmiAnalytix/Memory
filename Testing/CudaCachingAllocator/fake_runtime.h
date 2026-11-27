@@ -29,8 +29,8 @@
 
 #include <array>
 #include <condition_variable>
-#include <cstdlib>
 #include <cstddef>
+#include <cstdlib>
 #include <map>
 #include <mutex>
 #include <set>
@@ -42,6 +42,8 @@ struct fake_event
     cudaStream_t stream{nullptr};
 };
 using cudaEvent_t = fake_event*;
+// preserve the vendor API enum representation in this runtime test double.
+// NOLINTNEXTLINE(performance-enum-size)
 enum cudaMemcpyKind
 {
     cudaMemcpyHostToDevice,
@@ -72,23 +74,23 @@ inline int get_device_calls      = 0;
 inline int fail_get_device_at_call = 0;
 
 // cudaMalloc failure injection: decrement-countdown.
-inline int          fail_malloc_calls = 0;
-inline int          malloc_calls      = 0;
+inline int fail_malloc_calls = 0;
+inline int malloc_calls      = 0;
 // Error returned by an injected cudaMalloc failure (OOM unless a test changes it).
-inline int          malloc_error      = 1;  // cudaErrorMemoryAllocation
+inline int malloc_error = 1;  // cudaErrorMemoryAllocation
 // Fails exactly the cudaMalloc call whose 1-based index equals this (0 = never).
-inline int          fail_malloc_at_call = 0;
+inline int             fail_malloc_at_call = 0;
 inline std::set<void*> device_backing;
 // Live bytes behind device_backing (cudaMalloc minus cudaFree), for budget checks.
-inline std::size_t  device_backing_bytes = 0;
+inline std::size_t                  device_backing_bytes = 0;
 inline std::map<void*, std::size_t> device_backing_sizes;
 
 // Pauses the cudaMalloc call whose 1-based call index matches
 // malloc_pause_on_call (0 = disabled) until release_malloc_pause() is called
 // from another thread. Used to make a genuinely concurrent budget-recheck
 // window deterministic in a single-process test.
-inline int                     malloc_pause_on_call = 0;
-inline bool                    malloc_paused         = false;
+inline int                     malloc_pause_on_call     = 0;
+inline bool                    malloc_paused            = false;
 inline bool                    malloc_release_requested = false;
 inline std::mutex              malloc_pause_mutex;
 inline std::condition_variable malloc_pause_cv;
@@ -119,11 +121,12 @@ inline int event_create_calls        = 0;
 inline int event_creates  = 0;
 inline int event_destroys = 0;
 
-inline std::array<bool, 8> event_ready{
-    true, true, true, true, true, true, true, true};
+inline std::array<bool, 8> event_ready{true, true, true, true, true, true, true, true};
 
 inline cudaStream_t stream(std::size_t i)
 {
+    // opaque pointer values model runtime handles; they are never dereferenced.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     return reinterpret_cast<void*>(i + 1);  // 0 reserved for "default stream"/nullptr
 }
 
@@ -141,23 +144,23 @@ inline void reset()
     }
     device_backing.clear();
     device_backing_sizes.clear();
-    device_backing_bytes   = 0;
-    fail_get_device_at_call = 0;
-    fail_malloc_at_call    = 0;
-    malloc_error           = 1;
-    current_device         = 0;
-    device_count           = 1;
-    device_total_bytes     = 64ULL * 1024 * 1024 * 1024;
-    fail_get_device_calls  = 0;
-    get_device_calls       = 0;
-    fail_malloc_calls      = 0;
-    malloc_calls           = 0;
+    device_backing_bytes      = 0;
+    fail_get_device_at_call   = 0;
+    fail_malloc_at_call       = 0;
+    malloc_error              = 1;
+    current_device            = 0;
+    device_count              = 1;
+    device_total_bytes        = 64ULL * 1024 * 1024 * 1024;
+    fail_get_device_calls     = 0;
+    get_device_calls          = 0;
+    fail_malloc_calls         = 0;
+    malloc_calls              = 0;
     fail_event_record_at_call = 0;
     event_record_calls        = 0;
     fail_event_create_at_call = 0;
     event_create_calls        = 0;
-    event_creates  = 0;
-    event_destroys = 0;
+    event_creates             = 0;
+    event_destroys            = 0;
     event_ready.fill(true);
 }
 }  // namespace fake_runtime
@@ -304,7 +307,7 @@ inline cudaError_t cudaEventQuery(cudaEvent_t event)
 
 inline cudaError_t cudaEventSynchronize(cudaEvent_t event)
 {
-    auto const idx                 = reinterpret_cast<std::size_t>(event->stream);
+    auto const idx                    = reinterpret_cast<std::size_t>(event->stream);
     fake_runtime::event_ready.at(idx) = true;
     return cudaSuccess;
 }

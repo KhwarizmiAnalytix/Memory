@@ -49,9 +49,11 @@ find_package(CUDAToolkit REQUIRED)
 # CMake identifies Clang as a CUDA compiler by compiling a probe for a fixed GPU
 # architecture. Releases before 3.31.10 only probe sm_52 and older, which
 # CUDA 13 no longer supports, so identification fails.
-if(NOT CMAKE_CUDA_COMPILER_LOADED AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+if(NOT CMAKE_CUDA_COMPILER_LOADED
+   AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"
    AND CMAKE_CUDA_COMPILER STREQUAL CMAKE_CXX_COMPILER
-   AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL 13.0 AND CMAKE_VERSION VERSION_LESS 3.31.10
+   AND CUDAToolkit_VERSION VERSION_GREATER_EQUAL 13.0
+   AND CMAKE_VERSION VERSION_LESS 3.31.10
 )
   message(
     FATAL_ERROR

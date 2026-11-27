@@ -197,8 +197,12 @@ struct metal_caching_allocator::Impl
 
             // First, try to serve from an existing heap — zero new reservation,
             // no budget check required.
-            block = alloc_segment_locked(pool, pool_stream, alloc_size, false,
-                                         /*only_existing=*/true);
+            block = alloc_segment_locked(
+                pool,
+                pool_stream,
+                alloc_size,
+                false,
+                /*only_existing=*/true);
 
             if (block == nullptr)
             {
@@ -206,8 +210,7 @@ struct metal_caching_allocator::Impl
                 // needed.  Budget-check against the actual commitment: a new heap
                 // is kSmallHeapBytes or kLargeHeapBytes, not just alloc_size.
                 size_t const heap_cost = std::max(
-                    alloc_size <= kSmallBuffer ? kSmallHeapBytes : kLargeHeapBytes,
-                    alloc_size);
+                    alloc_size <= kSmallBuffer ? kSmallHeapBytes : kLargeHeapBytes, alloc_size);
                 if (reserved_would_exceed_locked(heap_cost))
                 {
                     release_cached_blocks_locked();
@@ -216,13 +219,21 @@ struct metal_caching_allocator::Impl
                 {
                     fail_oom_locked(size);
                 }
-                block = alloc_segment_locked(pool, pool_stream, alloc_size, false,
-                                             /*only_existing=*/false);
+                block = alloc_segment_locked(
+                    pool,
+                    pool_stream,
+                    alloc_size,
+                    false,
+                    /*only_existing=*/false);
                 if (block == nullptr)
                 {
                     release_cached_blocks_locked();
-                    block = alloc_segment_locked(pool, pool_stream, alloc_size, true,
-                                                 /*only_existing=*/false);
+                    block = alloc_segment_locked(
+                        pool,
+                        pool_stream,
+                        alloc_size,
+                        true,
+                        /*only_existing=*/false);
                     if (block == nullptr)
                     {
                         fail_oom_locked(size);
@@ -304,7 +315,10 @@ struct metal_caching_allocator::Impl
 
     void register_command_buffer(void* token)
     {
-        if (token == nullptr) return;
+        if (token == nullptr)
+        {
+            return;
+        }
         std::scoped_lock const lock(mutex_);
         // Ensure an entry exists; blocks added via record_stream later are
         // indexed under this token.
@@ -313,9 +327,12 @@ struct metal_caching_allocator::Impl
 
     void mark_completion(void* token)
     {
-        if (token == nullptr) return;
+        if (token == nullptr)
+        {
+            return;
+        }
         std::scoped_lock const lock(mutex_);
-        auto it = pending_completion_.find(token);
+        auto                   it = pending_completion_.find(token);
         if (it == pending_completion_.end())
         {
             return;
@@ -567,10 +584,22 @@ struct metal_caching_allocator::Impl
     }
 
     // O(1) lock-free reads for the four basic stats (plan §6.1, P3.5).
-    size_t bytes_allocated_now()      const noexcept { return stats_.bytes_allocated.load(std::memory_order_relaxed); }
-    size_t peak_bytes_allocated_now() const noexcept { return stats_.peak_bytes_allocated.load(std::memory_order_relaxed); }
-    size_t bytes_reserved_now()       const noexcept { return stats_.bytes_reserved.load(std::memory_order_relaxed); }
-    size_t peak_bytes_reserved_now()  const noexcept { return stats_.peak_bytes_reserved.load(std::memory_order_relaxed); }
+    size_t bytes_allocated_now() const noexcept
+    {
+        return stats_.bytes_allocated.load(std::memory_order_relaxed);
+    }
+    size_t peak_bytes_allocated_now() const noexcept
+    {
+        return stats_.peak_bytes_allocated.load(std::memory_order_relaxed);
+    }
+    size_t bytes_reserved_now() const noexcept
+    {
+        return stats_.bytes_reserved.load(std::memory_order_relaxed);
+    }
+    size_t peak_bytes_reserved_now() const noexcept
+    {
+        return stats_.peak_bytes_reserved.load(std::memory_order_relaxed);
+    }
 
     int device() const { return device_; }
 
@@ -650,8 +679,7 @@ private:
     // driver allocation.  This lets callers budget-check against the heap cost
     // before committing to a new backing allocation.
     id<MTLBuffer> make_heap_buffer(
-        id<MTLDevice> dev, size_t alloc_size, size_t* out_reserved,
-        bool only_existing = false)
+        id<MTLDevice> dev, size_t alloc_size, size_t* out_reserved, bool only_existing = false)
     {
         size_t const class_bytes = alloc_size <= kSmallBuffer ? kSmallHeapBytes : kLargeHeapBytes;
         MTLResourceOptions const opts = MTLResourceStorageModeShared;
@@ -698,13 +726,16 @@ private:
 
         // Standalone fallback: one buffer with no heap overhead.
         id<MTLBuffer> buffer = [dev newBufferWithLength:alloc_size options:opts];
-        *out_reserved = (buffer != nil) ? alloc_size : 0;
+        *out_reserved        = (buffer != nil) ? alloc_size : 0;
         return buffer;
     }
 
     cache_block* alloc_segment_locked(
-        block_pool& pool, void* stream, size_t alloc_size, bool is_retry,
-        bool only_existing = false)
+        block_pool& pool,
+        void*       stream,
+        size_t      alloc_size,
+        bool        is_retry,
+        bool        only_existing = false)
     {
         if (is_retry)
         {
@@ -722,7 +753,7 @@ private:
         auto block = std::make_unique<cache_block>(nullptr, alloc_size, stream, &pool, nil);
 
         size_t        reserved_delta = 0;
-        id<MTLBuffer> buffer         = make_heap_buffer(dev, alloc_size, &reserved_delta, only_existing);
+        id<MTLBuffer> buffer = make_heap_buffer(dev, alloc_size, &reserved_delta, only_existing);
         if (buffer == nil)
         {
             return nullptr;
@@ -782,11 +813,7 @@ private:
         bump_peak_locked(
             stats_.peak_bytes_allocated, stats_.bytes_allocated.load(std::memory_order_relaxed));
         record_trace_locked(
-            gpu_memory_trace_action::alloc,
-            block->ptr,
-            block->size,
-            orig_size,
-            block->alloc_id);
+            gpu_memory_trace_action::alloc, block->ptr, block->size, orig_size, block->alloc_id);
 #if MEMORY_HAS_PROFILER
         report_event_locked(block->ptr, static_cast<int64_t>(block->size));
 #endif
@@ -987,7 +1014,7 @@ private:
     gpu_memory_oom_evidence                                    last_oom_;
     std::vector<std::pair<id<MTLHeap>, size_t>>                heaps_;  // heap + capacity
     // Command-buffer completion tracking (Order 5): token → deferred blocks.
-    std::unordered_map<void*, std::vector<cache_block*>>       pending_completion_;
+    std::unordered_map<void*, std::vector<cache_block*>> pending_completion_;
 };
 
 metal_caching_allocator::metal_caching_allocator(int device, size_t max_cached_bytes)
@@ -1085,10 +1112,22 @@ unified_cache_stats metal_caching_allocator::stats() const
     return impl_->stats();
 }
 
-size_t metal_caching_allocator::bytes_allocated_now()      const noexcept { return impl_->bytes_allocated_now(); }
-size_t metal_caching_allocator::peak_bytes_allocated_now() const noexcept { return impl_->peak_bytes_allocated_now(); }
-size_t metal_caching_allocator::bytes_reserved_now()       const noexcept { return impl_->bytes_reserved_now(); }
-size_t metal_caching_allocator::peak_bytes_reserved_now()  const noexcept { return impl_->peak_bytes_reserved_now(); }
+size_t metal_caching_allocator::bytes_allocated_now() const noexcept
+{
+    return impl_->bytes_allocated_now();
+}
+size_t metal_caching_allocator::peak_bytes_allocated_now() const noexcept
+{
+    return impl_->peak_bytes_allocated_now();
+}
+size_t metal_caching_allocator::bytes_reserved_now() const noexcept
+{
+    return impl_->bytes_reserved_now();
+}
+size_t metal_caching_allocator::peak_bytes_reserved_now() const noexcept
+{
+    return impl_->peak_bytes_reserved_now();
+}
 
 void metal_caching_allocator::record_memory_history(bool enabled, size_t max_entries)
 {
@@ -1126,8 +1165,8 @@ namespace
 // Process-lifetime per-device Metal registry (plan §6.3, P3.1).
 // Only device index 0 is valid today (MTLCreateSystemDefaultDevice), but the
 // registry supports kMaxDevices slots for forward compatibility.
-std::once_flag                           s_device_once[kMaxDevices];
-std::atomic<metal_caching_allocator*>    s_device_cache[kMaxDevices]{};
+std::once_flag                        s_device_once[kMaxDevices];
+std::atomic<metal_caching_allocator*> s_device_cache[kMaxDevices]{};
 }  // namespace
 
 metal_caching_allocator& metal_caching_allocator_for_device(int device_index)
@@ -1135,9 +1174,8 @@ metal_caching_allocator& metal_caching_allocator_for_device(int device_index)
     if (device_index < 0 || device_index >= kMaxDevices)
     {
         throw std::out_of_range(
-            "metal_caching_allocator_for_device: device_index " +
-            std::to_string(device_index) + " out of range [0, " +
-            std::to_string(kMaxDevices) + ")");
+            "metal_caching_allocator_for_device: device_index " + std::to_string(device_index) +
+            " out of range [0, " + std::to_string(kMaxDevices) + ")");
     }
     // Fast path: no lock on the warm path (0 registry locks, plan §6.1).
     metal_caching_allocator* p = s_device_cache[device_index].load(std::memory_order_acquire);
@@ -1146,11 +1184,14 @@ metal_caching_allocator& metal_caching_allocator_for_device(int device_index)
         return *p;
     }
     // Slow path (first call for this device): initialize exactly once.
-    std::call_once(s_device_once[device_index], [device_index]() {
-        // Intentional leak: allocators outlive all static-storage destructors.
-        auto* a = new metal_caching_allocator(device_index);
-        s_device_cache[device_index].store(a, std::memory_order_release);
-    });
+    std::call_once(
+        s_device_once[device_index],
+        [device_index]()
+        {
+            // Intentional leak: allocators outlive all static-storage destructors.
+            auto* a = new metal_caching_allocator(device_index);
+            s_device_cache[device_index].store(a, std::memory_order_release);
+        });
     return *s_device_cache[device_index].load(std::memory_order_acquire);
 }
 

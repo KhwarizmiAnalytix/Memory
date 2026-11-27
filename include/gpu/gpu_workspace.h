@@ -13,9 +13,10 @@
 
 #include "include/util/exception.h"
 
+#include "common/cleanup_diagnostic.h"
 #include "common/device.h"
-#include "common/memory_macros.h"
 #include "common/execution_context.h"
+#include "common/memory_macros.h"
 #include "common/transfer.h"
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
@@ -61,10 +62,10 @@ class MEMORY_VISIBILITY gpu_workspace
 {
 public:
     explicit gpu_workspace(
-        size_t                capacity  = 0,
-        execution_context     ctx       = execution_context::cpu()) noexcept
+        size_t capacity = 0, execution_context ctx = execution_context::cpu()) noexcept
         : capacity_(capacity), ctx_(ctx)
-    {}
+    {
+    }
 
     ~gpu_workspace() { release_backing(); }
 
@@ -72,8 +73,7 @@ public:
     gpu_workspace& operator=(gpu_workspace const&) = delete;
 
     gpu_workspace(gpu_workspace&& rhs) noexcept
-        : backing_(rhs.backing_), capacity_(rhs.capacity_),
-          cursor_(rhs.cursor_), ctx_(rhs.ctx_)
+        : backing_(rhs.backing_), capacity_(rhs.capacity_), cursor_(rhs.cursor_), ctx_(rhs.ctx_)
     {
         rhs.backing_  = nullptr;
         rhs.capacity_ = 0;
@@ -82,7 +82,10 @@ public:
 
     gpu_workspace& operator=(gpu_workspace&& rhs) noexcept
     {
-        if (this == &rhs) return *this;
+        if (this == &rhs)
+        {
+            return *this;
+        }
         release_backing();
         backing_      = rhs.backing_;
         capacity_     = rhs.capacity_;
@@ -99,7 +102,10 @@ public:
     // backing slab on first call.
     void* acquire(size_t bytes)
     {
-        if (bytes == 0) return nullptr;
+        if (bytes == 0)
+        {
+            return nullptr;
+        }
         constexpr size_t kAlign = 256;
         if (backing_ == nullptr)
         {
@@ -126,7 +132,8 @@ public:
     {
         if (sizeof(T) != 0 && count > std::numeric_limits<size_t>::max() / sizeof(T))
         {
-            throw std::overflow_error("gpu_workspace::acquire<T>: count * sizeof(T) overflows size_t");
+            throw std::overflow_error(
+                "gpu_workspace::acquire<T>: count * sizeof(T) overflows size_t");
         }
         return static_cast<T*>(acquire(count * sizeof(T)));
     }
@@ -173,9 +180,9 @@ public:
     }
 
     size_t            capacity() const noexcept { return capacity_; }
-    size_t            used()     const noexcept { return cursor_; }
-    bool              empty()    const noexcept { return cursor_ == 0; }
-    execution_context ctx()      const noexcept { return ctx_; }
+    size_t            used() const noexcept { return cursor_; }
+    bool              empty() const noexcept { return cursor_ == 0; }
+    execution_context ctx() const noexcept { return ctx_; }
 
 private:
     // Fail closed: the slab is about to be used from another stream, which is safe
@@ -183,9 +190,8 @@ private:
     void require_previous_stream_idle() const
     {
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-        if (ctx_.is_gpu() &&
-            detail::token_stream_query(ctx_.device_index(), ctx_.stream).status ==
-                detail::driver_status::ok)
+        if (ctx_.is_gpu() && detail::token_stream_query(ctx_.device_index(), ctx_.stream).status ==
+                                 detail::driver_status::ok)
         {
             return;
         }
@@ -204,7 +210,7 @@ private:
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         if (ctx_.is_gpu())
         {
-            backing_ = allocate_device_bytes(needed, ctx_.device_index(), ctx_.stream);
+            backing_  = allocate_device_bytes(needed, ctx_.device_index(), ctx_.stream);
             capacity_ = needed;
             return;
         }
@@ -216,7 +222,10 @@ private:
 
     void release_backing() noexcept
     {
-        if (!backing_) return;
+        if (!backing_)
+        {
+            return;
+        }
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP || MEMORY_HAS_METAL
         if (ctx_.is_gpu())
         {
@@ -224,7 +233,10 @@ private:
             {
                 free_device_bytes(backing_, ctx_.device_index(), ctx_.stream);
             }
-            catch (...) {}
+            catch (...)
+            {
+                cleanup_diagnostic::record_failure(cleanup_source::gpu_cache);
+            }
         }
 #endif
         backing_  = nullptr;
@@ -235,7 +247,7 @@ private:
     void*             backing_{nullptr};
     size_t            capacity_{0};
     size_t            cursor_{0};
-    execution_context ctx_{};
+    execution_context ctx_;
 };
 
 }  // namespace memory::gpu

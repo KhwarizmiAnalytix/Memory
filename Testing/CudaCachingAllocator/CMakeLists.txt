@@ -111,6 +111,9 @@ foreach(_variant "" "Lockwait" "Spin")
   endif()
   if(_variant STREQUAL "Lockwait")
     target_compile_definitions(${_tgt} PRIVATE BENCH_LOCK_WAIT=1)
+    target_compile_definitions(
+      ${_tgt} PRIVATE MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE=memory::testing::bench_timed_recursive_mutex
+    )
     if(MSVC)
       target_compile_options(${_tgt} PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/mt/lock_wait_mutex.h")
     else()
@@ -119,6 +122,9 @@ foreach(_variant "" "Lockwait" "Spin")
   elseif(_variant STREQUAL "Spin")
     # Task 8.7 experiment: spin-then-yield lock in place of std::recursive_mutex.
     target_compile_definitions(${_tgt} PRIVATE BENCH_LOCK_KIND="spin_then_yield")
+    target_compile_definitions(
+      ${_tgt} PRIVATE MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE=memory::testing::bench_spin_recursive_mutex
+    )
     if(MSVC)
       target_compile_options(${_tgt} PRIVATE /FI "${CMAKE_CURRENT_SOURCE_DIR}/mt/spin_mutex.h")
     else()

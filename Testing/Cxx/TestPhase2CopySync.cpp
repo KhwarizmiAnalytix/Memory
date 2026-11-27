@@ -28,8 +28,7 @@ TEST_F(TestPhase2CopySync, CpuCopySynchronous)
 
     // Synchronous copy should return with data visible immediately
     allocator<float>::copy_sync(
-        src.data(), size_floats, dst.data(),
-        device_enum::CPU, device_enum::CPU);
+        src.data(), size_floats, dst.data(), device_enum::CPU, device_enum::CPU);
 
     // Verify data was copied
     for (size_t i = 0; i < size_floats; ++i)
@@ -68,7 +67,7 @@ TEST_F(TestPhase2CopySync, TokenStateQuery)
 TEST_F(TestPhase2CopySync, TokenFromCpuContextIsComplete)
 {
     execution_context ctx = execution_context::cpu();
-    copy_token token(ctx);
+    copy_token        token(ctx);
 
     EXPECT_TRUE(token.ready());
     EXPECT_EQ(token.state(), completion_state::complete);
@@ -82,9 +81,7 @@ TEST_F(TestPhase2CopySync, ZeroSizeCopy)
     std::vector<float> dst(10, 0.0f);
 
     // Zero-size copy should succeed and be no-op
-    allocator<float>::copy_sync(
-        src.data(), 0, dst.data(),
-        device_enum::CPU, device_enum::CPU);
+    allocator<float>::copy_sync(src.data(), 0, dst.data(), device_enum::CPU, device_enum::CPU);
 
     // Destination should be unchanged
     for (const auto& val : dst)
@@ -130,9 +127,9 @@ TEST_F(TestPhase2CopySync, TokenReadyIdempotent)
 {
     copy_token token(execution_context::cpu());
 
-    bool first_ready = token.ready();
+    bool first_ready  = token.ready();
     bool second_ready = token.ready();
-    bool third_ready = token.ready();
+    bool third_ready  = token.ready();
 
     EXPECT_EQ(first_ready, second_ready);
     EXPECT_EQ(second_ready, third_ready);
@@ -143,6 +140,8 @@ TEST_F(TestPhase2CopySync, TokenReadyIdempotent)
 TEST_F(TestPhase2CopySync, TokenCopyable)
 {
     copy_token token1(execution_context::cpu());
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token token2 = token1;  // Copy assignment
 
     EXPECT_EQ(token2.state(), completion_state::complete);
@@ -157,7 +156,7 @@ TEST_F(TestPhase2CopySync, TokenCopyable)
 TEST_F(TestPhase2CopySync, TokenContextAccessor)
 {
     execution_context ctx = execution_context::cpu();
-    copy_token token(ctx);
+    copy_token        token(ctx);
 
     EXPECT_EQ(token.ctx().device_type(), device_enum::CPU);
 }
@@ -165,7 +164,7 @@ TEST_F(TestPhase2CopySync, TokenContextAccessor)
 // Test: large buffer copy
 TEST_F(TestPhase2CopySync, LargeBufferCopy)
 {
-    const size_t large_size = 1000000;
+    const size_t       large_size = 1000000;
     std::vector<float> src(large_size);
     std::vector<float> dst(large_size);
 
@@ -176,8 +175,7 @@ TEST_F(TestPhase2CopySync, LargeBufferCopy)
     }
 
     allocator<float>::copy_sync(
-        src.data(), large_size, dst.data(),
-        device_enum::CPU, device_enum::CPU);
+        src.data(), large_size, dst.data(), device_enum::CPU, device_enum::CPU);
 
     // Spot-check several values
     EXPECT_EQ(dst[0], 0.0f);
@@ -198,7 +196,8 @@ TEST_F(TestPhase2CopySync, SizeOverflowDetection)
             src.data(),
             std::numeric_limits<size_t>::max(),  // Will overflow
             dst.data(),
-            device_enum::CPU, device_enum::CPU),
+            device_enum::CPU,
+            device_enum::CPU),
         std::overflow_error);
 }
 

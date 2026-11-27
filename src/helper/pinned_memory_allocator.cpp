@@ -53,7 +53,9 @@ struct pinned_memory_allocator::Impl
     explicit Impl(int device, std::size_t limit) : device_(device), limit_(limit)
     {
         if (device < 0)
+        {
             throw std::invalid_argument("Negative pinned allocator device");
+        }
     }
 
     int                 device_;
@@ -104,13 +106,17 @@ struct pinned_memory_allocator::Impl
             {
                 auto& b = *entry.second;
                 if (b.status == state::live)
+                {
                     record_events(b);
+                }
                 if (!b.quarantined && complete(b, true))
                 {
                     (void)cudaFreeHost(b.raw);
                 }
                 for (auto& use : b.streams)
+                {
                     (void)cudaEventDestroy(use.event);
+                }
             }
         }
         catch (...)
@@ -128,12 +134,16 @@ struct pinned_memory_allocator::Impl
         while (capacity < bytes)
         {
             if (capacity > std::numeric_limits<std::size_t>::max() / 2)
+            {
                 throw std::length_error("Pinned allocation size overflows");
+            }
             capacity *= 2;
             ++bucket;
         }
         if (capacity > std::numeric_limits<std::size_t>::max() - (alignment - 1))
+        {
             throw std::length_error("Pinned allocation alignment overflows");
+        }
         return capacity;
     }
 
@@ -142,20 +152,28 @@ struct pinned_memory_allocator::Impl
         const auto address = reinterpret_cast<std::uintptr_t>(ptr);
         auto       it      = blocks_.upper_bound(address);
         if (it == blocks_.begin())
+        {
             throw std::invalid_argument("Foreign pinned pointer");
+        }
         auto&      b      = *std::prev(it)->second;
         const auto offset = address - reinterpret_cast<std::uintptr_t>(b.ptr);
         if (b.status != state::live || offset >= b.requested || bytes > b.requested - offset)
+        {
             throw std::invalid_argument(
                 "Pinned pointer is not live or transfer exceeds its extent");
+        }
         return b;
     }
 
     void use_stream(block& b, cudaStream_t stream)
     {
         for (auto const& use : b.streams)
+        {
             if (use.used && use.stream == stream)
+            {
                 return;
+            }
+        }
         for (auto& use : b.streams)
         {
             if (!use.used)
@@ -188,11 +206,15 @@ struct pinned_memory_allocator::Impl
     bool complete(block& b, bool wait) noexcept
     {
         if (b.quarantined)
+        {
             return false;
+        }
         for (auto& use : b.streams)
         {
             if (!use.used)
+            {
                 continue;
+            }
             const auto result = wait ? cudaEventSynchronize(use.event) : cudaEventQuery(use.event);
             if (result == cudaErrorNotReady)
             {
@@ -276,7 +298,9 @@ struct pinned_memory_allocator::Impl
                 stats_.bytes_reserved -= b->capacity + alignment - 1;
                 ++stats_.driver_frees;
                 for (auto& use : b->streams)
+                {
                     (void)cudaEventDestroy(use.event);
+                }
                 blocks_.erase(reinterpret_cast<std::uintptr_t>(b->ptr));
             }
         }
@@ -285,7 +309,9 @@ struct pinned_memory_allocator::Impl
     void* allocate(std::size_t bytes)
     {
         if (bytes == 0)
+        {
             return nullptr;
+        }
         std::size_t       bucket   = 0;
         const auto        capacity = capacity_for(bytes, bucket);
         std::scoped_lock  lock(mutex_);
@@ -385,11 +411,15 @@ struct pinned_memory_allocator::Impl
     bool deallocate(void* ptr) noexcept
     {
         if (!ptr)
+        {
             return true;
+        }
         std::scoped_lock lock(mutex_);
         auto             it = blocks_.find(reinterpret_cast<std::uintptr_t>(ptr));
         if (it == blocks_.end() || it->second->status != state::live)
+        {
             return false;
+        }
         block* const b_raw = it->second.get();
         const auto   key   = reinterpret_cast<std::uintptr_t>(ptr);
         stats_.bytes_allocated -= b_raw->capacity;
@@ -428,7 +458,9 @@ struct pinned_memory_allocator::Impl
     void record_stream(const void* ptr, stream_type stream)
     {
         if (!ptr)
+        {
             return;
+        }
         std::scoped_lock  lock(mutex_);
         gpu::device_guard guard(device_);
         use_stream(live_block(ptr), static_cast<cudaStream_t>(stream));
@@ -442,9 +474,13 @@ struct pinned_memory_allocator::Impl
         bool        to_device)
     {
         if (bytes == 0)
+        {
             return;
+        }
         if (!destination || !source)
+        {
             throw std::invalid_argument("Null transfer endpoint");
+        }
         std::scoped_lock  lock(mutex_);
         gpu::device_guard guard(device_);
         auto&             b = live_block(to_device ? source : destination, bytes);
@@ -484,26 +520,34 @@ struct pinned_memory_allocator::Impl
         for (auto const& entry : blocks_)
         {
             if (entry.second->quarantined)
+            {
                 out.bytes_quarantined += entry.second->capacity;
+            }
         }
     }
 #else
     static void* allocate(std::size_t bytes)
     {
         if (bytes == 0)
+        {
             return nullptr;
+        }
         throw std::runtime_error("Pinned host allocation requires the CUDA or HIP backend");
     }
     static bool deallocate(const void* ptr) noexcept { return ptr == nullptr; }
     static void record_stream(const void* ptr, stream_type)
     {
         if (ptr)
+        {
             throw std::runtime_error("Pinned host streams require CUDA or HIP");
+        }
     }
     static void copy(void*, const void*, std::size_t bytes, stream_type, bool)
     {
         if (bytes)
+        {
             throw std::runtime_error("Pinned host transfers require CUDA or HIP");
+        }
     }
     static void        collect(bool, std::size_t) {}
     static std::size_t shrink(std::size_t) { return 0; }
@@ -592,7 +636,9 @@ pinned_memory_allocator& pinned_allocator_for_device(int device)
     std::scoped_lock                                               lock(mutex);
     auto&                                                          allocator = allocators[device];
     if (!allocator)
+    {
         allocator = std::make_unique<pinned_memory_allocator>(device);
+    }
     return *allocator;
 }
 }  // namespace memory::cpu

@@ -30,30 +30,30 @@
 // does not compile in either -- the C++ logic under test (event insertion,
 // budget checks, retry chain, block pooling) is shared between backends via
 // gpu_runtime.h's aliasing, so exercising it under HIP labels is equally valid.
-using hipError_t                          = cudaError_t;
-using hipStream_t                         = cudaStream_t;
-using hipEvent_t                          = cudaEvent_t;
+using hipError_t  = cudaError_t;
+using hipStream_t = cudaStream_t;
+using hipEvent_t  = cudaEvent_t;
 // gpu/gpu_runtime.h's HIP branch unconditionally declares
 // `using cudaMemcpyKind = hipMemcpyKind;` regardless of whether this TU
 // actually calls a memcpy function, so the alias target must exist here too.
-using hipMemcpyKind                       = cudaMemcpyKind;
+using hipMemcpyKind = cudaMemcpyKind;
 // Same reasoning: gpu_runtime.h unconditionally declares
 // `using cudaDeviceProp = hipDeviceProp_t;` in its HIP branch.
-using hipDeviceProp_t                     = cudaDeviceProp;
-inline constexpr auto hipSuccess          = cudaSuccess;
-inline constexpr auto hipErrorOutOfMemory = cudaErrorMemoryAllocation;
-inline constexpr auto hipErrorNotReady    = cudaErrorNotReady;
-inline constexpr auto hipEventDisableTiming = cudaEventDisableTiming;
-inline auto hipGetErrorString       = cudaGetErrorString;
-inline auto hipGetLastError         = cudaGetLastError;
-inline auto hipGetDevice            = cudaGetDevice;
-inline auto hipSetDevice            = cudaSetDevice;
-inline auto hipGetDeviceCount       = cudaGetDeviceCount;
-inline auto hipMalloc               = cudaMalloc;
-inline auto hipFree                 = cudaFree;
-inline auto hipMemGetInfo           = cudaMemGetInfo;
-inline auto hipEventCreateWithFlags = cudaEventCreateWithFlags;
-inline auto hipEventRecord          = cudaEventRecord;
-inline auto hipEventQuery           = cudaEventQuery;
-inline auto hipEventSynchronize     = cudaEventSynchronize;
-inline auto hipEventDestroy         = cudaEventDestroy;
+using hipDeviceProp_t                         = cudaDeviceProp;
+inline constexpr auto hipSuccess              = cudaSuccess;
+inline constexpr auto hipErrorOutOfMemory     = cudaErrorMemoryAllocation;
+inline constexpr auto hipErrorNotReady        = cudaErrorNotReady;
+inline constexpr auto hipEventDisableTiming   = cudaEventDisableTiming;
+inline auto           hipGetErrorString       = cudaGetErrorString;
+inline auto           hipGetLastError         = cudaGetLastError;
+inline auto           hipGetDevice            = cudaGetDevice;
+inline auto           hipSetDevice            = cudaSetDevice;
+inline auto           hipGetDeviceCount       = cudaGetDeviceCount;
+inline auto           hipMalloc               = cudaMalloc;
+inline auto           hipFree                 = cudaFree;
+inline auto           hipMemGetInfo           = cudaMemGetInfo;
+inline auto           hipEventCreateWithFlags = cudaEventCreateWithFlags;
+inline auto           hipEventRecord          = cudaEventRecord;
+inline auto           hipEventQuery           = cudaEventQuery;
+inline auto           hipEventSynchronize     = cudaEventSynchronize;
+inline auto           hipEventDestroy         = cudaEventDestroy;

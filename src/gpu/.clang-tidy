@@ -1,0 +1,5 @@
+---
+InheritParentConfig: true
+# LLVM 22 crashes in this check while matching magic_enum from the Logging
+# dependency in GPU translation units. Keep the workaround local to this directory.
+Checks: '-bugprone-stringview-nullptr'

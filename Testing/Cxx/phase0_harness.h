@@ -52,6 +52,8 @@ inline std::string shell_line(char const* cmd)
 #if defined(_WIN32)
     FILE* p = _popen(cmd, "r");
 #else
+    // this test helper runs only the fixed diagnostic commands below.
+    // NOLINTNEXTLINE(bugprone-command-processor)
     FILE* p = popen(cmd, "r");
 #endif
     if (p == nullptr)
@@ -111,12 +113,12 @@ inline double percentile(std::vector<double> sorted, double p)
 
 struct result
 {
-    std::string                        name;
-    std::vector<std::pair<std::string, std::string>> params;  // string-valued
-    std::string                        status{"ok"};  // "ok" or "skipped: <reason>"
-    size_t                             batch{1};
-    std::vector<double>                samples_ns_per_op;
-    std::vector<std::pair<std::string, double>> counters;  // e.g. heap allocs, driver calls
+    std::string                                      name;
+    std::vector<std::pair<std::string, std::string>> params;        // string-valued
+    std::string                                      status{"ok"};  // "ok" or "skipped: <reason>"
+    size_t                                           batch{1};
+    std::vector<double>                              samples_ns_per_op;
+    std::vector<std::pair<std::string, double>>      counters;  // e.g. heap allocs, driver calls
 };
 
 class report
@@ -126,11 +128,13 @@ public:
     explicit report(std::string suite, std::string build_note = {}, std::string const& repo = ".")
         : suite_(std::move(suite)), build_note_(std::move(build_note))
     {
-        timer_res_ns_ = timer_resolution_ns();
+        timer_res_ns_       = timer_resolution_ns();
         std::string const g = "git -C \"" + repo + "\" ";
-        git_sha_   = shell_line((g + "rev-parse --short HEAD").c_str());
+        git_sha_            = shell_line((g + "rev-parse --short HEAD").c_str());
         git_dirty_ =
-            shell_line((g + "status --porcelain --untracked-files=no").c_str()) == "unknown" ? "clean" : "dirty";
+            shell_line((g + "status --porcelain --untracked-files=no").c_str()) == "unknown"
+                ? "clean"
+                : "dirty";
     }
 
     void note(std::string k, std::string v) { notes_.emplace_back(std::move(k), std::move(v)); }
@@ -165,7 +169,8 @@ public:
         f << "    \"git_sha\": \"" << git_sha_ << "\",\n";
         f << "    \"git_tree\": \"" << git_dirty_ << "\",\n";
         f << "    \"compiler\": \"" << json_escape(compiler_) << "\",\n";
-        f << "    \"build\": \"" << (ndebug_ ? "Release (NDEBUG)" : "Debug (assertions on)") << "\",\n";
+        f << "    \"build\": \"" << (ndebug_ ? "Release (NDEBUG)" : "Debug (assertions on)")
+          << "\",\n";
         f << "    \"hardware_threads\": " << std::thread::hardware_concurrency() << ",\n";
         f << "    \"timer_resolution_ns\": " << timer_res_ns_ << ",\n";
         f << "    \"sampling\": \"each sample = mean ns/op over `batch` ops; percentiles are "
@@ -209,15 +214,15 @@ public:
     }
 
 private:
-    std::string suite_;
-    std::string build_note_;
-    std::string git_sha_;
-    std::string git_dirty_;
-    std::string backend_{"unknown"};
-    std::string evidence_{"unknown"};
-    std::string compiler_{"unknown"};
-    bool        ndebug_{false};
-    double      timer_res_ns_{0};
+    std::string                                      suite_;
+    std::string                                      build_note_;
+    std::string                                      git_sha_;
+    std::string                                      git_dirty_;
+    std::string                                      backend_{"unknown"};
+    std::string                                      evidence_{"unknown"};
+    std::string                                      compiler_{"unknown"};
+    bool                                             ndebug_{false};
+    double                                           timer_res_ns_{0};
     std::vector<std::pair<std::string, std::string>> notes_;
     std::vector<result>                              results_;
 };
@@ -254,7 +259,7 @@ inline size_t pick_batch(double resolution_ns, std::function<void()> const& op)
         op();
     }
     double const per = std::max((now_ns() - t0) / 64.0, 1.0);
-    auto b = static_cast<size_t>(std::ceil(64.0 * resolution_ns / per));
+    auto         b   = static_cast<size_t>(std::ceil(64.0 * resolution_ns / per));
     return std::min<size_t>(std::max<size_t>(b, 1), 4096);
 }
 

@@ -28,7 +28,7 @@ python3 setup.py config.build.clangtidy.fix           # check AND auto-fix
   in the working directory** — commit or stash first so an unwanted rewrite
   is a trivial `git diff`/`git checkout` away from being undone, and diff
   the result afterward rather than trusting it blindly.
-- Header filter is `^<root>/(include|src)/.*`, with a ThirdParty exclude
+- Header filter covers the first-party include, source, test, and example directories, with a ThirdParty exclude
   filter added when clang-tidy is 19+ (older clang-tidy rejects
   `--exclude-header-filter`; the header filter alone already keeps
   ThirdParty out of the report on older versions too).
@@ -68,13 +68,11 @@ lintrunner -a --take CLANGTIDY       # apply available auto-fixes, if any
   result for a `.cpp` means clang-tidy actually analyzed it, not just that
   nothing matched. If you see `compile-error` on many `.cpp` files, the
   auto-detected build directory doesn't cover them; rebuild so it does.
-- Scope: lintrunner's `CLANGTIDY` `include_patterns` cover `include/**` and
-  `Testing/**`/`Tests/**` only — **not `src/**`** (`src/*.cpp` is checked by
-  the build-integrated path instead, since that's what actually compiles
-  it). `exclude_patterns` drops `ThirdParty/**` and `bazel-*/**`.
+- Scope: lintrunner's `CLANGTIDY` `include_patterns` cover first-party
+  `include/**`, `src/**`, `Testing/**`, and `Tests/**`, including `.mm` and
+  CUDA source extensions. Vendored code and generated build trees are excluded.
 - Not currently run in CI (`.github/workflows/ci.yml` / `toolchains.yml`
-  have no lintrunner or clang-tidy job — the root `.clang-tidy` file itself
-  says "Local/IDE use. Not yet wired into CI" in its header comment). Treat
+  have no lintrunner or clang-tidy job — the root configuration and build integration are available locally). Treat
   "passes clang-tidy" as a self-discipline check for now, not something CI
   will catch for you.
 
@@ -82,9 +80,10 @@ lintrunner -a --take CLANGTIDY       # apply available auto-fixes, if any
 
 Root `.clang-tidy` enables `bugprone-*`, `performance-*`, a handful of
 specific `modernize-*`/`readability-*` checks, then disables a few with an
-inline comment explaining why (e.g. `-bugprone-stringview-nullptr` because
-clang-tidy 22 access-violates on that check against
-`ThirdParty/Logging`'s vendored `magic_enum.hpp` for TUs that include it).
+comment explaining why. The LLVM 22 `bugprone-stringview-nullptr` crash
+workaround is limited to `src/gpu/.clang-tidy`, which inherits the root
+configuration, because GPU translation units include the triggering
+`magic_enum.hpp` dependency.
 Read the comment above a disabled check before re-enabling it or adding a
 new blanket disable at the root — a narrower, file-scoped fix is almost
 always more correct (see below). It also sets
@@ -93,7 +92,7 @@ always more correct (see below). It also sets
 
 ## When a check misfires on one file: scope the suppression, don't disable it repo-wide
 
-No directory-local `.clang-tidy` override exists in this repo yet. If you
+The GPU directory has a documented crash workaround. If you
 hit a real crash or an unfixable false positive confined to one file or
 directory, add a directory-local `.clang-tidy` starting with
 `InheritParentConfig: true` so it narrows rather than replaces the root

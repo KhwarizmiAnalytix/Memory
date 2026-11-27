@@ -77,7 +77,6 @@ cc_binary(
     deps = [
         "//:Memory",
         "@com_google_benchmark//:benchmark",
-        "@com_google_benchmark//:benchmark_main",
     ],
 )
 

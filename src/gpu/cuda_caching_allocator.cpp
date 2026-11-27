@@ -45,6 +45,12 @@ namespace memory
 {
 namespace gpu
 {
+#ifndef MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE
+#define MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE std::recursive_mutex
+#endif
+using caching_allocator_mutex = MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE;
+#undef MEMORY_CACHING_ALLOCATOR_MUTEX_TYPE
+
 // cuda_caching_allocator is the CUDA/HIP caching layer (PyTorch-style segmented
 // caching with per-stream pools, block split/merge, and event-deferred cross-stream
 // reclamation). Metal uses metal_caching_allocator instead.
@@ -379,7 +385,9 @@ struct inline_stream_set
         for (int i = 0; i < size_; ++i)
         {
             if (slots_[i] == s)
+            {
                 return;
+            }
         }
         if (size_ < kInline)
         {
@@ -388,7 +396,9 @@ struct inline_stream_set
         else
         {
             if (!overflow_)
+            {
                 overflow_ = std::make_unique<std::set<cudaStream_t>>();
+            }
             overflow_->insert(s);
         }
     }
@@ -403,11 +413,15 @@ struct inline_stream_set
     void for_each(F&& f) const
     {
         for (int i = 0; i < size_; ++i)
+        {
             f(slots_[i]);
+        }
         if (overflow_)
         {
             for (cudaStream_t s : *overflow_)
+            {
                 f(s);
+            }
         }
     }
 
@@ -536,11 +550,17 @@ private:
         auto sv = [](cudaStream_t s) { return reinterpret_cast<uintptr_t>(s); };
         auto pv = [](void* p) { return reinterpret_cast<uintptr_t>(p); };
         if (sa != sb)
+        {
             return sv(sa) < sv(sb);
+        }
         if (za != zb)
+        {
             return za < zb;
+        }
         if (ra != rb)
+        {
             return ra < rb;
+        }
         return pv(pa) < pv(pb);
     }
 };
@@ -1331,11 +1351,11 @@ private:
     }
 
     cache_block* alloc_segment_unlocked(
-        std::unique_lock<std::recursive_mutex>& lock,
-        block_pool&                             pool,
-        cudaStream_t                            stream,
-        size_t                                  alloc_size,
-        bool                                    is_retry)
+        std::unique_lock<caching_allocator_mutex>& lock,
+        block_pool&                                pool,
+        cudaStream_t                               stream,
+        size_t                                     alloc_size,
+        bool                                       is_retry)
     {
         if (is_retry)
         {
@@ -1366,12 +1386,12 @@ private:
             // decrement entirely and leak reserved headroom permanently.
             struct pending_reservation_guard
             {
-                Impl&                                   self;
-                std::unique_lock<std::recursive_mutex>& lock;
-                size_t                                  amount;
+                Impl&                                      self;
+                std::unique_lock<caching_allocator_mutex>& lock;
+                size_t                                     amount;
 
                 pending_reservation_guard(
-                    Impl& s, std::unique_lock<std::recursive_mutex>& l, size_t a) noexcept
+                    Impl& s, std::unique_lock<caching_allocator_mutex>& l, size_t a) noexcept
                     : self(s), lock(l), amount(a)
                 {
                 }
@@ -2132,7 +2152,7 @@ private:
 
     // Recursive, matching upstream: free-memory callbacks run under the lock and
     // may re-enter this allocator to free memory.
-    mutable std::recursive_mutex mutex_;
+    mutable caching_allocator_mutex mutex_;
     // Declared before the containers that allocate from them (destroyed after).
     node_pool  free_pool_nodes_;
     block_pool small_blocks_{true, free_pool_nodes_};

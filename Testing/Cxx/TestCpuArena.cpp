@@ -35,7 +35,7 @@ MEMORYTEST(CpuArena, preallocated_backing)
 MEMORYTEST(CpuArena, alloc_returns_non_null)
 {
     cpu_arena arena(4096);
-    int* p = arena.alloc<int>(10);
+    int*      p = arena.alloc<int>(10);
     EXPECT_NE(p, nullptr);
     EXPECT_EQ(arena.used(), 10 * sizeof(int));
     END_TEST();
@@ -44,7 +44,7 @@ MEMORYTEST(CpuArena, alloc_returns_non_null)
 MEMORYTEST(CpuArena, alloc_bytes_alignment)
 {
     cpu_arena arena(4096, MEMORY_ALIGNMENT);
-    void* p = arena.alloc_bytes(1, MEMORY_ALIGNMENT);
+    void*     p = arena.alloc_bytes(1, MEMORY_ALIGNMENT);
     EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % MEMORY_ALIGNMENT, 0U);
     END_TEST();
 }
@@ -52,8 +52,8 @@ MEMORYTEST(CpuArena, alloc_bytes_alignment)
 MEMORYTEST(CpuArena, multiple_allocs_do_not_overlap)
 {
     cpu_arena arena(4096);
-    int* a = arena.alloc<int>(4);
-    int* b = arena.alloc<int>(4);
+    int*      a = arena.alloc<int>(4);
+    int*      b = arena.alloc<int>(4);
     EXPECT_NE(a, b);
     EXPECT_GE(reinterpret_cast<uintptr_t>(b), reinterpret_cast<uintptr_t>(a) + 4 * sizeof(int));
     END_TEST();
@@ -95,7 +95,7 @@ MEMORYTEST(CpuArena, exhausted_throws_bad_alloc)
 MEMORYTEST(CpuArena, zero_byte_alloc_returns_null)
 {
     cpu_arena arena(256);
-    void* p = arena.alloc_bytes(0);
+    void*     p = arena.alloc_bytes(0);
     EXPECT_EQ(p, nullptr);
     EXPECT_EQ(arena.used(), 0U);
     END_TEST();
@@ -104,12 +104,13 @@ MEMORYTEST(CpuArena, zero_byte_alloc_returns_null)
 MEMORYTEST(CpuArena, move_transfers_ownership)
 {
     cpu_arena a(1024);
-    int* p = a.alloc<int>(4);
-    p[0]   = 7;
+    int*      p = a.alloc<int>(4);
+    p[0]        = 7;
 
     cpu_arena b = std::move(a);
     EXPECT_EQ(b.capacity(), 1024U);
     EXPECT_GT(b.used(), 0U);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_TRUE(a.empty());
     EXPECT_EQ(a.capacity(), 0U);
     // b still has the same data
@@ -154,7 +155,7 @@ MEMORYTEST(CpuArena, invalid_alignments_are_rejected)
     EXPECT_THROW((void)arena.alloc_bytes(8, 8192), std::invalid_argument);
     EXPECT_EQ(arena.used(), 0U);
     EXPECT_THROW(cpu_arena(1024, 3), std::invalid_argument);
-    EXPECT_THROW(cpu_arena(1024, 4), std::invalid_argument);  // below sizeof(void*)
+    EXPECT_THROW(cpu_arena(1024, 4), std::invalid_argument);        // below sizeof(void*)
     EXPECT_THROW(cpu_arena(1024, 64, 512), std::invalid_argument);  // max < capacity
     END_TEST();
 }
@@ -172,7 +173,8 @@ MEMORYTEST(CpuArena, overflowing_requests_throw_and_leave_the_arena_unchanged)
     EXPECT_EQ(arena.capacity(), 256U);
 
     cpu_arena growable(128, 64, std::numeric_limits<size_t>::max());
-    EXPECT_THROW((void)growable.alloc_bytes(std::numeric_limits<size_t>::max() - 100), std::bad_alloc);
+    EXPECT_THROW(
+        (void)growable.alloc_bytes(std::numeric_limits<size_t>::max() - 100), std::bad_alloc);
     EXPECT_EQ(growable.capacity(), 128U);
     END_TEST();
 }
@@ -253,7 +255,7 @@ MEMORYTEST(CpuArena, moved_from_arena_is_empty_and_reusable)
     cpu_arena a(256);
     (void)a.alloc_bytes(16);
     cpu_arena b = std::move(a);
-    EXPECT_EQ(a.capacity(), 0U);  // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ(a.capacity(), 0U);           // NOLINT(bugprone-use-after-move)
     EXPECT_NE(a.alloc_bytes(8), nullptr);  // lazily re-acquires
     EXPECT_EQ(b.capacity(), 256U);
     END_TEST();

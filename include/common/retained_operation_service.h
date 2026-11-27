@@ -159,9 +159,9 @@ private:
 
     static constexpr size_t kReleaseBatch = 8;
 
-    bool quarantine_full_locked() const noexcept;
-    void take_locked(size_t index, copy_token& out) noexcept;
-    void mark_quarantined_locked(op_entry& op) noexcept;
+    bool   quarantine_full_locked() const noexcept;
+    void   take_locked(size_t index, copy_token& out) noexcept;
+    void   mark_quarantined_locked(op_entry& op) noexcept;
     size_t release_quarantined(bool check_idle) noexcept;
 
     mutable std::mutex      mu_;

@@ -132,10 +132,10 @@ public:
     MEMORY_API unified_cache_stats stats() const;
 
     // O(1) lock-free reads of the four basic counters (plan §6.1, P3.5).
-    MEMORY_API size_t bytes_allocated_now()      const noexcept;
+    MEMORY_API size_t bytes_allocated_now() const noexcept;
     MEMORY_API size_t peak_bytes_allocated_now() const noexcept;
-    MEMORY_API size_t bytes_reserved_now()       const noexcept;
-    MEMORY_API size_t peak_bytes_reserved_now()  const noexcept;
+    MEMORY_API size_t bytes_reserved_now() const noexcept;
+    MEMORY_API size_t peak_bytes_reserved_now() const noexcept;
 
     MEMORY_API void record_memory_history(
         bool enabled, size_t max_entries = kDefaultMemoryHistoryEntries);

@@ -62,15 +62,15 @@ struct MEMORY_VISIBILITY gpu_memory_trace_entry
 {
     uint32_t                schema_version{kTraceEntrySchemaVersion};
     gpu_memory_trace_action action{gpu_memory_trace_action::alloc};
-    void*                   address{nullptr};       // block address (allocation base)
-    size_t                  size{0};                // block capacity (rounded)
-    size_t                  requested_size{0};      // caller-requested bytes
+    void*                   address{nullptr};   // block address (allocation base)
+    size_t                  size{0};            // block capacity (rounded)
+    size_t                  requested_size{0};  // caller-requested bytes
     size_t                  total_allocated{0};
     size_t                  total_reserved{0};
     int64_t                 stream{0};
-    uint64_t                alloc_id{0};            // storage_identity::alloc_id; 0 = not tracked
-    uint64_t                sequence_num{0};        // monotonic per-ring sequence number
-    int64_t                 timestamp_ns{0};        // nanoseconds since epoch (best-effort)
+    uint64_t                alloc_id{0};      // storage_identity::alloc_id; 0 = not tracked
+    uint64_t                sequence_num{0};  // monotonic per-ring sequence number
+    int64_t                 timestamp_ns{0};  // nanoseconds since epoch (best-effort)
 };
 
 /**
@@ -102,15 +102,15 @@ struct MEMORY_VISIBILITY gpu_memory_block_info
 
 struct MEMORY_VISIBILITY gpu_memory_segment_info
 {
-    void*                                address{nullptr};
-    size_t                               total_size{0};
-    size_t                               allocated_size{0};
-    size_t                               active_size{0};
-    size_t                               requested_size{0};
-    bool                                 is_small{false};
-    bool                                 is_expandable{false};
-    int64_t                              stream{0};
-    std::vector<gpu_memory_block_info>   blocks;
+    void*                              address{nullptr};
+    size_t                             total_size{0};
+    size_t                             allocated_size{0};
+    size_t                             active_size{0};
+    size_t                             requested_size{0};
+    bool                               is_small{false};
+    bool                               is_expandable{false};
+    int64_t                            stream{0};
+    std::vector<gpu_memory_block_info> blocks;
 };
 
 /**
@@ -122,25 +122,24 @@ struct MEMORY_VISIBILITY gpu_memory_segment_info
  */
 struct MEMORY_VISIBILITY gpu_memory_snapshot
 {
-    std::vector<gpu_memory_segment_info>  segments;
-    std::vector<gpu_memory_trace_entry>   device_trace;
+    std::vector<gpu_memory_segment_info> segments;
+    std::vector<gpu_memory_trace_entry>  device_trace;
     // Telemetry state (task 7.3). `device_trace` is empty when `trace_enabled`
     // is false (mode off). When on, `device_trace_entries_lost` is the number
     // of entries the bounded ring overwrote (or could not store) since history
     // was enabled: a non-zero value means the oldest part of the trace is gone.
-    bool                                  trace_enabled{false};
-    size_t                                device_trace_entries_lost{0};
-    gpu_memory_oom_evidence               last_oom;
+    bool                    trace_enabled{false};
+    size_t                  device_trace_entries_lost{0};
+    gpu_memory_oom_evidence last_oom;
 };
 
 // Returns nanoseconds since epoch using the steady clock (best-effort; may
 // wrap after ~292 years of uptime, which is acceptable for trace purposes).
 inline int64_t trace_timestamp_ns() noexcept
 {
-    return static_cast<int64_t>(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
+    return static_cast<int64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch())
+                                    .count());
 }
 
 /**
@@ -171,7 +170,7 @@ public:
         }
     }
 
-    bool   enabled()      const noexcept { return enabled_; }
+    bool   enabled() const noexcept { return enabled_; }
     size_t entries_lost() const noexcept { return ring_.entries_lost(); }
 
     // Full record with all extended fields.
@@ -206,9 +205,9 @@ public:
     std::vector<gpu_memory_trace_entry> copy() const { return ring_.copy(); }
 
 private:
-    bool                                         enabled_{false};
-    uint64_t                                     seq_{0};
-    bounded_trace_ring<gpu_memory_trace_entry>   ring_{kDefaultMemoryHistoryEntries};
+    bool                                       enabled_{false};
+    uint64_t                                   seq_{0};
+    bounded_trace_ring<gpu_memory_trace_entry> ring_{kDefaultMemoryHistoryEntries};
 };
 
 template <typename Stream>

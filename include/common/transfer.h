@@ -95,14 +95,14 @@ MEMORY_API void validate_route(device from, device to);
 /// Throws std::invalid_argument for an unsupported combination and
 /// std::runtime_error for a driver failure.
 MEMORY_API void route_copy_bytes(
-    void const*       from,
-    void*             to,
-    std::size_t       nbytes,
-    device            from_dev,
-    device            to_dev,
-    stream_handle_t   stream,
-    bool              track_gpu_streams,
-    bool*             submitted);
+    void const*     from,
+    void*           to,
+    std::size_t     nbytes,
+    device          from_dev,
+    device          to_dev,
+    stream_handle_t stream,
+    bool            track_gpu_streams,
+    bool*           submitted);
 
 /// After a failed submission: true when @p ctx's stream is proven idle by a
 /// successful synchronize. Never throws; false when it cannot be proven.
@@ -127,7 +127,8 @@ struct recycled_allocator
 
     recycled_allocator() noexcept = default;
     template <typename U>
-    recycled_allocator(recycled_allocator<U> const&) noexcept  // NOLINT(google-explicit-constructor)
+    recycled_allocator(
+        recycled_allocator<U> const&) noexcept  // NOLINT(google-explicit-constructor)
     {
     }
 
@@ -179,9 +180,9 @@ MEMORY_API driver_result token_stream_synchronize(int device, stream_handle_t st
 /// Returns @p event to the per-device pool (bounded; destroyed when full).
 /// create takes from the pool first, so a steady-state token creates and destroys
 /// no driver event (plan 3.4). A recycled event is simply re-recorded.
-MEMORY_API void          token_event_destroy(int device, void* event) noexcept;
+MEMORY_API void token_event_destroy(int device, void* event) noexcept;
 /// Destroys every pooled event. Call before the driver runtime is torn down.
-MEMORY_API void          release_token_event_pool() noexcept;
+MEMORY_API void release_token_event_pool() noexcept;
 /// Make @p consumer wait for @p event (cudaStreamWaitEvent): work enqueued on it
 /// afterwards runs after the event's recorded work. Needs no device activation:
 /// the stream's device is what matters and an event may be waited on across devices.

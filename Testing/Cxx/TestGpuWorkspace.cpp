@@ -41,7 +41,7 @@ MEMORYTEST(GpuWorkspace, release_resets_cursor_without_freeing)
 MEMORYTEST(GpuWorkspace, rebind_changes_context)
 {
     gpu_workspace ws;
-    auto ctx = execution_context::cuda(1);
+    auto          ctx = execution_context::cuda(1);
     ws.rebind(ctx);
     EXPECT_EQ(ws.ctx().device_index(), 1);
     END_TEST();
@@ -77,7 +77,8 @@ MEMORYTEST(GpuWorkspace, move_transfers_ownership)
     gpu_workspace a{512, execution_context::cpu()};
     gpu_workspace b = std::move(a);
     EXPECT_EQ(b.capacity(), 512U);
-    EXPECT_EQ(a.capacity(), 0U);
+    EXPECT_EQ(
+        a.capacity(), 0U);  // NOLINT(bugprone-use-after-move): verifies the moved-from invariant.
     END_TEST();
 }
 
@@ -97,7 +98,7 @@ MEMORYTEST(GpuWorkspace, gpu_acquire_returns_non_null)
 #endif
 
     gpu_workspace ws{4096, execution_context::cuda(0)};
-    void* p = ws.acquire(256);
+    void*         p = ws.acquire(256);
     EXPECT_NE(p, nullptr);
     EXPECT_GE(ws.used(), 256U);
     ws.release();
@@ -109,9 +110,8 @@ MEMORYTEST(GpuWorkspace, gpu_acquire_returns_non_null)
 
 MEMORYTEST(GpuWorkspace, acquire_count_overflow_throws_overflow_error)
 {
-    gpu_workspace ws;
+    gpu_workspace    ws;
     constexpr size_t kHuge = std::numeric_limits<size_t>::max() / sizeof(double) + 1;
     ASSERT_THROW((void)ws.acquire<double>(kHuge), std::overflow_error);
     END_TEST();
 }
-

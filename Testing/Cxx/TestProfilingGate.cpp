@@ -21,7 +21,12 @@ TEST_F(ProfilingGateTest, IdleCallsQueryTheProfilerOnceEveryStride)
     int calls = 0;
     for (std::uint32_t i = 0; i < 10 * profiling_gate::kStride; ++i)
     {
-        EXPECT_FALSE(profiling_gate::active([&] { ++calls; return false; }));
+        EXPECT_FALSE(profiling_gate::active(
+            [&]
+            {
+                ++calls;
+                return false;
+            }));
     }
     EXPECT_EQ(10, calls);
 }
@@ -29,7 +34,12 @@ TEST_F(ProfilingGateTest, IdleCallsQueryTheProfilerOnceEveryStride)
 TEST_F(ProfilingGateTest, FirstCallOnAThreadAsksTheProfiler)
 {
     int calls = 0;
-    EXPECT_FALSE(profiling_gate::active([&] { ++calls; return false; }));
+    EXPECT_FALSE(profiling_gate::active(
+        [&]
+        {
+            ++calls;
+            return false;
+        }));
     EXPECT_EQ(1, calls);
 }
 
@@ -40,7 +50,7 @@ TEST_F(ProfilingGateTest, SessionStartIsNoticedWithinOneStride)
     int  noticed = -1;
     for (std::uint32_t i = 0; i < profiling_gate::kStride && !active; ++i)
     {
-        active = profiling_gate::active([] { return true; });
+        active  = profiling_gate::active([] { return true; });
         noticed = static_cast<int>(i);
     }
     EXPECT_TRUE(active);
@@ -53,20 +63,45 @@ TEST_F(ProfilingGateTest, ActiveSessionIsQueriedOnEveryCallAndEndsExactly)
     int calls = 0;
     for (int i = 0; i < 100; ++i)
     {
-        EXPECT_TRUE(profiling_gate::active([&] { ++calls; return true; }));
+        EXPECT_TRUE(profiling_gate::active(
+            [&]
+            {
+                ++calls;
+                return true;
+            }));
     }
     EXPECT_EQ(100, calls);  // exact while active: no event is skipped
     // The session ends: the very next call reports it.
-    EXPECT_FALSE(profiling_gate::active([&] { ++calls; return false; }));
+    EXPECT_FALSE(profiling_gate::active(
+        [&]
+        {
+            ++calls;
+            return false;
+        }));
     EXPECT_EQ(101, calls);
 }
 
 TEST_F(ProfilingGateTest, EveryThreadStartsByAskingTheProfiler)
 {
     int calls = 0;
-    (void)profiling_gate::active([&] { ++calls; return false; });
+    (void)profiling_gate::active(
+        [&]
+        {
+            ++calls;
+            return false;
+        });
     int other = 0;
-    std::thread([&] { (void)profiling_gate::active([&] { ++other; return false; }); }).join();
+    std::thread(
+        [&]
+        {
+            (void)profiling_gate::active(
+                [&]
+                {
+                    ++other;
+                    return false;
+                });
+        })
+        .join();
     EXPECT_EQ(1, calls);
     EXPECT_EQ(1, other);
 }

@@ -146,7 +146,7 @@ driver_result to_result(cudaError_t r) noexcept
 
 namespace
 {
-constexpr default_stream_mode kCompiledMode = caller_default_stream_mode();
+constexpr default_stream_mode    kCompiledMode = caller_default_stream_mode();
 std::atomic<default_stream_mode> g_library_stream_mode{kCompiledMode};
 }  // namespace
 
@@ -230,8 +230,8 @@ void route_copy_bytes(
     bool            track_gpu_streams,
     bool*           submitted)
 {
-    device_enum const from_type = from_dev.type;
-    device_enum const to_type   = to_dev.type;
+    device_enum const from_type  = from_dev.type;
+    device_enum const to_type    = to_dev.type;
     int const         from_index = from_dev.index;
     int const         to_index   = to_dev.index;
 
@@ -308,7 +308,7 @@ void route_copy_bytes(
             copy_kind = cudaMemcpyDeviceToDevice;
         }
 
-        int const          gpu_index = is_cuda_or_hip(to_type) ? to_index : from_index;
+        int const               gpu_index = is_cuda_or_hip(to_type) ? to_index : from_index;
         gpu::device_guard const guard(gpu_index);
         if (submitted != nullptr)
         {
@@ -510,8 +510,8 @@ driver_result token_stream_synchronize(int device, stream_handle_t stream) noexc
     {
         return activation_failure(guard);
     }
-    return to_result(stream != nullptr ? cudaStreamSynchronize(native(stream))
-                                       : cudaDeviceSynchronize());
+    return to_result(
+        stream != nullptr ? cudaStreamSynchronize(native(stream)) : cudaDeviceSynchronize());
 }
 
 void token_event_destroy(int device, void* event) noexcept

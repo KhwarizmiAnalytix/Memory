@@ -18,6 +18,8 @@ struct fake_event
     cudaStream_t stream{nullptr};
 };
 using cudaEvent_t = fake_event*;
+// preserve the vendor API enum representation in this runtime test double.
+// NOLINTNEXTLINE(performance-enum-size)
 enum cudaMemcpyKind
 {
     cudaMemcpyHostToDevice,
@@ -44,6 +46,8 @@ inline std::atomic<size_t> event_query_calls{0};
 
 inline cudaStream_t stream(std::size_t i)
 {
+    // opaque pointer values model runtime handles; they are never dereferenced.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     return reinterpret_cast<void*>(i + 1);
 }
 
@@ -58,14 +62,23 @@ inline void reset()
 }
 }  // namespace fake_runtime
 
-inline const char* cudaGetErrorString(cudaError_t) { return "fake_runtime"; }
-inline cudaError_t cudaGetLastError() { return cudaSuccess; }
+inline const char* cudaGetErrorString(cudaError_t)
+{
+    return "fake_runtime";
+}
+inline cudaError_t cudaGetLastError()
+{
+    return cudaSuccess;
+}
 inline cudaError_t cudaGetDevice(int* device)
 {
     *device = 0;
     return cudaSuccess;
 }
-inline cudaError_t cudaSetDevice(int) { return cudaSuccess; }
+inline cudaError_t cudaSetDevice(int)
+{
+    return cudaSuccess;
+}
 inline cudaError_t cudaGetDeviceCount(int* count)
 {
     *count = 1;
@@ -106,7 +119,10 @@ inline cudaError_t cudaEventQuery(cudaEvent_t)
     fake_runtime::event_query_calls.fetch_add(1, std::memory_order_relaxed);
     return cudaSuccess;  // work is always complete: no delayed consumers (task 8.2)
 }
-inline cudaError_t cudaEventSynchronize(cudaEvent_t) { return cudaSuccess; }
+inline cudaError_t cudaEventSynchronize(cudaEvent_t)
+{
+    return cudaSuccess;
+}
 inline cudaError_t cudaEventDestroy(cudaEvent_t event)
 {
     delete event;

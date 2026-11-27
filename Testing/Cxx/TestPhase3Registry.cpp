@@ -133,14 +133,15 @@ bool gpu_available_p3()
 TEST(Phase3Stats, ZeroBeforeAnyAllocation)
 {
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
-    if (!gpu_available_p3()) GTEST_SKIP() << "No GPU device";
+    if (!gpu_available_p3())
+        GTEST_SKIP() << "No GPU device";
     // A freshly-constructed local allocator must expose zero for all four
     // counters before any allocation (singleton may be non-zero from other tests).
     cuda_caching_allocator a(0);
-    EXPECT_EQ(a.bytes_allocated_now(),      0U);
+    EXPECT_EQ(a.bytes_allocated_now(), 0U);
     EXPECT_EQ(a.peak_bytes_allocated_now(), 0U);
-    EXPECT_EQ(a.bytes_reserved_now(),       0U);
-    EXPECT_EQ(a.peak_bytes_reserved_now(),  0U);
+    EXPECT_EQ(a.bytes_reserved_now(), 0U);
+    EXPECT_EQ(a.peak_bytes_reserved_now(), 0U);
 #else
     GTEST_SKIP() << "CUDA/HIP not available";
 #endif
@@ -151,10 +152,8 @@ TEST(Phase3Stats, LockFreeStatsConsistentWithStats)
     caching_allocator& a  = caching_allocator_for_device(0);
     const auto         cs = a.stats();
     // Lock-free reads must agree with the full stats() snapshot at idle.
-    EXPECT_EQ(a.bytes_allocated_now(),
-              cs.bytes_allocated.load(std::memory_order_relaxed));
-    EXPECT_EQ(a.bytes_reserved_now(),
-              cs.bytes_reserved.load(std::memory_order_relaxed));
+    EXPECT_EQ(a.bytes_allocated_now(), cs.bytes_allocated.load(std::memory_order_relaxed));
+    EXPECT_EQ(a.bytes_reserved_now(), cs.bytes_reserved.load(std::memory_order_relaxed));
 }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
@@ -174,7 +173,8 @@ bool gpu_available()
 
 TEST(Phase3Freelist, AllocFreeRoundTripManyTimes)
 {
-    if (!gpu_available()) GTEST_SKIP() << "No GPU device";
+    if (!gpu_available())
+        GTEST_SKIP() << "No GPU device";
     // 200 small alloc/free cycles exercise the block split path and the
     // block_freelist acquire/release loop (warm path must not crash or leak).
     cuda_caching_allocator a(0);
@@ -191,13 +191,14 @@ TEST(Phase3Freelist, AllocFreeRoundTripManyTimes)
 
 TEST(Phase3Freelist, SplitBlockReuseDoesNotCrash)
 {
-    if (!gpu_available()) GTEST_SKIP() << "No GPU device";
+    if (!gpu_available())
+        GTEST_SKIP() << "No GPU device";
     // Allocate two differently-sized blocks from the same segment so the
     // allocator must split; free them and reallocate to verify the freelist
     // recycles correctly.
     cuda_caching_allocator a(0);
-    void* p1 = a.allocate(512);
-    void* p2 = a.allocate(1024);
+    void*                  p1 = a.allocate(512);
+    void*                  p2 = a.allocate(1024);
     ASSERT_NE(p1, nullptr);
     ASSERT_NE(p2, nullptr);
     a.deallocate(p1, 512);
@@ -213,11 +214,12 @@ TEST(Phase3Freelist, SplitBlockReuseDoesNotCrash)
 
 TEST(Phase3Freelist, InlineStreamSetUpToFourStreams)
 {
-    if (!gpu_available()) GTEST_SKIP() << "No GPU device";
+    if (!gpu_available())
+        GTEST_SKIP() << "No GPU device";
     // Record ≤4 cross-stream uses (inline path, no overflow heap alloc).
     cuda_caching_allocator a(0);
-    void*        p = a.allocate(512);
-    cudaStream_t s[4]{};
+    void*                  p = a.allocate(512);
+    cudaStream_t           s[4]{};
     for (auto& st : s)
         (void)cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
     for (auto st : s)
@@ -234,11 +236,12 @@ TEST(Phase3Freelist, InlineStreamSetUpToFourStreams)
 
 TEST(Phase3Freelist, InlineStreamSetOverflowFiveStreams)
 {
-    if (!gpu_available()) GTEST_SKIP() << "No GPU device";
+    if (!gpu_available())
+        GTEST_SKIP() << "No GPU device";
     // Record 5 cross-stream uses: the 5th spills to the overflow std::set.
     cuda_caching_allocator a(0);
-    void*        p = a.allocate(512);
-    cudaStream_t s[5]{};
+    void*                  p = a.allocate(512);
+    cudaStream_t           s[5]{};
     for (auto& st : s)
         (void)cudaStreamCreateWithFlags(&st, cudaStreamNonBlocking);
     for (auto st : s)

@@ -53,7 +53,8 @@ MEMORY_FORCE_INLINE void report_caching_allocator_event(
     int     device_index,
     int16_t device_type)
 {
-    if MEMORY_UNLIKELY (detail::profiling_gate::active([] { return profiler::memory_profiling_active(); }))
+    if MEMORY_UNLIKELY (detail::profiling_gate::active(
+                            [] { return profiler::memory_profiling_active(); }))
     {
         profiler::report_memory_usage(
             ptr,

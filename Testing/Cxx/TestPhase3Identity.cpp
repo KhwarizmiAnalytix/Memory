@@ -117,7 +117,7 @@ TEST_F(TestPhase3Identity, EachAllocationUnique)
 TEST_F(TestPhase3Identity, IdSurvivesMove)
 {
     data_ptr<float> ptr1(size_floats, execution_context::cpu());
-    allocation_id original_id = ptr1.id();
+    allocation_id   original_id = ptr1.id();
 
     data_ptr<float> ptr2 = std::move(ptr1);
 
@@ -185,7 +185,7 @@ TEST_F(TestPhase3Identity, NestedSlicesCarryTheOwnersId)
 TEST_F(TestPhase3Identity, AddressReuseGetsANewId)
 {
     allocation_id previous;
-    bool          saw_reuse = false;
+    bool          saw_reuse        = false;
     void*         previous_address = nullptr;
     for (int i = 0; i < 64; ++i)
     {
@@ -206,10 +206,10 @@ TEST_F(TestPhase3Identity, CloneGetsDifferentId)
 {
 
     data_ptr<float> ptr1(size_floats, execution_context::cpu());
-    allocation_id id1 = ptr1.id();
+    allocation_id   id1 = ptr1.id();
 
     data_ptr<float> ptr2 = ptr1.clone();
-    allocation_id id2 = ptr2.id();
+    allocation_id   id2  = ptr2.id();
 
     // Different allocations = different IDs
     EXPECT_NE(id1, id2);
@@ -259,7 +259,7 @@ TEST_F(TestPhase3Identity, InvalidIdHandling)
 TEST_F(TestPhase3Identity, MultipleAllocationsTracking)
 {
 
-    std::vector<data_ptr<float>> ptrs;
+    std::vector<data_ptr<float>>      ptrs;
     std::unordered_set<allocation_id> ids;
 
     // Create 10 allocations
@@ -296,7 +296,9 @@ TEST_F(TestPhase3Identity, OneGeneratorAcrossTheLibraryBoundary)
         owners.emplace_back(8, execution_context::cpu());  // minted in the library
         uint64_t const from_library = owners.back().id().value;
         auto           adopted      = retained_ptr<int>::adopt(
-            new int[2]{}, 2, execution_context::cpu(),
+            new int[2]{},
+            2,
+            execution_context::cpu(),
             [](int* p, size_t, execution_context const&) { delete[] p; });
         uint64_t const from_client = adopted.identity().alloc_id;  // minted in this binary
         uint64_t const direct      = next_allocation_id().value;
@@ -316,10 +318,11 @@ TEST_F(TestPhase3Identity, OneGeneratorAcrossTheLibraryBoundary)
 // one thread); ordering between threads is not promised.
 TEST_F(TestPhase3Identity, ThreadsGetDisjointIdsAndEachThreadIncreases)
 {
-    constexpr int kThreads = 8;
-    constexpr int kPerThread = 5000;  // several blocks per thread
+    constexpr int                      kThreads   = 8;
+    constexpr int                      kPerThread = 5000;  // several blocks per thread
     std::vector<std::vector<uint64_t>> per(kThreads);
     std::vector<std::thread>           threads;
+    threads.reserve(kThreads);
     for (int t = 0; t < kThreads; ++t)
     {
         threads.emplace_back(

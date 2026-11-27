@@ -60,7 +60,7 @@ public:
     // Opaque: a cudaStream_t / hipStream_t converts to it implicitly.
     using stream_type                                     = void*;
     static constexpr std::size_t alignment                = 64;
-    static constexpr std::size_t default_max_cached_bytes = 64 * 1024 * 1024;
+    static constexpr std::size_t default_max_cached_bytes = std::size_t{64} * 1024 * 1024;
 
     MEMORY_API explicit pinned_memory_allocator(
         int device = 0, std::size_t max_cached_bytes = default_max_cached_bytes);

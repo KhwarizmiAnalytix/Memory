@@ -46,7 +46,7 @@ namespace rt = fake_runtime;
 
 namespace
 {
-constexpr size_t kSegmentSize = 20 * 1024 * 1024;  // exact kLargeBuffer multiple
+constexpr size_t kSegmentSize = size_t{20} * 1024 * 1024;  // exact kLargeBuffer multiple
 }
 
 class CudaCachingAllocatorRuntime : public ::testing::Test
@@ -734,7 +734,8 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
             new_failure_injection inject(n);
             try
             {
-                ptr = allocator.allocate(2 * 1024 * 1024);  // splits the cached 20 MiB block
+                ptr =
+                    allocator.allocate(size_t{2} * 1024 * 1024);  // splits the cached 20 MiB block
             }
             catch (...)
             {
@@ -756,7 +757,7 @@ TEST_F(CudaCachingAllocatorRuntime, RollbackIsExactAtEveryAllocationBoundaryOfAS
         }
         else if (ptr != nullptr)
         {
-            allocator.deallocate(ptr, 2 * 1024 * 1024);
+            allocator.deallocate(ptr, size_t{2} * 1024 * 1024);
         }
         expect_exact_after_failure(allocator, n);
         if (!hit)

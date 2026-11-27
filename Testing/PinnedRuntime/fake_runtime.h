@@ -33,6 +33,8 @@ struct fake_event
     cudaStream_t stream{nullptr};
 };
 using cudaEvent_t = fake_event*;
+// preserve the vendor API enum representation in this runtime test double.
+// NOLINTNEXTLINE(performance-enum-size)
 enum cudaMemcpyKind
 {
     cudaMemcpyHostToDevice,
@@ -66,12 +68,16 @@ inline int                 synchronizations  = 0;
 inline std::set<void*>     backing;
 inline cudaStream_t        stream(std::size_t i)
 {
+    // opaque pointer values model runtime handles; they are never dereferenced.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     return reinterpret_cast<void*>(i);
 }
 inline void reset()
 {
     for (void* ptr : backing)
+    {
         std::free(ptr);  // Reclaim deliberately quarantined fake backing.
+    }
     backing.clear();
     ready.fill(true);
     fail_allocations = 0;
@@ -122,7 +128,9 @@ inline cudaError_t cudaHostAlloc(void** ptr, std::size_t bytes, unsigned)
     }
     *ptr = std::malloc(bytes);
     if (!*ptr)
+    {
         return 1;
+    }
     fake_runtime::backing.insert(*ptr);
     ++fake_runtime::host_allocations;
     return 0;
@@ -130,7 +138,9 @@ inline cudaError_t cudaHostAlloc(void** ptr, std::size_t bytes, unsigned)
 inline cudaError_t cudaFreeHost(void* ptr)
 {
     if (fake_runtime::fail_host_free)
+    {
         return 3;
+    }
     fake_runtime::backing.erase(ptr);
     std::free(ptr);
     ++fake_runtime::host_frees;
@@ -139,7 +149,9 @@ inline cudaError_t cudaFreeHost(void* ptr)
 inline cudaError_t cudaEventCreateWithFlags(cudaEvent_t* event, unsigned)
 {
     if (fake_runtime::fail_event_create)
+    {
         return 3;
+    }
     *event = new fake_event;
     ++fake_runtime::event_creates;
     return 0;
@@ -147,22 +159,38 @@ inline cudaError_t cudaEventCreateWithFlags(cudaEvent_t* event, unsigned)
 inline cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream)
 {
     if (fake_runtime::fail_record)
+    {
         return 3;
+    }
     event->stream = stream;
     return 0;
 }
 inline cudaError_t cudaEventQuery(cudaEvent_t event)
 {
     if (fake_runtime::fail_query)
+    {
         return 3;
-    return fake_runtime::ready.at(reinterpret_cast<std::size_t>(event->stream)) ? 0 : 2;
+    }
+    const auto index = reinterpret_cast<std::size_t>(event->stream);
+    if (index >= fake_runtime::ready.size())
+    {
+        return 3;
+    }
+    return fake_runtime::ready[index] ? 0 : 2;
 }
 inline cudaError_t cudaEventSynchronize(cudaEvent_t event)
 {
     ++fake_runtime::synchronizations;
     if (fake_runtime::fail_query)
+    {
         return 3;
-    fake_runtime::ready.at(reinterpret_cast<std::size_t>(event->stream)) = true;
+    }
+    const auto index = reinterpret_cast<std::size_t>(event->stream);
+    if (index >= fake_runtime::ready.size())
+    {
+        return 3;
+    }
+    fake_runtime::ready[index] = true;
     return 0;
 }
 inline cudaError_t cudaEventDestroy(cudaEvent_t event)

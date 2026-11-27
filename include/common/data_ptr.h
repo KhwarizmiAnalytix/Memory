@@ -43,7 +43,7 @@ struct data_ptr
 {
     using allocator_t = allocator<value_t>;
     MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(value_t, allocator_t::alignment_bytes);
-    using stream_t = typename allocator_t::stream_t;
+    using stream_t = allocator_t::stream_t;
 
     MEMORY_FORCE_INLINE data_ptr() = default;
 
@@ -158,7 +158,9 @@ struct data_ptr
     MEMORY_FORCE_INLINE data_ptr clone() const
     {
         if (handle_.empty())
+        {
             return {};
+        }
         return data_ptr(
             data(), size(), handle_.dev().type, static_cast<int>(handle_.dev().index), stream_);
     }
@@ -232,7 +234,7 @@ private:
         return view.data();
     }
 
-    storage_handle  handle_{};
+    storage_handle  handle_;
     stream_handle_t stream_{nullptr};
 };
 

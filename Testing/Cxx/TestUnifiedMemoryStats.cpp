@@ -79,7 +79,7 @@ MEMORYTEST(UnifiedCacheStats, CopyConstructorAndAssignment)
     EXPECT_EQ(assigned.cache_hits.load(), 6U);
 
     unified_cache_stats* const self = &assigned;
-    assigned = *self;
+    assigned                        = *self;
     EXPECT_EQ(assigned.cache_hits.load(), 6U);
     END_TEST();
 }

@@ -1,3 +1,4 @@
+#include <charconv>
 /*
  * XSigma: High-Performance Computational Library
  *
@@ -67,9 +68,21 @@ constexpr std::size_t kSizes[] = {4096, 32768, 262144, 2097152, 4194304};
 void expect_clean_teardown(cuda_caching_allocator& allocator, char const* scenario)
 {
     allocator.empty_cache();
-    check(allocator.bytes_allocated_now() == 0, scenario, static_cast<long long>(allocator.bytes_allocated_now()), 0);
-    check(allocator.bytes_reserved_now() == 0, scenario, static_cast<long long>(allocator.bytes_reserved_now()), 0);
-    check(rt::device_backing_bytes == 0, "driver bytes leaked", static_cast<long long>(rt::device_backing_bytes), 0);
+    check(
+        allocator.bytes_allocated_now() == 0,
+        scenario,
+        static_cast<long long>(allocator.bytes_allocated_now()),
+        0);
+    check(
+        allocator.bytes_reserved_now() == 0,
+        scenario,
+        static_cast<long long>(allocator.bytes_reserved_now()),
+        0);
+    check(
+        rt::device_backing_bytes == 0,
+        "driver bytes leaked",
+        static_cast<long long>(rt::device_backing_bytes),
+        0);
 }
 
 void run_warm(long long iterations)
@@ -113,13 +126,17 @@ void run_cycle(long long iterations)
         allocator.deallocate(b, size / 2 + 512);
         // Destructor runs with a populated cache and no explicit empty_cache().
     }
-    check(rt::device_backing_bytes == 0, "cycle: driver bytes leaked", static_cast<long long>(rt::device_backing_bytes), 0);
+    check(
+        rt::device_backing_bytes == 0,
+        "cycle: driver bytes leaked",
+        static_cast<long long>(rt::device_backing_bytes),
+        0);
 }
 
 void run_mixed(long long iterations, std::uint64_t seed)
 {
-    xorshift                                   rng(seed);
-    cuda_caching_allocator                     allocator(0);
+    xorshift               rng(seed);
+    cuda_caching_allocator allocator(0);
     struct live_block
     {
         void*       ptr;
@@ -131,8 +148,9 @@ void run_mixed(long long iterations, std::uint64_t seed)
         std::uint64_t const action = rng.below(100);
         if (live.size() < 64 && (action < 55 || live.empty()))
         {
-            std::size_t const size = 512 + static_cast<std::size_t>(rng.below(8u * 1024 * 1024));
-            void*             p    = allocator.allocate(size);
+            std::size_t const size =
+                512 + static_cast<std::size_t>(rng.below(std::uint64_t{8} * 1024 * 1024));
+            void* p = allocator.allocate(size);
             if (rng.below(4) == 0)
             {
                 std::uint64_t const streams = 1 + rng.below(3);
@@ -177,7 +195,14 @@ bool wants(std::string const& list, char const* name)
 }  // namespace
 
 int main(int argc, char** argv)
+try
 {
+    const auto parse_number = [](const char* text, auto& value)
+    {
+        const char* end    = text + std::strlen(text);
+        const auto  result = std::from_chars(text, end, value);
+        return result.ec == std::errc{} && result.ptr == end;
+    };
     long long     iterations = 200000;
     std::uint64_t seed       = 1;
     std::string   scenarios  = "warm,cold,cycle,mixed";
@@ -185,11 +210,19 @@ int main(int argc, char** argv)
     {
         if (std::strcmp(argv[i], "--iterations") == 0 && i + 1 < argc)
         {
-            iterations = std::atoll(argv[++i]);
+            if (!parse_number(argv[++i], iterations) || iterations <= 0)
+            {
+                std::fputs("invalid iteration count\n", stderr);
+                return 2;
+            }
         }
         else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc)
         {
-            seed = static_cast<std::uint64_t>(std::atoll(argv[++i]));
+            if (!parse_number(argv[++i], seed))
+            {
+                std::fputs("invalid seed\n", stderr);
+                return 2;
+            }
         }
         else if (std::strcmp(argv[i], "--scenarios") == 0 && i + 1 < argc)
         {
@@ -222,7 +255,11 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "unexpected exception: %s\n", e.what());
         ++g_failures;
     }
-    check(rt::event_creates == rt::event_destroys, "event leaked", rt::event_creates, rt::event_destroys);
+    check(
+        rt::event_creates == rt::event_destroys,
+        "event leaked",
+        rt::event_creates,
+        rt::event_destroys);
     std::printf(
         "churn shim: iterations=%lld seed=%llu scenarios=%s failures=%d\n",
         iterations,
@@ -230,4 +267,14 @@ int main(int argc, char** argv)
         scenarios.c_str(),
         g_failures);
     return g_failures == 0 ? 0 : 1;
+}
+catch (const std::exception& error)
+{
+    std::fprintf(stderr, "benchmark failed: %s\n", error.what());
+    return 1;
+}
+catch (...)
+{
+    std::fputs("benchmark failed with an unknown exception\n", stderr);
+    return 1;
 }

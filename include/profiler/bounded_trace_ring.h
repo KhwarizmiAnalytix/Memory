@@ -57,7 +57,7 @@ public:
         entries_lost_ = 0;
         // Entries that don't fit in the new capacity are dropped; count them.
         size_t const start = (current.size() > new_capacity) ? (current.size() - new_capacity) : 0;
-        entries_lost_ = saved_lost + start;
+        entries_lost_      = saved_lost + start;
         for (size_t i = start; i < current.size(); ++i)
         {
             push(current[i]);
@@ -77,7 +77,7 @@ public:
         {
             ++entries_lost_;
             storage_[head_] = e;
-            head_            = (head_ + 1) % capacity_;
+            head_           = (head_ + 1) % capacity_;
         }
         else
         {
@@ -106,17 +106,17 @@ public:
         entries_lost_ = 0;
     }
 
-    size_t size()         const noexcept { return count_; }
-    size_t capacity()     const noexcept { return capacity_; }
+    size_t size() const noexcept { return count_; }
+    size_t capacity() const noexcept { return capacity_; }
     size_t entries_lost() const noexcept { return entries_lost_; }
-    bool   empty()        const noexcept { return count_ == 0; }
+    bool   empty() const noexcept { return count_ == 0; }
 
 private:
     std::vector<Entry> storage_;
-    size_t capacity_     {0};
-    size_t head_         {0};  // index of the oldest entry
-    size_t count_        {0};  // number of valid entries
-    size_t entries_lost_ {0};  // entries overwritten due to ring full
+    size_t             capacity_{0};
+    size_t             head_{0};          // index of the oldest entry
+    size_t             count_{0};         // number of valid entries
+    size_t             entries_lost_{0};  // entries overwritten due to ring full
 };
 
 }  // namespace memory::gpu

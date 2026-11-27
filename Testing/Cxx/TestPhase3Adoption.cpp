@@ -35,7 +35,9 @@ TEST_F(Phase3Adoption, allocate_adopted_basic)
     size_t count   = 100;
 
     auto adopted = allocator<T>::allocate_adopted(
-        raw_ptr, count, execution_context::cpu(),
+        raw_ptr,
+        count,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     EXPECT_EQ(adopted.data(), raw_ptr);
@@ -67,7 +69,9 @@ TEST_F(Phase3Adoption, allocate_adopted_null_deleter_throws)
     T* raw_ptr = new T[10];
     EXPECT_THROW(
         allocator<T>::allocate_adopted(
-            raw_ptr, 10, execution_context::cpu(),
+            raw_ptr,
+            10,
+            execution_context::cpu(),
             std::function<void(T*, size_t, execution_context const&)>{}),
         std::invalid_argument);
     delete[] raw_ptr;
@@ -80,8 +84,11 @@ TEST_F(Phase3Adoption, allocate_adopted_with_custom_deleter)
 
     {
         auto adopted = allocator<T>::allocate_adopted(
-            raw_ptr, 50, execution_context::cpu(),
-            [](T* p, size_t, execution_context const&) {
+            raw_ptr,
+            50,
+            execution_context::cpu(),
+            [](T* p, size_t, execution_context const&)
+            {
                 ++deleter_called;
                 delete[] p;
             });
@@ -96,7 +103,9 @@ TEST_F(Phase3Adoption, allocate_adopted_with_noop_deleter)
     T* raw_ptr = new T[30];
     {
         auto adopted = allocator<T>::allocate_adopted(
-            raw_ptr, 30, execution_context::cpu(),
+            raw_ptr,
+            30,
+            execution_context::cpu(),
             [](T*, size_t, execution_context const&) { /* caller manages lifetime */ });
         EXPECT_EQ(adopted.size(), 30);
     }
@@ -109,11 +118,16 @@ TEST_F(Phase3Adoption, allocate_adopted_copy_increments_refcount)
     size_t count   = 20;
 
     auto adopted1 = allocator<T>::allocate_adopted(
-        raw_ptr, count, execution_context::cpu(),
+        raw_ptr,
+        count,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     EXPECT_EQ(adopted1.use_count(), 1);
 
+    // exercise owning copy semantics
+    // and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     auto adopted2 = adopted1;
 
     EXPECT_EQ(adopted1.use_count(), 2);
@@ -126,11 +140,14 @@ TEST_F(Phase3Adoption, allocate_adopted_move_transfers_ownership)
     size_t count   = 15;
 
     auto adopted1 = allocator<T>::allocate_adopted(
-        raw_ptr, count, execution_context::cpu(),
+        raw_ptr,
+        count,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     auto adopted2 = std::move(adopted1);
 
+    // NOLINTNEXTLINE(bugprone-use-after-move): verify the documented valid, empty moved-from state.
     EXPECT_TRUE(adopted1.empty());
     EXPECT_EQ(adopted2.data(), raw_ptr);
     EXPECT_EQ(adopted2.size(), count);
@@ -143,11 +160,15 @@ TEST_F(Phase3Adoption, allocate_adopted_allocation_id_unique)
     T* raw_ptr2 = new T[10];
 
     auto adopted1 = allocator<T>::allocate_adopted(
-        raw_ptr1, 10, execution_context::cpu(),
+        raw_ptr1,
+        10,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     auto adopted2 = allocator<T>::allocate_adopted(
-        raw_ptr2, 10, execution_context::cpu(),
+        raw_ptr2,
+        10,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     EXPECT_NE(adopted1.identity().alloc_id, adopted2.identity().alloc_id);
@@ -157,10 +178,9 @@ TEST_F(Phase3Adoption, allocate_adopted_preserves_context)
 {
     T* raw_ptr = new T[8];
 
-    execution_context ctx = execution_context::cpu();
-    auto               adopted =
-        allocator<T>::allocate_adopted(raw_ptr, 8, ctx,
-                                       [](T* p, size_t, execution_context const&) { delete[] p; });
+    execution_context ctx     = execution_context::cpu();
+    auto              adopted = allocator<T>::allocate_adopted(
+        raw_ptr, 8, ctx, [](T* p, size_t, execution_context const&) { delete[] p; });
 
     EXPECT_EQ(adopted.ctx().device_type(), ctx.device_type());
     EXPECT_EQ(adopted.ctx().device_index(), ctx.device_index());
@@ -179,13 +199,11 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_basic)
     auto from = allocator<T>::allocate(10, execution_context::cpu());
     auto to   = allocator<T>::allocate(10, execution_context::cpu());
 
-    auto cpu_free = [](T* p, size_t, execution_context const&) {
-        allocator<T>::free(p, device_enum::CPU);
-    };
-    auto from_retained = allocator<T>::allocate_adopted(
-        from, 10, execution_context::cpu(), cpu_free);
-    auto to_retained = allocator<T>::allocate_adopted(
-        to, 10, execution_context::cpu(), cpu_free);
+    auto cpu_free = [](T* p, size_t, execution_context const&)
+    { allocator<T>::free(p, device_enum::CPU); };
+    auto from_retained =
+        allocator<T>::allocate_adopted(from, 10, execution_context::cpu(), cpu_free);
+    auto to_retained = allocator<T>::allocate_adopted(to, 10, execution_context::cpu(), cpu_free);
 
     std::fill(from_retained.data(), from_retained.end(), 42.0f);
 
@@ -204,22 +222,24 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_null_source_throws)
 {
     auto empty_ptr = retained_ptr<T>();
     auto to        = allocator<T>::allocate_adopted(
-        new T[5], 5, execution_context::cpu(),
+        new T[5],
+        5,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
-    EXPECT_THROW(allocator<T>::copy_async_retained(empty_ptr, to),
-                 std::invalid_argument);
+    EXPECT_THROW(allocator<T>::copy_async_retained(empty_ptr, to), std::invalid_argument);
 }
 
 TEST_F(Phase3RetainedTransfer, copy_async_retained_null_destination_throws)
 {
-    auto from      = allocator<T>::allocate_adopted(
-        new T[5], 5, execution_context::cpu(),
+    auto from = allocator<T>::allocate_adopted(
+        new T[5],
+        5,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
     auto empty_ptr = retained_ptr<T>();
 
-    EXPECT_THROW(allocator<T>::copy_async_retained(from, empty_ptr),
-                 std::invalid_argument);
+    EXPECT_THROW(allocator<T>::copy_async_retained(from, empty_ptr), std::invalid_argument);
 }
 
 TEST_F(Phase3RetainedTransfer, copy_async_retained_large_buffer)
@@ -229,13 +249,12 @@ TEST_F(Phase3RetainedTransfer, copy_async_retained_large_buffer)
     auto from = allocator<T>::allocate(count, execution_context::cpu());
     auto to   = allocator<T>::allocate(count, execution_context::cpu());
 
-    auto cpu_free = [](T* p, size_t, execution_context const&) {
-        allocator<T>::free(p, device_enum::CPU);
-    };
-    auto from_retained = allocator<T>::allocate_adopted(
-        from, count, execution_context::cpu(), cpu_free);
-    auto to_retained = allocator<T>::allocate_adopted(
-        to, count, execution_context::cpu(), cpu_free);
+    auto cpu_free = [](T* p, size_t, execution_context const&)
+    { allocator<T>::free(p, device_enum::CPU); };
+    auto from_retained =
+        allocator<T>::allocate_adopted(from, count, execution_context::cpu(), cpu_free);
+    auto to_retained =
+        allocator<T>::allocate_adopted(to, count, execution_context::cpu(), cpu_free);
 
     for (size_t i = 0; i < count; ++i)
     {
@@ -286,7 +305,7 @@ TEST_F(Phase3RetainedService, service_enqueue_already_complete)
     auto& service = retained_operation_service::instance();
 
     copy_token token;
-    service.enqueue(std::move(token));
+    service.enqueue(token);
 
     EXPECT_EQ(service.pending_count(), 0);
 }
@@ -343,7 +362,9 @@ TEST_F(Phase3RetainedService, service_integration_with_allocate_adopted)
 
     T*   raw_ptr = new T[20];
     auto adopted = allocator<T>::allocate_adopted(
-        raw_ptr, 20, execution_context::cpu(),
+        raw_ptr,
+        20,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     std::fill(adopted.data(), adopted.end(), 99.0f);
@@ -372,17 +393,21 @@ protected:
 
 TEST_F(Phase3Integration, adopt_copy_and_verify)
 {
-    const T      expected = 3.14f;
-    T*           raw_src  = new T[5];
-    T*           raw_dst  = new T[5];
+    const T expected = 3.14f;
+    T*      raw_src  = new T[5];
+    T*      raw_dst  = new T[5];
     std::fill(raw_src, raw_src + 5, expected);
 
     auto src_adopted = allocator<T>::allocate_adopted(
-        raw_src, 5, execution_context::cpu(),
+        raw_src,
+        5,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     auto dst_adopted = allocator<T>::allocate_adopted(
-        raw_dst, 5, execution_context::cpu(),
+        raw_dst,
+        5,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     copy_token token = allocator<T>::copy_async_retained(src_adopted, dst_adopted);
@@ -401,11 +426,16 @@ TEST_F(Phase3Integration, adopt_multiple_copies_share_ownership)
     std::fill(raw_ptr, raw_ptr + 10, 7.0f);
 
     auto adopted1 = allocator<T>::allocate_adopted(
-        raw_ptr, 10, execution_context::cpu(),
+        raw_ptr,
+        10,
+        execution_context::cpu(),
         [](T* p, size_t, execution_context const&) { delete[] p; });
 
     EXPECT_EQ(adopted1.use_count(), 1);
 
+    // exercise owning copy semantics
+    // and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     auto adopted2 = adopted1;
     EXPECT_EQ(adopted1.use_count(), 2);
     EXPECT_EQ(adopted2.use_count(), 2);

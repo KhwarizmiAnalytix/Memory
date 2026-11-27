@@ -31,9 +31,9 @@ std::atomic<std::uint64_t> g_next_allocation_id{1};
 // ordered: a thread's unused tail is skipped when the thread exits.
 allocation_id next_allocation_id() noexcept
 {
-    constexpr std::uint64_t kBlock = 1024;
-    thread_local std::uint64_t next = 0;
-    thread_local std::uint64_t end  = 0;
+    constexpr std::uint64_t    kBlock = 1024;
+    thread_local std::uint64_t next   = 0;
+    thread_local std::uint64_t end    = 0;
     if (next == end)
     {
         next = g_next_allocation_id.fetch_add(kBlock, std::memory_order_relaxed);

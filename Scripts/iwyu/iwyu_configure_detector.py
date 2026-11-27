@@ -39,7 +39,11 @@ class XSigmaConfigureDetector:
     # C++ file extensions to analyze
     CPP_EXTENSIONS = {".h", ".hxx", ".hpp", ".cpp", ".cc", ".c"}
 
-    def __init__(self, log_file: Optional[str] = None, configure_header: str = "common/configure.h"):
+    def __init__(
+        self,
+        log_file: Optional[str] = None,
+        configure_header: str = "common/configure.h",
+    ):
         """Initialize the detector with optional logging and configurable header path."""
         self.log_file = log_file
         self.configure_header = configure_header
@@ -160,7 +164,9 @@ class XSigmaConfigureDetector:
 
         return result
 
-    def analyze_directory(self, directory: Path, recursive: bool = True) -> list[dict[str, Any]]:
+    def analyze_directory(
+        self, directory: Path, recursive: bool = True
+    ) -> list[dict[str, Any]]:
         """Analyze all C++ files in a directory."""
         results = []
 
@@ -172,7 +178,10 @@ class XSigmaConfigureDetector:
         for file_path in directory.glob(pattern):
             if file_path.is_file() and file_path.suffix in self.CPP_EXTENSIONS:
                 # Skip third-party directories
-                if any(part in str(file_path).lower() for part in ["thirdparty", "third_party", "3rdparty"]):
+                if any(
+                    part in str(file_path).lower()
+                    for part in ["thirdparty", "third_party", "3rdparty"]
+                ):
                     continue
 
                 result = self.analyze_file(file_path)
@@ -211,7 +220,9 @@ class XSigmaConfigureDetector:
             for result in results:
                 if result["needs_configure"]:
                     report_lines.append(f"File: {result['file']}")
-                    report_lines.append(f"  Macros found: {', '.join(sorted(result['macros_found']))}")
+                    report_lines.append(
+                        f"  Macros found: {', '.join(sorted(result['macros_found']))}"
+                    )
                     if result["suggestion"]:
                         report_lines.append(
                             f"  Suggested insertion at line {result['suggestion']['line']}: {result['suggestion']['include']}"
@@ -241,16 +252,22 @@ class XSigmaConfigureDetector:
 
 def main() -> None:
     """Main entry point for the configure detector."""
-    parser = argparse.ArgumentParser(description="Detect XSigma files that need common/configure.h")
+    parser = argparse.ArgumentParser(
+        description="Detect XSigma files that need common/configure.h"
+    )
     parser.add_argument("directory", type=Path, help="Directory to analyze")
-    parser.add_argument("--log-file", type=str, help="Log file path for detailed output")
+    parser.add_argument(
+        "--log-file", type=str, help="Log file path for detailed output"
+    )
     parser.add_argument(
         "--recursive",
         action="store_true",
         default=True,
         help="Analyze directories recursively",
     )
-    parser.add_argument("--report-file", type=str, help="Output file for the analysis report")
+    parser.add_argument(
+        "--report-file", type=str, help="Output file for the analysis report"
+    )
     parser.add_argument(
         "--configure-header",
         type=str,
@@ -265,7 +282,9 @@ def main() -> None:
         sys.exit(1)
 
     # Initialize detector
-    detector = XSigmaConfigureDetector(log_file=args.log_file, configure_header=args.configure_header)
+    detector = XSigmaConfigureDetector(
+        log_file=args.log_file, configure_header=args.configure_header
+    )
 
     # Analyze directory
     detector.logger.info("Starting analysis of %s", args.directory)
@@ -284,7 +303,9 @@ def main() -> None:
 
     # Exit with appropriate code
     if detector.files_needing_configure > 0:
-        detector.logger.warning("%d files need common/configure.h", detector.files_needing_configure)
+        detector.logger.warning(
+            "%d files need common/configure.h", detector.files_needing_configure
+        )
         sys.exit(1)
     else:
         detector.logger.info("All files have proper configure.h includes")

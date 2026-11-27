@@ -24,7 +24,9 @@ def find_source_files(source_dir: str) -> list[str]:
     return [str(f) for f in source_files]
 
 
-def get_compile_flags_for_file(compile_commands_file: str, source_file: str) -> list[str]:
+def get_compile_flags_for_file(
+    compile_commands_file: str, source_file: str
+) -> list[str]:
     """Extract compile flags for a specific source file from compile_commands.json."""
     if not os.path.exists(compile_commands_file):
         return []
@@ -96,11 +98,15 @@ def run_iwyu_on_file(
 
     # Log analysis start
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write("\n================================================================================\n")
+        f.write(
+            "\n================================================================================\n"
+        )
         f.write(f"ANALYZING: {source_file}\n")
         f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Command: {' '.join(cmd)}\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
 
     try:
         # Run IWYU and capture output
@@ -125,32 +131,46 @@ def run_iwyu_on_file(
 
             f.write(f"Exit code: {result.returncode}\n")
             f.write("ANALYSIS COMPLETED\n")
-            f.write("================================================================================\n\n")
+            f.write(
+                "================================================================================\n\n"
+            )
 
         return result.returncode == 0
 
     except subprocess.TimeoutExpired:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write("ERROR: IWYU analysis timed out after 60 seconds\n")
-            f.write("================================================================================\n\n")
+            f.write(
+                "================================================================================\n\n"
+            )
         return False
 
     except Exception as e:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"ERROR: {str(e)}\n")
-            f.write("================================================================================\n\n")
+            f.write(
+                "================================================================================\n\n"
+            )
         return False
 
 
 def main() -> int:
     """Run IWYU analysis on source files and log results."""
-    parser = argparse.ArgumentParser(description="Run IWYU analysis on XSigma source files")
-    parser.add_argument("--source-dir", required=True, help="Source directory to analyze")
+    parser = argparse.ArgumentParser(
+        description="Run IWYU analysis on XSigma source files"
+    )
+    parser.add_argument(
+        "--source-dir", required=True, help="Source directory to analyze"
+    )
     parser.add_argument("--log-file", required=True, help="Output log file")
-    parser.add_argument("--iwyu-executable", required=True, help="Path to IWYU executable")
+    parser.add_argument(
+        "--iwyu-executable", required=True, help="Path to IWYU executable"
+    )
     parser.add_argument("--mapping-file", help="IWYU mapping file")
     parser.add_argument("--compile-commands", help="Path to compile_commands.json file")
-    parser.add_argument("--max-files", type=int, default=10, help="Maximum number of files to analyze")
+    parser.add_argument(
+        "--max-files", type=int, default=10, help="Maximum number of files to analyze"
+    )
 
     args = parser.parse_args()
 
@@ -199,16 +219,22 @@ def main() -> int:
     os.makedirs(os.path.dirname(args.log_file), exist_ok=True)
     with open(args.log_file, "a", encoding="utf-8") as f:
         f.write("\n\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
         f.write("IWYU ANALYSIS SESSION STARTED\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
         f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Source directory: {args.source_dir}\n")
         f.write(f"IWYU executable: {args.iwyu_executable}\n")
         f.write(f"Mapping file: {args.mapping_file}\n")
         f.write(f"Files to analyze: {len(source_files)}\n")
         f.write(f"IWYU arguments: {' '.join(iwyu_args)}\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
 
     # Analyze files
     successful = 0
@@ -229,17 +255,25 @@ def main() -> int:
     # Log summary
     with open(args.log_file, "a", encoding="utf-8") as f:
         f.write("\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
         f.write("IWYU ANALYSIS SESSION COMPLETED\n")
-        f.write("================================================================================\n")
+        f.write(
+            "================================================================================\n"
+        )
         f.write(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Files analyzed: {len(source_files)}\n")
         f.write(f"Successful: {successful}\n")
         f.write(f"Failed: {failed}\n")
-        f.write("================================================================================\n\n")
+        f.write(
+            "================================================================================\n\n"
+        )
 
     print(f"IWYU analysis completed. Results logged to: {args.log_file}")
-    print(f"Files analyzed: {len(source_files)}, Successful: {successful}, Failed: {failed}")
+    print(
+        f"Files analyzed: {len(source_files)}, Successful: {successful}, Failed: {failed}"
+    )
 
     return 0
 

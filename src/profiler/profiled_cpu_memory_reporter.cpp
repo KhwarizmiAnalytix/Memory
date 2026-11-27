@@ -102,9 +102,8 @@ void profiled_cpu_memory_reporter::record_deallocation(void* ptr, bool emit_even
         }
         else if (emit_event && unknown_free_log_count_++ % 1000 == 0)
         {
-            LOGGING_LOG_WARNING(
-                "CPU memory block of unknown size was allocated before profiling "
-                "started; deallocation event is omitted");
+            LOGGING_LOG_WARNING("CPU memory block of unknown size was allocated before profiling "
+                                "started; deallocation event is omitted");
         }
     }
 

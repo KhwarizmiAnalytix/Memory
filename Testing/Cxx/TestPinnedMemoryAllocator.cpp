@@ -53,8 +53,8 @@ MEMORYTEST(PinnedMemory, max_backing_bytes_defaults_to_unlimited)
 MEMORYTEST(PinnedMemory, set_and_get_max_backing_bytes)
 {
     pinned_memory_allocator allocator;
-    allocator.set_max_backing_bytes(4 * 1024 * 1024);
-    EXPECT_EQ(allocator.max_backing_bytes(), 4 * 1024 * 1024U);
+    allocator.set_max_backing_bytes(std::size_t{4} * 1024 * 1024);
+    EXPECT_EQ(allocator.max_backing_bytes(), std::size_t{4} * 1024 * 1024U);
 }
 
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP

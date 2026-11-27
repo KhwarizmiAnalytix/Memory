@@ -28,6 +28,8 @@ struct alignas(256) over_aligned
 };
 struct has_dtor
 {
+    // This negative storage-trait test requires a user-provided destructor.
+    // NOLINTNEXTLINE(modernize-use-equals-default)
     ~has_dtor() {}
 };
 }  // namespace

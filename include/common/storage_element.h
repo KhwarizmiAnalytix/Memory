@@ -24,8 +24,8 @@ inline constexpr bool is_storage_element_v =
 
 }  // namespace memory
 
-#define MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(T, alignment)                                   \
-    static_assert(                                                                           \
-        ::memory::is_storage_element_v<T, alignment>,                                        \
-        "typed storage requires a trivially copyable, trivially destructible, "              \
+#define MEMORY_STATIC_ASSERT_STORAGE_ELEMENT(T, alignment)                                         \
+    static_assert(                                                                                 \
+        ::memory::is_storage_element_v<T, alignment>,                                              \
+        "typed storage requires a trivially copyable, trivially destructible, "                    \
         "non-cv-qualified element type with alignof(T) <= the allocation alignment")

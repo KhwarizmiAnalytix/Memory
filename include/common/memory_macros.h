@@ -143,43 +143,47 @@ inline constexpr size_t MEMORY_ALIGNMENT = 64;
 //   class NonCopyable : private memory::noncopyable {};
 // or in a class body:
 //   MEMORY_DELETE_COPY(MyClass);
-namespace detail {
-struct noncopyable_base {
-  noncopyable_base() = default;
-  noncopyable_base(const noncopyable_base&) = delete;
-  noncopyable_base& operator=(const noncopyable_base&) = delete;
+namespace detail
+{
+struct noncopyable_base
+{
+    noncopyable_base()                                   = default;
+    noncopyable_base(const noncopyable_base&)            = delete;
+    noncopyable_base& operator=(const noncopyable_base&) = delete;
 };
-}
-class noncopyable : private detail::noncopyable_base {
+}  // namespace detail
+class noncopyable : private detail::noncopyable_base
+{
 public:
-  noncopyable() = default;
-  noncopyable(noncopyable&&) = delete;
-  noncopyable& operator=(noncopyable&&) = delete;
-  ~noncopyable() = default;
+    noncopyable()                         = default;
+    noncopyable(noncopyable&&)            = delete;
+    noncopyable& operator=(noncopyable&&) = delete;
+    ~noncopyable()                        = default;
 };
 
 // Macro helpers for in-class use (minimal; only the ones actually needed)
 // NOLINTBEGIN(bugprone-macro-parentheses)
 // — macro type parameters are inherently exempt from parentheses requirement
-#define MEMORY_DELETE_COPY(Type)        \
-  Type(const Type&) = delete;           \
-  Type& operator=(const Type&) = delete;
+#define MEMORY_DELETE_COPY(Type)                                                                   \
+    Type(const Type&)            = delete;                                                         \
+    Type& operator=(const Type&) = delete;
 
-#define MEMORY_DELETE_COPY_AND_MOVE(Type) \
-private:                                  \
-  Type(const Type&) = delete;             \
-  Type& operator=(const Type&) = delete;  \
-  Type(Type&&) = delete;                  \
-  Type& operator=(Type&&) = delete;       \
+#define MEMORY_DELETE_COPY_AND_MOVE(Type)                                                          \
+private:                                                                                           \
+    Type(const Type&)            = delete;                                                         \
+    Type& operator=(const Type&) = delete;                                                         \
+    Type(Type&&)                 = delete;                                                         \
+    Type& operator=(Type&&)      = delete;                                                         \
+                                                                                                   \
 public:
 
-#define MEMORY_DELETE_CLASS(Type)       \
-  Type() = delete;                      \
-  Type(const Type&) = delete;           \
-  Type& operator=(const Type&) = delete; \
-  Type(Type&&) = delete;                 \
-  Type& operator=(Type&&) = delete;      \
-  ~Type() = delete;
+#define MEMORY_DELETE_CLASS(Type)                                                                  \
+    Type()                       = delete;                                                         \
+    Type(const Type&)            = delete;                                                         \
+    Type& operator=(const Type&) = delete;                                                         \
+    Type(Type&&)                 = delete;                                                         \
+    Type& operator=(Type&&)      = delete;                                                         \
+    ~Type()                      = delete;
 // NOLINTEND(bugprone-macro-parentheses)
 
 // ============================================================================

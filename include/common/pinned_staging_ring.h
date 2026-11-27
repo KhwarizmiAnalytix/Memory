@@ -69,7 +69,8 @@ public:
     {
         if (slot_count == 0 || elements_per_slot == 0)
         {
-            throw std::invalid_argument("pinned_staging_ring: slots and slot size must be non-zero");
+            throw std::invalid_argument(
+                "pinned_staging_ring: slots and slot size must be non-zero");
         }
         slots_.reserve(slot_count);
         for (std::size_t i = 0; i < slot_count; ++i)
@@ -164,16 +165,16 @@ public:
     /// slot is not currently acquired (double submit, foreign slot).
     void submit(slot const& s, copy_token token)
     {
-        copy_token                  displaced;
+        copy_token                        displaced;
         std::lock_guard<std::mutex> const lock(mutex_);
-        auto&                       entry = checked_acquired(s);
+        auto&                             entry = checked_acquired(s);
         if (token.ready())
         {
             entry.state = slot_state::idle;
-            displaced    = std::move(token);
+            displaced   = std::move(token);
             return;
         }
-        entry.token  = std::move(token);
+        entry.token = std::move(token);
         entry.state = slot_state::in_flight;
     }
 
@@ -234,7 +235,7 @@ private:
             if (state == completion_state::complete)
             {
                 released.push_back(std::move(e.token));
-                e.token  = copy_token{};
+                e.token = copy_token{};
                 e.state = slot_state::idle;
             }
             else if (state == completion_state::failed)

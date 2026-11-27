@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
  */
 
-#include <gtest/gtest.h>
 #include <atomic>
-#include <cstdlib>
-#include <limits>
-#include <stdexcept>
 #include <chrono>
+#include <cstdlib>
+#include <gtest/gtest.h>
+#include <limits>
 #include <memory>
 #include <new>
+#include <stdexcept>
 #include <thread>
 
 // Include fake runtime first
@@ -58,9 +58,18 @@ void* operator new(std::size_t n)
     }
     throw std::bad_alloc();
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void* operator new[](std::size_t n) { return ::operator new(n); }
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void* operator new[](std::size_t n)
+{
+    return ::operator new(n);
+}
 // get_temporary_buffer allocates with nothrow new and frees with the sized
 // delete above. Both must use malloc/free once Valgrind stops replacing this
 // executable's operator new; otherwise the sized delete is a mismatched free.
@@ -73,8 +82,14 @@ void* operator new[](std::size_t n, std::nothrow_t const&) noexcept
 {
     return ::operator new(n, std::nothrow);
 }
-void operator delete[](void* p) noexcept { std::free(p); }
-void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
 
 // operator new uses malloc; operator delete calls free. ASAN's runtime interceptor
 // tags new-allocated memory as "operator-new type" and flags a free() call as
@@ -84,6 +99,7 @@ void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 // instrumentation, not runtime interceptor checks, so it cannot fix this.
 // Called by the ASAN runtime (only) to configure per-binary options. Defining it
 // unconditionally is harmless in non-ASAN builds: no overhead, no link conflict.
+// NOLINTNEXTLINE(bugprone-reserved-identifier): AddressSanitizer requires this symbol name.
 extern "C" const char* __asan_default_options()
 {
     return "alloc_dealloc_mismatch=0";
@@ -135,7 +151,7 @@ TEST_F(CopyTokenTest, GPUTokenReadyStream)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     copy_token token(ctx);
 
     EXPECT_EQ(token.state(), completion_state::complete);
@@ -151,7 +167,7 @@ TEST_F(CopyTokenTest, GPUTokenNotReadyStream)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     copy_token token(ctx);
 
     EXPECT_EQ(token.state(), completion_state::pending);
@@ -167,7 +183,7 @@ TEST_F(CopyTokenTest, GPUTokenErrorStream)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     copy_token token(ctx);
 
     EXPECT_EQ(token.state(), completion_state::failed);
@@ -183,7 +199,7 @@ TEST_F(CopyTokenTest, GPUTokenWaitBlocks)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     copy_token token(ctx);
 
     EXPECT_FALSE(token.ready());
@@ -201,13 +217,11 @@ TEST_F(CopyTokenTest, GPUTokenWaitThrowsOnError)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     copy_token token(ctx);
 
     EXPECT_THROW(token.wait(), std::runtime_error);
 }
-
-
 
 // Test: retained_operation_service enqueues a token
 TEST_F(CopyTokenTest, ServiceEnqueueToken)
@@ -215,7 +229,7 @@ TEST_F(CopyTokenTest, ServiceEnqueueToken)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = reinterpret_cast<void*>(1);
+    ctx.stream    = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
     auto& service = retained_operation_service::instance();
@@ -239,7 +253,7 @@ TEST_F(CopyTokenTest, ServicePollCompletesReady)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = reinterpret_cast<void*>(1);
+    ctx.stream    = reinterpret_cast<void*>(1);
 
     fake_runtime::set_stream_ready(ctx.stream, false);
     copy_token token1(ctx);
@@ -264,7 +278,7 @@ TEST_F(CopyTokenTest, ServiceBackpressure)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = reinterpret_cast<void*>(1);
+    ctx.stream    = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
     copy_token token(ctx);
@@ -283,15 +297,15 @@ TEST_F(CopyTokenTest, BlockingEnqueuePollsForItsOwnCapacity)
     service.reset();
     service.set_max_pending(1);
 
-    auto first_stream = reinterpret_cast<void*>(11);
+    auto first_stream  = reinterpret_cast<void*>(11);
     auto second_stream = reinterpret_cast<void*>(12);
     fake_runtime::set_stream_ready(first_stream, false);
     fake_runtime::set_stream_ready(second_stream, false);
     execution_context first_ctx;
-    first_ctx.dev.type = device_enum::CUDA;
-    first_ctx.stream = first_stream;
+    first_ctx.dev.type           = device_enum::CUDA;
+    first_ctx.stream             = first_stream;
     execution_context second_ctx = first_ctx;
-    second_ctx.stream = second_stream;
+    second_ctx.stream            = second_stream;
     copy_token first(first_ctx);
     copy_token second(second_ctx);
     service.enqueue(first, 0, false);
@@ -313,7 +327,7 @@ TEST_F(CopyTokenTest, ShutdownRejectsNewWorkAndResetReopensService)
 
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = reinterpret_cast<void*>(13);
+    ctx.stream   = reinterpret_cast<void*>(13);
     fake_runtime::set_stream_ready(ctx.stream, false);
     copy_token token(ctx);
     EXPECT_THROW(service.enqueue(token, 0, false), std::runtime_error);
@@ -334,7 +348,7 @@ TEST_F(CopyTokenTest, ServiceDrain)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = reinterpret_cast<void*>(1);
+    ctx.stream    = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, false);
 
     copy_token token(ctx);
@@ -358,7 +372,7 @@ TEST_F(CopyTokenTest, ServiceSkipsReadyToken)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = reinterpret_cast<void*>(1);
+    ctx.stream    = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(ctx.stream, true);
 
     copy_token token(ctx);
@@ -375,7 +389,7 @@ TEST_F(CopyTokenTest, OperationEventIgnoresLaterStreamWork)
 
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = stream;
+    ctx.stream   = stream;
     copy_token token(ctx);
     token.prepare_event();
     token.record_event();
@@ -392,7 +406,7 @@ TEST_F(CopyTokenTest, OperationEventWaitSynchronizesOnlyTheEvent)
     fake_runtime::set_stream_ready(stream, false);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = stream;
+    ctx.stream   = stream;
     copy_token token(ctx);
     token.prepare_event();
     token.record_event();
@@ -407,19 +421,20 @@ TEST_F(CopyTokenTest, OperationEventWaitSynchronizesOnlyTheEvent)
 #if MEMORY_HAS_CUDA
 TEST_F(CopyTokenTest, RetainedCopyValidatesExtentAndSupportsSlices)
 {
-    using T = float;
+    using T     = float;
     auto stream = reinterpret_cast<void*>(6);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = stream;
-    auto source = allocator<T>::allocate_adopted(
-        new T[6]{1, 2, 3, 4, 5, 6}, 6, ctx,
+    ctx.stream   = stream;
+    auto source  = allocator<T>::allocate_adopted(
+        new T[6]{1, 2, 3, 4, 5, 6},
+        6,
+        ctx,
         [](T* ptr, size_t, execution_context const&) { delete[] ptr; });
     auto destination = allocator<T>::allocate_adopted(
-        new T[6]{}, 6, ctx,
-        [](T* ptr, size_t, execution_context const&) { delete[] ptr; });
-    auto source_slice = source.slice(2, 3);
+        new T[6]{}, 6, ctx, [](T* ptr, size_t, execution_context const&) { delete[] ptr; });
+    auto source_slice      = source.slice(2, 3);
     auto destination_slice = destination.slice(1, 3);
 
     auto token = allocator<T>::copy_async_retained(source_slice, destination_slice, stream);
@@ -430,34 +445,39 @@ TEST_F(CopyTokenTest, RetainedCopyValidatesExtentAndSupportsSlices)
 
     auto short_destination = destination.slice(0, 2);
     EXPECT_THROW(
-        allocator<T>::copy_async_retained(source_slice, short_destination),
-        std::invalid_argument);
+        allocator<T>::copy_async_retained(source_slice, short_destination), std::invalid_argument);
     EXPECT_EQ(fake_runtime::copies, 1);
     EXPECT_EQ(fake_runtime::event_records, 1);
 }
 
 TEST_F(CopyTokenTest, RetainedCopySurvivesTokenDiscardUntilEventCompletes)
 {
-    using T = float;
+    using T       = float;
     auto& service = retained_operation_service::instance();
     service.reset();
     auto stream = reinterpret_cast<void*>(7);
     fake_runtime::set_stream_ready(stream, false);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = stream;
+    ctx.stream   = stream;
 
     int releases = 0;
     {
         auto source = allocator<T>::allocate_adopted(
-            new T[2]{8, 9}, 2, ctx,
-            [&releases](T* ptr, size_t, execution_context const&) {
+            new T[2]{8, 9},
+            2,
+            ctx,
+            [&releases](T* ptr, size_t, execution_context const&)
+            {
                 ++releases;
                 delete[] ptr;
             });
         auto destination = allocator<T>::allocate_adopted(
-            new T[2]{}, 2, ctx,
-            [&releases](T* ptr, size_t, execution_context const&) {
+            new T[2]{},
+            2,
+            ctx,
+            [&releases](T* ptr, size_t, execution_context const&)
+            {
                 ++releases;
                 delete[] ptr;
             });
@@ -478,26 +498,32 @@ TEST_F(CopyTokenTest, RetainedCopySurvivesTokenDiscardUntilEventCompletes)
 
 TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
 {
-    using T = float;
+    using T       = float;
     auto& service = retained_operation_service::instance();
     service.reset();
     auto stream = reinterpret_cast<void*>(8);
     fake_runtime::set_stream_error(stream);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream = stream;
+    ctx.stream   = stream;
 
     int releases = 0;
     {
         auto source = allocator<T>::allocate_adopted(
-            new T[1]{8}, 1, ctx,
-            [&releases](T* ptr, size_t, execution_context const&) {
+            new T[1]{8},
+            1,
+            ctx,
+            [&releases](T* ptr, size_t, execution_context const&)
+            {
                 ++releases;
                 delete[] ptr;
             });
         auto destination = allocator<T>::allocate_adopted(
-            new T[1]{}, 1, ctx,
-            [&releases](T* ptr, size_t, execution_context const&) {
+            new T[1]{},
+            1,
+            ctx,
+            [&releases](T* ptr, size_t, execution_context const&)
+            {
                 ++releases;
                 delete[] ptr;
             });
@@ -519,16 +545,16 @@ TEST_F(CopyTokenTest, FailedRetainedCopyIsQuarantined)
 // Phase 0.3 probes (plan §6.1). Counting operator new + fake-runtime counters.
 TEST_F(CopyTokenTest, ProbeTokenReadyAfterTerminalMakesNoDriverCalls)
 {
-    using T = float;
-    auto  stream = reinterpret_cast<void*>(3);
+    using T     = float;
+    auto stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream      = stream;
-    auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
-    auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
-    auto dst = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
-    auto token = allocator<T>::copy_async_retained(src, dst, stream);
+    ctx.stream   = stream;
+    auto del     = [](T* p, size_t, execution_context const&) { delete[] p; };
+    auto src     = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto dst     = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto token   = allocator<T>::copy_async_retained(src, dst, stream);
     ASSERT_TRUE(token.ready());  // reach terminal
     int const queries = fake_runtime::event_queries + fake_runtime::stream_queries;
     for (int i = 0; i < 100; ++i)
@@ -540,17 +566,17 @@ TEST_F(CopyTokenTest, ProbeTokenReadyAfterTerminalMakesNoDriverCalls)
 
 TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
 {
-    using T = float;
+    using T       = float;
     auto& service = retained_operation_service::instance();
     service.reset();
     auto stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, true);
     execution_context ctx;
     ctx.dev.type = device_enum::CUDA;
-    ctx.stream      = stream;
-    auto del = [](T* p, size_t, execution_context const&) { delete[] p; };
-    auto src = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
-    auto dst = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    ctx.stream   = stream;
+    auto del     = [](T* p, size_t, execution_context const&) { delete[] p; };
+    auto src     = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
+    auto dst     = allocator<T>::allocate_adopted(new T[8]{}, 8, ctx, del);
     for (int i = 0; i < 20; ++i)  // warm
     {
         (void)allocator<T>::copy_async_retained(src, dst, stream);
@@ -558,14 +584,14 @@ TEST_F(CopyTokenTest, ProbeRetainedCopySteadyStateHeapAndEvents)
     }
     int const creates0  = fake_runtime::event_creates;
     int const destroys0 = fake_runtime::event_destroys;
-    g_new_calls = 0;
-    g_count_new = true;
+    g_new_calls         = 0;
+    g_count_new         = true;
     for (int i = 0; i < 100; ++i)
     {
         (void)allocator<T>::copy_async_retained(src, dst, stream);
         (void)service.poll();
     }
-    g_count_new = false;
+    g_count_new           = false;
     size_t const heap     = g_new_calls.load();
     int const    creates  = fake_runtime::event_creates - creates0;
     int const    destroys = fake_runtime::event_destroys - destroys0;
@@ -589,7 +615,7 @@ execution_context gpu_ctx(void* stream)
     execution_context ctx;
     ctx.dev.type  = device_enum::CUDA;
     ctx.dev.index = 0;
-    ctx.stream       = stream;
+    ctx.stream    = stream;
     return ctx;
 }
 
@@ -607,6 +633,8 @@ TEST_F(CopyTokenTest, TwoCopiesObserveOneCompleteResultWhileLaterStreamWorkPendi
     auto stream = reinterpret_cast<void*>(1);
     fake_runtime::set_stream_ready(stream, true);
     copy_token a = submitted_token(stream);
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
 
     EXPECT_EQ(a.state(), completion_state::complete);
@@ -629,6 +657,8 @@ TEST_F(CopyTokenTest, CompatTokenCompleteIsStableAcrossLaterStreamWork)
     auto stream = reinterpret_cast<void*>(2);
     fake_runtime::set_stream_ready(stream, true);
     copy_token a(gpu_ctx(stream));  // no event: stream-query compatibility path
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
     EXPECT_EQ(a.state(), completion_state::complete);
     fake_runtime::set_stream_ready(stream, false);
@@ -642,6 +672,8 @@ TEST_F(CopyTokenTest, ForcedFailureIsSharedAndWaitAgreesWithState)
     auto stream = reinterpret_cast<void*>(3);
     fake_runtime::set_stream_ready(stream, false);
     copy_token a = submitted_token(stream);
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
     EXPECT_EQ(a.state(), completion_state::pending);
 
@@ -663,10 +695,10 @@ TEST_F(CopyTokenTest, CancellationCompletesAllCopiesAndReleasesPayload)
 {
     auto stream = reinterpret_cast<void*>(4);
     fake_runtime::set_stream_ready(stream, false);
-    copy_token a = submitted_token(stream);
-    copy_token b = a;
-    auto       payload = std::make_shared<int>(7);
-    std::weak_ptr<int> weak = payload;
+    copy_token         a       = submitted_token(stream);
+    copy_token         b       = a;
+    auto               payload = std::make_shared<int>(7);
+    std::weak_ptr<int> weak    = payload;
     memory::detail::copy_token_access::set_retained(a, std::move(payload));
     EXPECT_FALSE(weak.expired());
 
@@ -698,6 +730,8 @@ TEST_F(CopyTokenTest, QueryFailureIsPersistedAndWaitThrowsWithoutRequerying)
     auto stream = reinterpret_cast<void*>(6);
     fake_runtime::set_stream_ready(stream, false);
     copy_token a = submitted_token(stream);
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
 
     fake_runtime::fail_stream_query = true;
@@ -716,6 +750,8 @@ TEST_F(CopyTokenTest, WaitFailureIsPersistedForAllCopies)
     auto stream = reinterpret_cast<void*>(7);
     fake_runtime::set_stream_error(stream);
     copy_token a = submitted_token(stream);
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
 
     EXPECT_THROW(a.wait(), std::runtime_error);
@@ -729,6 +765,8 @@ TEST_F(CopyTokenTest, WaitSuccessPublishesCompleteForAllCopies)
     auto stream = reinterpret_cast<void*>(8);
     fake_runtime::set_stream_ready(stream, false);
     copy_token a = submitted_token(stream);
+    // exercise owning copy semantics and reference counts, not aliasing.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     copy_token b = a;
     EXPECT_EQ(b.state(), completion_state::pending);
     EXPECT_NO_THROW(a.wait());
@@ -768,8 +806,9 @@ struct retained_pair
     {
         execution_context ctx;
         ctx.dev.type = device_enum::CUDA;
-        ctx.stream      = stream;
-        auto deleter    = [counter](float* p, size_t, execution_context const&) {
+        ctx.stream   = stream;
+        auto deleter = [counter](float* p, size_t, execution_context const&)
+        {
             ++*counter;
             delete[] p;
         };
@@ -806,7 +845,12 @@ protected:
 // copy_async (which calls record_stream) cannot be used here; validation and
 // failure behavior is identical for the untracked variant.
 static copy_token copy_async_untracked(
-    float const* from, size_t n, float* to, void* stream, device_enum from_type, device_enum to_type)
+    float const* from,
+    size_t       n,
+    float*       to,
+    void*        stream,
+    device_enum  from_type,
+    device_enum  to_type)
 {
     return allocator<float>::copy_async_impl<false>(
         from, n, to, stream, from_type, to_type, 0, 0, {}, false);
@@ -826,7 +870,11 @@ TEST_F(CopyFailureTest, ValidationRejectsBeforeAnyWorkOrAdmission)
         std::invalid_argument);
     EXPECT_THROW(
         copy_async_untracked(
-            src, std::numeric_limits<size_t>::max() / 2, dst, stream, device_enum::CPU,
+            src,
+            std::numeric_limits<size_t>::max() / 2,
+            dst,
+            stream,
+            device_enum::CPU,
             device_enum::CUDA),
         std::overflow_error);
     // METAL is not the compiled backend in this build.
@@ -843,8 +891,7 @@ TEST_F(CopyFailureTest, ZeroCountCopyIsAnImmediateNoOp)
 {
     auto  stream = reinterpret_cast<void*>(1);
     float dst[1] = {};
-    auto  token  = copy_async_untracked(
-        nullptr, 0, dst, stream, device_enum::CPU, device_enum::CUDA);
+    auto token = copy_async_untracked(nullptr, 0, dst, stream, device_enum::CPU, device_enum::CUDA);
     EXPECT_TRUE(token.ready());
     EXPECT_EQ(0, fake_runtime::event_creates);
     EXPECT_EQ(0, fake_runtime::copies);
@@ -1058,17 +1105,19 @@ TEST_F(CopyFailureTest, BlockedAdmissionIsWokenByShutdownAndByALimitChange)
     std::atomic<bool> started{false};
     std::atomic<bool> threw{false};
     std::atomic<bool> admitted{false};
-    std::thread       thread([&] {
-        started = true;
-        try
+    std::thread       thread(
+        [&]
         {
-            admitted = service().enqueue(waiter, 0, true);
-        }
-        catch (std::runtime_error const&)
-        {
-            threw = true;
-        }
-    });
+            started = true;
+            try
+            {
+                admitted = service().enqueue(waiter, 0, true);
+            }
+            catch (std::runtime_error const&)
+            {
+                threw = true;
+            }
+        });
     while (!started)
     {
         std::this_thread::yield();
@@ -1085,17 +1134,19 @@ TEST_F(CopyFailureTest, BlockedAdmissionIsWokenByShutdownAndByALimitChange)
     started  = false;
     threw    = false;
     admitted = false;
-    std::thread second([&] {
-        started = true;
-        try
+    std::thread second(
+        [&]
         {
-            admitted = service().enqueue(second_waiter, 0, true);
-        }
-        catch (std::runtime_error const&)
-        {
-            threw = true;
-        }
-    });
+            started = true;
+            try
+            {
+                admitted = service().enqueue(second_waiter, 0, true);
+            }
+            catch (std::runtime_error const&)
+            {
+                threw = true;
+            }
+        });
     while (!started)
     {
         std::this_thread::yield();
@@ -1120,8 +1171,8 @@ TEST_F(CopyFailureTest, StatsCountPendingAndQuarantinedOperationsAndBytes)
     retained_pair a(&releases, good);
     retained_pair b(&releases, bad);
 
-    auto ta = allocator<float>::copy_async_retained(a.source, a.destination, good);
-    auto tb = allocator<float>::copy_async_retained(b.source, b.destination, bad);
+    auto             ta     = allocator<float>::copy_async_retained(a.source, a.destination, good);
+    auto             tb     = allocator<float>::copy_async_retained(b.source, b.destination, bad);
     constexpr size_t kBytes = 4 * sizeof(float);
     auto             s      = service().stats();
     EXPECT_EQ(2U, s.pending_ops);
@@ -1178,7 +1229,8 @@ TEST_F(CopyFailureTest, PayloadDeleterRunsOutsideTheServiceLock)
     auto stream = reinterpret_cast<void*>(28);
     fake_runtime::set_stream_ready(stream, false);
     int  releases = 0;
-    auto deleter  = [&releases](float* p, size_t, execution_context const&) {
+    auto deleter  = [&releases](float* p, size_t, execution_context const&)
+    {
         // Re-enters the service from inside the release. Under the service mutex
         // this would deadlock.
         (void)retained_operation_service::instance().poll();
@@ -1256,18 +1308,24 @@ TEST_F(CopyFailureTest, LifetimeHoldsPageableHostAndAdoptedDeviceEndpointsUntilC
     service().set_max_pending(8);
     auto stream = reinterpret_cast<void*>(32);
     fake_runtime::set_stream_ready(stream, false);
-    int  host_releases   = 0;
-    int  device_releases = 0;
+    int host_releases   = 0;
+    int device_releases = 0;
     {
         auto src = allocator<float>::allocate_adopted(
-            new float[3]{4, 5, 6}, 3, execution_context::cpu(),
-            [&](float* p, size_t, execution_context const&) {
+            new float[3]{4, 5, 6},
+            3,
+            execution_context::cpu(),
+            [&](float* p, size_t, execution_context const&)
+            {
                 ++host_releases;
                 delete[] p;
             });
         auto dst = allocator<float>::allocate_adopted(
-            new float[3]{}, 3, cuda_ctx_on(stream),
-            [&](float* p, size_t, execution_context const&) {
+            new float[3]{},
+            3,
+            cuda_ctx_on(stream),
+            [&](float* p, size_t, execution_context const&)
+            {
                 ++device_releases;
                 delete[] p;
             });
@@ -1312,8 +1370,9 @@ TEST_F(CopyFailureTest, SlicesKeepTheOriginatingStorageAliveThroughAnInFlightCop
 // caller still owns the pointer; a later successful adoption runs it once.
 TEST_F(CopyTokenTest, AdoptionAllocationFailureLeavesTheCallerOwningThePointer)
 {
-    int  calls = 0;
-    auto deleter = [&calls](float* p, size_t, execution_context const&) {
+    int  calls   = 0;
+    auto deleter = [&calls](float* p, size_t, execution_context const&)
+    {
         ++calls;
         delete[] p;
     };
@@ -1515,14 +1574,16 @@ TEST_F(CopyTokenTest, StreamHandleValidationMatrix)
         library_mode_guard const library(default_stream_mode::legacy);
         EXPECT_NO_THROW(validate_stream_handle(nullptr, default_stream_mode::legacy));
         EXPECT_THROW(
-            validate_stream_handle(nullptr, default_stream_mode::per_thread), std::invalid_argument);
+            validate_stream_handle(nullptr, default_stream_mode::per_thread),
+            std::invalid_argument);
         EXPECT_NO_THROW(validate_stream_handle(explicit_stream, default_stream_mode::per_thread));
     }
     {
         library_mode_guard const library(default_stream_mode::per_thread);
         // Agreeing is not enough: one cache identity cannot name every thread's stream.
         EXPECT_THROW(
-            validate_stream_handle(nullptr, default_stream_mode::per_thread), std::invalid_argument);
+            validate_stream_handle(nullptr, default_stream_mode::per_thread),
+            std::invalid_argument);
         EXPECT_THROW(
             validate_stream_handle(nullptr, default_stream_mode::legacy), std::invalid_argument);
         EXPECT_NO_THROW(validate_stream_handle(explicit_stream, default_stream_mode::per_thread));
@@ -1594,7 +1655,8 @@ TEST_F(CopyTokenTest, UnsupportedPeerCopyIsRejectedBeforeAnySubmission)
     int const uses_before           = memory::gpu::test::record_stream_use_calls.load();
 
     EXPECT_THROW(
-        allocator<float>::copy_async(src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 1),
+        allocator<float>::copy_async(
+            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 1),
         std::invalid_argument);
     EXPECT_GT(fake_runtime::peer_access_queries, 0);
     EXPECT_EQ(fake_runtime::peer_copies, 0);
@@ -1604,23 +1666,22 @@ TEST_F(CopyTokenTest, UnsupportedPeerCopyIsRejectedBeforeAnySubmission)
     EXPECT_EQ(memory::gpu::test::record_stream_use_calls.load(), uses_before);
 
     // The opposite direction is supported and the copy goes through.
-    EXPECT_NO_THROW(
-        allocator<float>::copy_async(
-            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 1, 0)
-            .wait());
+    EXPECT_NO_THROW(allocator<float>::copy_async(
+                        src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 1, 0)
+                        .wait());
     EXPECT_EQ(fake_runtime::peer_copies, 1);
 
     // An out-of-range device cannot be queried and is rejected the same way.
     EXPECT_THROW(
-        allocator<float>::copy_async(src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 7),
+        allocator<float>::copy_async(
+            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 0, 7),
         std::invalid_argument);
 
     // Same-device copies never consult peer access.
     int const queries = fake_runtime::peer_access_queries;
-    EXPECT_NO_THROW(
-        allocator<float>::copy_async(
-            src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 2, 2)
-            .wait());
+    EXPECT_NO_THROW(allocator<float>::copy_async(
+                        src, 4, dst, stream, device_enum::CUDA, device_enum::CUDA, 2, 2)
+                        .wait());
     EXPECT_EQ(fake_runtime::peer_access_queries, queries);
 }
 
@@ -1651,8 +1712,7 @@ TEST_F(CopyTokenTest, InteriorOrForeignGpuPointerIsRejectedBeforeSubmission)
 
     memory::gpu::test::foreign_pointer = nullptr;
     EXPECT_NO_THROW(
-        allocator<float>::copy_async(
-            other, 4, base, stream, device_enum::CUDA, device_enum::CUDA)
+        allocator<float>::copy_async(other, 4, base, stream, device_enum::CUDA, device_enum::CUDA)
             .wait());
     EXPECT_EQ(fake_runtime::copies, 1);
 }

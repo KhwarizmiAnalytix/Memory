@@ -53,15 +53,13 @@ class MEMORY_VISIBILITY cpu_arena
 {
 public:
     static constexpr size_t kMaxAlignment    = 4096;
-    static constexpr size_t kDefaultLazySize = 64U * 1024U;
+    static constexpr size_t kDefaultLazySize = size_t{64} * 1024U;
 
     // @p capacity       bytes to acquire now (0 = lazily on first use)
     // @p default_align  alignment of the backing and of untyped allocations
     // @p max_capacity   total bytes across chunks (0 = fixed, no growth)
     explicit cpu_arena(
-        size_t capacity      = 0,
-        size_t default_align = MEMORY_ALIGNMENT,
-        size_t max_capacity  = 0)
+        size_t capacity = 0, size_t default_align = MEMORY_ALIGNMENT, size_t max_capacity = 0)
         : default_align_(default_align), max_capacity_(max_capacity)
     {
         if (!is_valid_alignment(default_align_) || default_align_ < sizeof(void*))
@@ -252,10 +250,10 @@ private:
     // Serve from the current chunk, aligning the address. nullptr if it does not fit.
     void* bump(size_t bytes, size_t alignment) noexcept
     {
-        char* const         base    = chunk_data(current_);
+        char* const          base    = chunk_data(current_);
         std::uintptr_t const addr    = reinterpret_cast<std::uintptr_t>(base) + cursor_;
         std::uintptr_t const padding = (alignment - (addr & (alignment - 1))) & (alignment - 1);
-        size_t const        offset  = cursor_ + static_cast<size_t>(padding);
+        size_t const         offset  = cursor_ + static_cast<size_t>(padding);
         if (offset > current_->capacity || current_->capacity - offset < bytes)
         {
             return nullptr;
@@ -272,8 +270,8 @@ private:
         {
             throw std::bad_alloc();
         }
-        void* raw = cpu::memory_allocator::allocate(cap + data_offset_, default_align_);
-        auto* c   = static_cast<chunk*>(raw);
+        void* raw   = cpu::memory_allocator::allocate(cap + data_offset_, default_align_);
+        auto* c     = static_cast<chunk*>(raw);
         c->next     = nullptr;
         c->capacity = cap;
         if (current_ != nullptr)
@@ -313,8 +311,8 @@ private:
 
     chunk*        head_{nullptr};
     chunk*        current_{nullptr};
-    size_t        cursor_{0};          // bytes used in current_
-    size_t        closed_used_{0};     // bytes used in the chunks before current_
+    size_t        cursor_{0};       // bytes used in current_
+    size_t        closed_used_{0};  // bytes used in the chunks before current_
     size_t        total_capacity_{0};
     size_t        default_align_{MEMORY_ALIGNMENT};
     size_t        max_capacity_{0};

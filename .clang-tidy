@@ -1,28 +1,22 @@
 ---
-# Local/IDE use. Not yet wired into CI: calibrating this against the full
-# existing tree (compile_commands.json across the CUDA/HIP/Metal backend
-# configurations, triaging pre-existing diagnostics) is a larger follow-up
-# than this config file — see CONTRIBUTING.md. Mirrors ThirdParty/Profiler's
-# and ThirdParty/Logging's .clang-tidy (this module's XSigma lineage), with
-# HeaderFilterRegex adjusted for Memory's own include/ layout.
+# Preserve established parameter ordering and deliberate numeric conversions.
+# Headers intentionally use #pragma once rather than include guards.
 Checks: >
   -*,
   bugprone-*,
   performance-*,
-  modernize-use-override,
+  portability-*,
   modernize-use-nullptr,
+  modernize-use-override,
   modernize-use-equals-default,
+  readability-braces-around-statements,
   modernize-use-equals-delete,
   readability-redundant-*,
   readability-container-size-empty,
   -bugprone-easily-swappable-parameters,
-  # clang-tidy 22 access-violates in this check while matching ThirdParty/Logging's
-  # magic_enum.hpp:1354 for TUs that include it (e.g. gpu/cuda_caching_allocator.cpp).
-  -bugprone-stringview-nullptr,
-  -bugprone-implicit-widening-of-multiplication-result,
-HeaderFilterRegex: '^(include|src)/'
+  -portability-avoid-pragma-once
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(^|.*/)(include|src|Testing|Tests|examples|Examples)/'
 FormatStyle: file
 CheckOptions:
-  # TBB requires this macro name to disable implicit MSVC linkage. The
-  # identifier is reserved, and renaming it would not be honored.
   bugprone-reserved-identifier.AllowedIdentifiers: '^__TBB_NO_IMPLICIT_LINKAGE$'

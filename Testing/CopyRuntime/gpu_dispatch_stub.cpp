@@ -16,7 +16,7 @@ namespace memory::gpu
 {
 namespace test
 {
-std::atomic<int>  record_stream_use_calls{0};
+std::atomic<int> record_stream_use_calls{0};
 // Pointers the stub reports as foreign/interior (not live cache bases).
 std::atomic<void const*> foreign_pointer{nullptr};
 }  // namespace test

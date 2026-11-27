@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <iosfwd>
 
-#include "common/memory_macros.h"
 #include "common/memory_export.h"
+#include "common/memory_macros.h"
 
 namespace memory
 {
@@ -30,8 +30,7 @@ struct device
     constexpr bool is_cpu() const noexcept { return type == device_enum::CPU; }
     constexpr bool is_gpu() const noexcept
     {
-        return type == device_enum::CUDA || type == device_enum::HIP
-            || type == device_enum::METAL;
+        return type == device_enum::CUDA || type == device_enum::HIP || type == device_enum::METAL;
     }
     constexpr bool operator==(device const& o) const noexcept
     {
@@ -39,10 +38,10 @@ struct device
     }
     constexpr bool operator!=(device const& o) const noexcept { return !(*this == o); }
 
-    static constexpr device cpu()               noexcept { return {device_enum::CPU,   0}; }
-    static constexpr device cuda(int16_t i = 0) noexcept { return {device_enum::CUDA,  i}; }
-    static constexpr device hip(int16_t i = 0)  noexcept { return {device_enum::HIP,   i}; }
-    static constexpr device metal(int16_t i = 0) noexcept{ return {device_enum::METAL, i}; }
+    static constexpr device cpu() noexcept { return {device_enum::CPU, 0}; }
+    static constexpr device cuda(int16_t i = 0) noexcept { return {device_enum::CUDA, i}; }
+    static constexpr device hip(int16_t i = 0) noexcept { return {device_enum::HIP, i}; }
+    static constexpr device metal(int16_t i = 0) noexcept { return {device_enum::METAL, i}; }
 };
 static_assert(sizeof(device) == 4, "device must be 4 bytes");
 

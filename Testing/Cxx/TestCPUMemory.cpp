@@ -281,9 +281,8 @@ MEMORYTEST(MemoryPortTest, MimallocStatsAvailability)
     }
 #else
     EXPECT_FALSE(cpu::memory_allocator::has_stats());
-    LOGGING_LOG_INFO(
-        "mimalloc statistics not compiled in (need MEMORY_HAS_MIMALLOC && "
-        "MEMORY_HAS_MIMALLOC_STATS / --mimalloc_stats)");
+    LOGGING_LOG_INFO("mimalloc statistics not compiled in (need MEMORY_HAS_MIMALLOC && "
+                     "MEMORY_HAS_MIMALLOC_STATS / --mimalloc_stats)");
 
     cpu::memory_allocator::process_memory_info info;
     info.peak_rss = 42;  // must be zeroed on the unavailable path
@@ -305,7 +304,8 @@ MEMORYTEST(MemoryPortTest, SmallAlignmentFastPathKeepsTheAlignmentContract)
     {
         // Sizes that are and are not multiples of the alignment: only the former may
         // take the unaligned entry point, and both must come back aligned.
-        for (std::size_t size : {std::size_t{1}, std::size_t{16}, std::size_t{24}, std::size_t{4096}})
+        for (std::size_t size :
+             {std::size_t{1}, std::size_t{16}, std::size_t{24}, std::size_t{4096}})
         {
             void* ptr = cpu::memory_allocator::allocate(size, alignment);
             ASSERT_NE(nullptr, ptr);
@@ -314,7 +314,8 @@ MEMORYTEST(MemoryPortTest, SmallAlignmentFastPathKeepsTheAlignmentContract)
             cpu::memory_allocator::free(ptr, size);
         }
     }
-    void* zeroed = cpu::memory_allocator::allocate(64, 16, cpu::memory_allocator::init_policy_enum::ZERO);
+    void* zeroed =
+        cpu::memory_allocator::allocate(64, 16, cpu::memory_allocator::init_policy_enum::ZERO);
     ASSERT_NE(nullptr, zeroed);
     for (std::size_t i = 0; i < 64; ++i)
     {

@@ -296,9 +296,10 @@ if(MEMORY_ENABLE_BENCHMARK)
       target_include_directories(${target_name} PRIVATE ${_bench_dep_includes})
       unset(_bench_dep_includes)
     endif()
-    target_link_libraries(
-      ${target_name} PRIVATE Memory::benchmark Memory::benchmark_main Memory::Memory
-    )
+    target_link_libraries(${target_name} PRIVATE Memory::benchmark Memory::Memory)
+    if(NOT bench_name STREQUAL "BenchmarkCPUMemoryAllocators")
+      target_link_libraries(${target_name} PRIVATE Memory::benchmark_main)
+    endif()
     if(MEMORY_DEPENDENCY_LIBS)
       target_link_libraries(${target_name} PRIVATE ${MEMORY_DEPENDENCY_LIBS})
     endif()

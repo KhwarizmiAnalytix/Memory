@@ -515,7 +515,9 @@ set(CMAKE_CXX_STANDARD ${MEMORY_CXX_STANDARD})
 file(GLOB_RECURSE memory_headers CONFIGURE_DEPENDS LIST_DIRECTORIES false
      "${_memory_include_root}/*.h" "${_memory_include_root}/*.hxx"
 )
-file(GLOB_RECURSE memory_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false "${_memory_src_root}/*.cpp")
+file(GLOB_RECURSE memory_sources CONFIGURE_DEPENDS LIST_DIRECTORIES false
+     "${_memory_src_root}/*.cpp"
+)
 
 # Objective-C++ sources (Metal backend only) are globbed separately since they require
 # OBJCXX language support, only enabled when MEMORY_GPU_BACKEND=metal (see below).
@@ -714,8 +716,7 @@ include(CMakePackageConfigHelpers)
 configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/Cmake/MemoryConfig.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/MemoryConfig.cmake"
-  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Memory
-  PATH_VARS CMAKE_INSTALL_PREFIX
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Memory PATH_VARS CMAKE_INSTALL_PREFIX
 )
 
 write_basic_package_version_file(

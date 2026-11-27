@@ -30,6 +30,8 @@ std::atomic<bool>   g_fail_next_new{false};
 
 void* key(std::uintptr_t i)
 {
+    // opaque pointer values model runtime handles; they are never dereferenced.
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     return reinterpret_cast<void*>((i + 1) * 16);
 }
 }  // namespace
@@ -56,7 +58,10 @@ void* operator new(std::size_t n)
 // implementation does not route through operator new, so g_fail_next_new
 // would be silently bypassed.  Forward all array forms here so the counting
 // and injection flags work for both scalar and array allocations.
-void* operator new[](std::size_t n) { return ::operator new(n); }
+void* operator new[](std::size_t n)
+{
+    return ::operator new(n);
+}
 // get_temporary_buffer allocates with nothrow new and frees with the sized
 // delete below. That pair has to be malloc/free: Valgrind still intercepts
 // libstdc++'s nothrow new, and a sized delete that calls free is then a
@@ -69,12 +74,25 @@ void* operator new[](std::size_t n, std::nothrow_t const&) noexcept
 {
     return ::operator new(n, std::nothrow);
 }
-void  operator delete(void* p) noexcept { std::free(p); }
-void  operator delete(void* p, std::size_t) noexcept { std::free(p); }
-void  operator delete[](void* p) noexcept { std::free(p); }
-void  operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete(void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p) noexcept
+{
+    std::free(p);
+}
+void operator delete[](void* p, std::size_t) noexcept
+{
+    std::free(p);
+}
 #endif
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier): AddressSanitizer requires this symbol name.
 extern "C" const char* __asan_default_options()
 {
     return "alloc_dealloc_mismatch=0";
@@ -126,8 +144,8 @@ MEMORYTEST(FlatPtrMap, matches_a_reference_map_under_random_churn)
         std::mt19937_64                      rng(seed);
         for (int step = 0; step < 60000; ++step)
         {
-            void* const  k    = key(rng() % 3000);
-            unsigned     what = static_cast<unsigned>(rng() % 100);
+            void* const k    = key(rng() % 3000);
+            unsigned    what = static_cast<unsigned>(rng() % 100);
             if (what < 55)
             {
                 bool const inserted = m.emplace(k, step).second;

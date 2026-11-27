@@ -16,8 +16,8 @@
 #if MEMORY_HAS_CUDA || MEMORY_HAS_HIP
 
 #include <atomic>
-#include <cstdio>
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -25,9 +25,9 @@
 #include "allocator.h"
 #include "common/copy_token.h"
 #include "common/data_ptr.h"
-#include "common/retained_operation_service.h"
 #include "common/pinned_buffer.h"
 #include "common/pinned_staging_ring.h"
+#include "common/retained_operation_service.h"
 #include "common/retained_ptr.h"
 #include "gpu/device_guard.h"
 #include "gpu/gpu_runtime.h"
@@ -84,7 +84,7 @@ public:
         return result;
     }
     // Does not synchronize the stream: the caller may be the thread that waits on it.
-    void open() { state_->released.store(true, std::memory_order_release); }
+    void        open() { state_->released.store(true, std::memory_order_release); }
     cudaError_t release()
     {
         open();
@@ -159,7 +159,11 @@ void fill_device(data_ptr<float>& buffer, float value, cudaStream_t stream)
     }
     ASSERT_EQ(
         cudaMemcpyAsync(
-            buffer.data(), host.data(), buffer.size() * sizeof(float), cudaMemcpyHostToDevice, stream),
+            buffer.data(),
+            host.data(),
+            buffer.size() * sizeof(float),
+            cudaMemcpyHostToDevice,
+            stream),
         cudaSuccess);
     ASSERT_EQ(cudaStreamSynchronize(stream), cudaSuccess);
 }
@@ -236,7 +240,14 @@ TEST_F(Phase4Hardware, CopySyncOnAnExplicitStreamWaitsForItsOwnCopy)
         });
     const auto started = clock_type::now();
     allocator<float>::copy_sync(
-        source.data(), kCount, destination.data(), device_enum::CUDA, device_enum::CUDA, 0, 0, s.stream);
+        source.data(),
+        kCount,
+        destination.data(),
+        device_enum::CUDA,
+        device_enum::CUDA,
+        0,
+        0,
+        s.stream);
     const auto waited = clock_type::now() - started;
     releaser.join();
 
@@ -266,7 +277,11 @@ TEST_F(Phase4Hardware, StreamWaitOrdersAConsumerThatRecordStreamAloneDoesNot)
         host.data()[0] = -1.0F;
         ASSERT_EQ(
             cudaMemcpyAsync(
-                host.data(), destination.data(), sizeof(float), cudaMemcpyDeviceToHost, consumer.stream),
+                host.data(),
+                destination.data(),
+                sizeof(float),
+                cudaMemcpyDeviceToHost,
+                consumer.stream),
             cudaSuccess);
     };
 
@@ -330,7 +345,7 @@ TEST_F(Phase4Hardware, InteriorAndBorrowedGpuPointersAreRejected)
     // The whole allocation (and a prefix starting at its base) is still accepted.
     data_view<float> whole = a.view();
     fill_device(a, 2.0F, s.stream);
-    data_ptr<float> from_view(whole);
+    data_ptr<float>    from_view(whole);
     pinned_host<float> host(256);
     ASSERT_EQ(
         cudaMemcpy(host.data(), from_view.data(), 256 * sizeof(float), cudaMemcpyDeviceToHost),
@@ -516,9 +531,9 @@ TEST_F(Phase6Hardware, RetainedPinnedCopySurvivesDroppedHandlesUntilCompletion)
 // 6.4: a slot comes back only when the transfer submitted for it has completed.
 TEST_F(Phase6Hardware, StagingRingReusesASlotOnlyAfterItsTransferCompletes)
 {
-    test_stream             s;
-    execution_context const ctx{device_enum::CUDA, 0, s.stream};
-    data_ptr<float>         device_buffer(kCount, ctx);
+    test_stream                s;
+    execution_context const    ctx{device_enum::CUDA, 0, s.stream};
+    data_ptr<float>            device_buffer(kCount, ctx);
     pinned_staging_ring<float> ring(2, kCount);
     EXPECT_EQ(ring.idle_count(), 2U);
 
@@ -536,8 +551,14 @@ TEST_F(Phase6Hardware, StagingRingReusesASlotOnlyAfterItsTransferCompletes)
         ring.submit(
             slot,
             allocator<float>::copy_async(
-                slot.data(), kCount, device_buffer.data(), s.stream, device_enum::CPU,
-                device_enum::CUDA, 0, 0));
+                slot.data(),
+                kCount,
+                device_buffer.data(),
+                s.stream,
+                device_enum::CPU,
+                device_enum::CUDA,
+                0,
+                0));
     }
     EXPECT_NE(used[0], used[1]);
     EXPECT_EQ(ring.in_flight_count(), 2U);
@@ -580,8 +601,8 @@ TEST_F(Phase4Hardware, AdmissionUnderPressureRefusesOrWaitsAndLeaksNothing)
     service.set_max_pending(2);
     test_stream             s;
     execution_context const ctx{device_enum::CUDA, 0, s.stream};
-    auto                    src = make_retained<float>(kCount, ctx);
-    auto                    dst = make_retained<float>(kCount, ctx);
+    auto                    src      = make_retained<float>(kCount, ctx);
+    auto                    dst      = make_retained<float>(kCount, ctx);
     size_t const            baseline = allocator<float>::memory_allocated(0);
 
     stream_blocker blocker(s.stream);
@@ -591,7 +612,8 @@ TEST_F(Phase4Hardware, AdmissionUnderPressureRefusesOrWaitsAndLeaksNothing)
     ASSERT_EQ(service.pending_count(), 2U);
 
     EXPECT_THROW(
-        (void)allocator<float>::copy_async_retained(src, dst, s.stream, /*wait_for_admission=*/false),
+        (void)allocator<float>::copy_async_retained(
+            src, dst, s.stream, /*wait_for_admission=*/false),
         std::runtime_error);
     EXPECT_EQ(service.pending_count(), 2U) << "a refused copy must not have been submitted";
 
@@ -638,7 +660,9 @@ TEST_F(Phase4Hardware, ServiceContentionMeasurement)
                     auto                    a = make_retained<float>(64, ctx);
                     auto                    b = make_retained<float>(64, ctx);
                     ready++;
-                    while (!go.load()) {}
+                    while (!go.load())
+                    {
+                    }
                     for (int i = 0; i < kIters; ++i)
                     {
                         try
@@ -647,18 +671,32 @@ TEST_F(Phase4Hardware, ServiceContentionMeasurement)
                             token.wait();
                             (void)service.poll();
                         }
-                        catch (...) { errors++; }
+                        catch (...)
+                        {
+                            errors++;
+                        }
                     }
                 });
         }
-        while (ready.load() != threads) {}
+        while (ready.load() != threads)
+        {
+        }
         auto const t0 = clock_type::now();
         go            = true;
-        for (auto& th : pool) { th.join(); }
+        for (auto& th : pool)
+        {
+            th.join();
+        }
         double const sec = std::chrono::duration<double>(clock_type::now() - t0).count();
         std::printf(
-            "CONTENTION threads=%d ops=%d seconds=%.3f ops_per_sec=%.0f per_thread_us=%.2f errors=%d\n",
-            threads, threads * kIters, sec, threads * kIters / sec, sec * 1e6 / kIters, errors.load());
+            "CONTENTION threads=%d ops=%d seconds=%.3f ops_per_sec=%.0f per_thread_us=%.2f "
+            "errors=%d\n",
+            threads,
+            threads * kIters,
+            sec,
+            threads * kIters / sec,
+            sec * 1e6 / kIters,
+            errors.load());
         EXPECT_EQ(0, errors.load());
         EXPECT_EQ(service.wait_all(std::chrono::seconds(10)), 0U);
 
@@ -677,24 +715,35 @@ TEST_F(Phase4Hardware, ServiceContentionMeasurement)
                     (void)cudaMalloc(&a, 64 * sizeof(float));
                     (void)cudaMalloc(&b, 64 * sizeof(float));
                     rready++;
-                    while (!rgo.load()) {}
+                    while (!rgo.load())
+                    {
+                    }
                     for (int i = 0; i < kIters; ++i)
                     {
-                        (void)cudaMemcpyAsync(b, a, 64 * sizeof(float), cudaMemcpyDeviceToDevice, st.stream);
+                        (void)cudaMemcpyAsync(
+                            b, a, 64 * sizeof(float), cudaMemcpyDeviceToDevice, st.stream);
                         (void)cudaStreamSynchronize(st.stream);
                     }
                     (void)cudaFree(a);
                     (void)cudaFree(b);
                 });
         }
-        while (rready.load() != threads) {}
+        while (rready.load() != threads)
+        {
+        }
         auto const r0 = clock_type::now();
         rgo           = true;
-        for (auto& th : raw) { th.join(); }
+        for (auto& th : raw)
+        {
+            th.join();
+        }
         double const rsec = std::chrono::duration<double>(clock_type::now() - r0).count();
         std::printf(
             "CONTROL    threads=%d ops=%d seconds=%.3f ops_per_sec=%.0f (raw memcpyAsync+sync)\n",
-            threads, threads * kIters, rsec, threads * kIters / rsec);
+            threads,
+            threads * kIters,
+            rsec,
+            threads * kIters / rsec);
     }
 }
 

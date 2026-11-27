@@ -5,14 +5,13 @@
 // spin-then-yield recursive lock, to bound how much of the 8.1 collapse is the cost of
 // parking/waking threads on a futex versus the length of the critical section itself.
 // Not proposed for the library as-is: unbounded yielding is unfair, oversubscription and
-// priority inversion are untested. Same measurement-only caveat about namespace std as
-// lock_wait_mutex.h.
+// priority inversion are untested.
 
 #include <atomic>
 #include <mutex>
 #include <thread>
 
-namespace std
+namespace memory::testing
 {
 class bench_spin_recursive_mutex
 {
@@ -29,7 +28,8 @@ public:
         {
             void const* expected = nullptr;
             if (owner_.load(std::memory_order_relaxed) == nullptr &&
-                owner_.compare_exchange_weak(expected, me, std::memory_order_acquire, std::memory_order_relaxed))
+                owner_.compare_exchange_weak(
+                    expected, me, std::memory_order_acquire, std::memory_order_relaxed))
             {
                 depth_ = 1;
                 return;
@@ -55,7 +55,8 @@ public:
             return true;
         }
         void const* expected = nullptr;
-        if (owner_.compare_exchange_strong(expected, me, std::memory_order_acquire, std::memory_order_relaxed))
+        if (owner_.compare_exchange_strong(
+                expected, me, std::memory_order_acquire, std::memory_order_relaxed))
         {
             depth_ = 1;
             return true;
@@ -79,6 +80,4 @@ private:
     std::atomic<void const*> owner_{nullptr};
     unsigned                 depth_{0};
 };
-}  // namespace std
-
-#define recursive_mutex bench_spin_recursive_mutex
+}  // namespace memory::testing
