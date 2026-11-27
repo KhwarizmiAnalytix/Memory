@@ -31,8 +31,8 @@
 #include <benchmark/benchmark.h>
 
 #include <cstddef>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <random>
 #include <vector>
@@ -373,145 +373,185 @@ void benchmark_data_ptr_batch(benchmark::State& state)
 void register_allocator_benchmarks()
 {
 
-// ---- single allocation / free, size sweep 64 B .. 1 MiB ----
+    // ---- single allocation / free, size sweep 64 B .. 1 MiB ----
 
-benchmark::RegisterBenchmark("benchmark_simple_allocation<malloc_backend>", benchmark_simple_allocation<malloc_backend>)
-    ->Name("BM_Malloc_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_simple_allocation<malloc_backend>", benchmark_simple_allocation<malloc_backend>)
+        ->Name("BM_Malloc_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_simple_allocation<aligned_malloc_backend>", benchmark_simple_allocation<aligned_malloc_backend>)
-    ->Name("BM_StandardAligned_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_simple_allocation<aligned_malloc_backend>",
+        benchmark_simple_allocation<aligned_malloc_backend>)
+        ->Name("BM_StandardAligned_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
-benchmark::RegisterBenchmark("benchmark_simple_allocation<mimalloc_backend>", benchmark_simple_allocation<mimalloc_backend>)
-    ->Name("BM_Mimalloc_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_simple_allocation<mimalloc_backend>",
+        benchmark_simple_allocation<mimalloc_backend>)
+        ->Name("BM_Mimalloc_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 #endif
 
 #if MEMORY_HAS_TBB
-benchmark::RegisterBenchmark("benchmark_simple_allocation<tbb_backend>", benchmark_simple_allocation<tbb_backend>)
-    ->Name("BM_TBB_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_simple_allocation<tbb_backend>", benchmark_simple_allocation<tbb_backend>)
+        ->Name("BM_TBB_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 #endif
 
-benchmark::RegisterBenchmark("benchmark_simple_allocation<memory_interface_api>", benchmark_simple_allocation<memory_interface_api>)
-    ->Name("BM_InterfaceApi_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_simple_allocation<memory_interface_api>",
+        benchmark_simple_allocation<memory_interface_api>)
+        ->Name("BM_InterfaceApi_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_data_ptr_simple", benchmark_data_ptr_simple)
-    ->Name("BM_DataPtr_SimpleAllocation")
-    ->Range(64, 1 << 20)
-    ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark("benchmark_data_ptr_simple", benchmark_data_ptr_simple)
+        ->Name("BM_DataPtr_SimpleAllocation")
+        ->Range(64, 1 << 20)
+        ->Unit(benchmark::kMicrosecond);
 
-// ---- batch churn: N allocations of S bytes, then free all ----
+    // ---- batch churn: N allocations of S bytes, then free all ----
 
 #define MEMORY_BENCH_BATCH_ARGS                                                                    \
     ->Args({100, 1024})->Args({1000, 1024})->Args({100, 4096})->Args({1000, 4096})
 
-benchmark::RegisterBenchmark("benchmark_batch_allocation<malloc_backend>", benchmark_batch_allocation<malloc_backend>)
-    ->Name("BM_Malloc_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_batch_allocation<malloc_backend>", benchmark_batch_allocation<malloc_backend>)
+        ->Name("BM_Malloc_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_batch_allocation<aligned_malloc_backend>", benchmark_batch_allocation<aligned_malloc_backend>)
-    ->Name("BM_StandardAligned_BatchAllocation")
-        MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_batch_allocation<aligned_malloc_backend>",
+        benchmark_batch_allocation<aligned_malloc_backend>)
+        ->Name("BM_StandardAligned_BatchAllocation")
+            MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
-benchmark::RegisterBenchmark("benchmark_batch_allocation<mimalloc_backend>", benchmark_batch_allocation<mimalloc_backend>)
-    ->Name("BM_Mimalloc_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_batch_allocation<mimalloc_backend>",
+        benchmark_batch_allocation<mimalloc_backend>)
+        ->Name("BM_Mimalloc_BatchAllocation")
+            MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
 #if MEMORY_HAS_TBB
-benchmark::RegisterBenchmark("benchmark_batch_allocation<tbb_backend>", benchmark_batch_allocation<tbb_backend>)
-    ->Name("BM_TBB_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_batch_allocation<tbb_backend>", benchmark_batch_allocation<tbb_backend>)
+        ->Name("BM_TBB_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-benchmark::RegisterBenchmark("benchmark_batch_allocation<memory_interface_api>", benchmark_batch_allocation<memory_interface_api>)
-    ->Name("BM_InterfaceApi_BatchAllocation")
-        MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_batch_allocation<memory_interface_api>",
+        benchmark_batch_allocation<memory_interface_api>)
+        ->Name("BM_InterfaceApi_BatchAllocation")
+            MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_data_ptr_batch", benchmark_data_ptr_batch)
-    ->Name("BM_DataPtr_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark("benchmark_data_ptr_batch", benchmark_data_ptr_batch)
+        ->Name("BM_DataPtr_BatchAllocation") MEMORY_BENCH_BATCH_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_BATCH_ARGS
 
-// ---- mixed sizes: N allocations of random 64..4096 B sizes ----
+    // ---- mixed sizes: N allocations of random 64..4096 B sizes ----
 
 #define MEMORY_BENCH_MIXED_ARGS ->Arg(100)->Arg(500)->Arg(1000)
 
-benchmark::RegisterBenchmark("benchmark_mixed_sizes<malloc_backend>", benchmark_mixed_sizes<malloc_backend>)
-    ->Name("BM_Malloc_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_mixed_sizes<malloc_backend>", benchmark_mixed_sizes<malloc_backend>)
+        ->Name("BM_Malloc_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_mixed_sizes<aligned_malloc_backend>", benchmark_mixed_sizes<aligned_malloc_backend>)
-    ->Name("BM_StandardAligned_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_mixed_sizes<aligned_malloc_backend>",
+        benchmark_mixed_sizes<aligned_malloc_backend>)
+        ->Name("BM_StandardAligned_MixedSizes")
+            MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
-benchmark::RegisterBenchmark("benchmark_mixed_sizes<mimalloc_backend>", benchmark_mixed_sizes<mimalloc_backend>)
-    ->Name("BM_Mimalloc_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_mixed_sizes<mimalloc_backend>", benchmark_mixed_sizes<mimalloc_backend>)
+        ->Name("BM_Mimalloc_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
 #if MEMORY_HAS_TBB
-benchmark::RegisterBenchmark("benchmark_mixed_sizes<tbb_backend>", benchmark_mixed_sizes<tbb_backend>)
-    ->Name("BM_TBB_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_mixed_sizes<tbb_backend>", benchmark_mixed_sizes<tbb_backend>)
+        ->Name("BM_TBB_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-benchmark::RegisterBenchmark("benchmark_mixed_sizes<memory_interface_api>", benchmark_mixed_sizes<memory_interface_api>)
-    ->Name("BM_InterfaceApi_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_mixed_sizes<memory_interface_api>", benchmark_mixed_sizes<memory_interface_api>)
+        ->Name("BM_InterfaceApi_MixedSizes") MEMORY_BENCH_MIXED_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_MIXED_ARGS
 
-// ---- alignment sweep at fixed 1 KiB size ----
-// (plain malloc ignores alignment, so it is intentionally not registered here)
+    // ---- alignment sweep at fixed 1 KiB size ----
+    // (plain malloc ignores alignment, so it is intentionally not registered here)
 
 #define MEMORY_BENCH_ALIGN_ARGS ->Arg(16)->Arg(32)->Arg(64)->Arg(128)->Arg(256)->Arg(512)
 
-benchmark::RegisterBenchmark("benchmark_aligned_allocation<aligned_malloc_backend>", benchmark_aligned_allocation<aligned_malloc_backend>)
-    ->Name("BM_StandardAligned_AlignedAllocation")
-        MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_aligned_allocation<aligned_malloc_backend>",
+        benchmark_aligned_allocation<aligned_malloc_backend>)
+        ->Name("BM_StandardAligned_AlignedAllocation")
+            MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
-benchmark::RegisterBenchmark("benchmark_aligned_allocation<mimalloc_backend>", benchmark_aligned_allocation<mimalloc_backend>)
-    ->Name("BM_Mimalloc_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_aligned_allocation<mimalloc_backend>",
+        benchmark_aligned_allocation<mimalloc_backend>)
+        ->Name("BM_Mimalloc_AlignedAllocation")
+            MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
 #if MEMORY_HAS_TBB
-benchmark::RegisterBenchmark("benchmark_aligned_allocation<tbb_backend>", benchmark_aligned_allocation<tbb_backend>)
-    ->Name("BM_TBB_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_aligned_allocation<tbb_backend>", benchmark_aligned_allocation<tbb_backend>)
+        ->Name("BM_TBB_AlignedAllocation") MEMORY_BENCH_ALIGN_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
 #undef MEMORY_BENCH_ALIGN_ARGS
 
-// ---- fragmentation: many small blocks, free every other, allocate larger ----
+    // ---- fragmentation: many small blocks, free every other, allocate larger ----
 
 #define MEMORY_BENCH_FRAG_ARGS ->Arg(1000)->Arg(5000)
 
-benchmark::RegisterBenchmark("benchmark_fragmentation_pattern<malloc_backend>", benchmark_fragmentation_pattern<malloc_backend>)
-    ->Name("BM_Malloc_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_fragmentation_pattern<malloc_backend>",
+        benchmark_fragmentation_pattern<malloc_backend>)
+        ->Name("BM_Malloc_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
-benchmark::RegisterBenchmark("benchmark_fragmentation_pattern<aligned_malloc_backend>", benchmark_fragmentation_pattern<aligned_malloc_backend>)
-    ->Name("BM_StandardAligned_Fragmentation")
-        MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_fragmentation_pattern<aligned_malloc_backend>",
+        benchmark_fragmentation_pattern<aligned_malloc_backend>)
+        ->Name("BM_StandardAligned_Fragmentation")
+            MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
 #if MEMORY_HAS_MIMALLOC
-benchmark::RegisterBenchmark("benchmark_fragmentation_pattern<mimalloc_backend>", benchmark_fragmentation_pattern<mimalloc_backend>)
-    ->Name("BM_Mimalloc_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_fragmentation_pattern<mimalloc_backend>",
+        benchmark_fragmentation_pattern<mimalloc_backend>)
+        ->Name("BM_Mimalloc_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
 #if MEMORY_HAS_TBB
-benchmark::RegisterBenchmark("benchmark_fragmentation_pattern<tbb_backend>", benchmark_fragmentation_pattern<tbb_backend>)
-    ->Name("BM_TBB_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_fragmentation_pattern<tbb_backend>",
+        benchmark_fragmentation_pattern<tbb_backend>)
+        ->Name("BM_TBB_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 #endif
 
-benchmark::RegisterBenchmark("benchmark_fragmentation_pattern<memory_interface_api>", benchmark_fragmentation_pattern<memory_interface_api>)
-    ->Name("BM_InterfaceApi_Fragmentation") MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        "benchmark_fragmentation_pattern<memory_interface_api>",
+        benchmark_fragmentation_pattern<memory_interface_api>)
+        ->Name("BM_InterfaceApi_Fragmentation")
+            MEMORY_BENCH_FRAG_ARGS->Unit(benchmark::kMicrosecond);
 
 #undef MEMORY_BENCH_FRAG_ARGS
-
 }
 
 }  // namespace benchmarks

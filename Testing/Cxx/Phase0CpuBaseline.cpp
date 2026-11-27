@@ -4,9 +4,9 @@
 //
 //   Phase0CpuBaseline --out cpu_baseline.json --repo <source dir> [--quick]
 
-#include <exception>
 #include <atomic>
 #include <cstdlib>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <new>
@@ -196,6 +196,7 @@ phase0::result run_pairs(
     std::atomic<unsigned>            ready{0};
     std::atomic<bool>                go{false};
     std::vector<std::thread>         ts;
+    ts.reserve(threads);
     for (unsigned t = 0; t < threads; ++t)
     {
         ts.emplace_back(
@@ -243,6 +244,7 @@ phase0::result run_cross_thread(backend const& be, std::size_t size, unsigned pa
 
     std::vector<std::vector<double>> per(pairs);
     std::vector<std::thread>         ts;
+    ts.reserve(pairs);
     for (unsigned k = 0; k < pairs; ++k)
     {
         ts.emplace_back(
